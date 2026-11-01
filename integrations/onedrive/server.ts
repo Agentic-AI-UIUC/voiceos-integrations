@@ -46,8 +46,6 @@ function extractErrorMessage(err: any): string {
   return String(err);
 }
 
-// --- Composio --------------------------------------------------------------
-
 let cachedAccount: { accountId?: string; userId: string } | null = null;
 
 async function resolveConnectedAccount(apiKey: string): Promise<{ accountId?: string; userId: string }> {
@@ -486,37 +484,47 @@ export function truncateText(text: string, maxChars: number): { text: string; tr
   return { text: (cut > maxChars * 0.8 ? slice.slice(0, cut) : slice).trimEnd(), truncated: true };
 }
 
-// --- MCP server ---------------------------------------------------------------
+// --- Glance cards ---------------------------------------------------------------
+// Monochrome on purpose: every colour comes from the kit's ink/fill/line
+// variables, so a card reads white-on-black in dark mode and black-on-white in
+// light mode, with no brand blue and no status red or green.
 
-// Glance cards list at most 6 rows (VoiceOS card guidelines); the model gets every item.
-const CARD_ROWS = 6;
+const VISIBLE_ROWS = 6; // lists scroll inside the card past this many rows
+const NEUTRAL_ACCENT = "#8e8e93"; // grey, so the kit's accent wash adds no hue
+const ROW_HEIGHT = 44;
 const READ_MAX_BYTES = 25 * 1024 * 1024;
 
-const server = new McpServer({ name: "microsoft-onedrive", version: "1.2.5" });
-const ACCENT = "#0078d4"; // Microsoft OneDrive signature Fluent blue
+const server = new McpServer({ name: "microsoft-onedrive", version: "1.3.0" });
 
-// Fluent icons in matching Microsoft 365 brand colors
+const svg = (paths: string) =>
+  `<svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`;
+const PAGE = '<path d="M4.5 2.25h5.25L13.5 6v9a.75.75 0 0 1-.75.75h-8.25a.75.75 0 0 1-.75-.75V3a.75.75 0 0 1 .75-.75z"/><path d="M9.75 2.25V6h3.75"/>';
+const TRAY = '<path d="M3 12.5v1.75c0 .41.34.75.75.75h10.5c.41 0 .75-.34.75-.75V12.5"/>';
+
 const ICONS = {
-  folder: '<svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M2.5 5C2.5 4.17 3.17 3.5 4 3.5H8l1.5 1.5H16c.83 0 1.5.67 1.5 1.5V14.5c0 .83-.67 1.5-1.5 1.5H4c-.83 0-1.5-.67-1.5-1.5V5z" fill="#f8d06b"/><path d="M2.5 6.5h15V14.5c0 .83-.67 1.5-1.5 1.5H4c-.83 0-1.5-.67-1.5-1.5V6.5z" fill="#f5be42"/></svg>',
-  word: '<svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M4.5 2.5C4.5 1.67 5.17 1 6 1H11.5L15.5 5V16.5C15.5 17.33 14.83 18 14 18H6C5.17 18 4.5 17.33 4.5 16.5V2.5z" fill="#0078d4"/><path d="M11.5 1V5H15.5L11.5 1z" fill="#50a0f0"/><text x="6.8" y="13.2" font-size="7.5" font-weight="700" fill="#ffffff" font-family="-apple-system,BlinkMacSystemFont,sans-serif">W</text></svg>',
-  excel: '<svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M4.5 2.5C4.5 1.67 5.17 1 6 1H11.5L15.5 5V16.5C15.5 17.33 14.83 18 14 18H6C5.17 18 4.5 17.33 4.5 16.5V2.5z" fill="#107c41"/><path d="M11.5 1V5H15.5L11.5 1z" fill="#369e5f"/><text x="6.8" y="13.2" font-size="7.5" font-weight="700" fill="#ffffff" font-family="-apple-system,BlinkMacSystemFont,sans-serif">X</text></svg>',
-  powerpoint: '<svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M4.5 2.5C4.5 1.67 5.17 1 6 1H11.5L15.5 5V16.5C15.5 17.33 14.83 18 14 18H6C5.17 18 4.5 17.33 4.5 16.5V2.5z" fill="#d83b01"/><path d="M11.5 1V5H15.5L11.5 1z" fill="#f06b3a"/><text x="7" y="13.2" font-size="7.5" font-weight="700" fill="#ffffff" font-family="-apple-system,BlinkMacSystemFont,sans-serif">P</text></svg>',
-  file: '<svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M4.5 2.5C4.5 1.67 5.17 1 6 1H11.5L15.5 5V16.5C15.5 17.33 14.83 18 14 18H6C5.17 18 4.5 17.33 4.5 16.5V2.5z" fill="color-mix(in srgb,var(--accent) 18%,transparent)" stroke="var(--accent)" stroke-width="1.2"/><path d="M11.5 1V5H15.5" stroke="var(--accent)" stroke-width="1.2"/><path d="M7 9h6M7 12h4" stroke="var(--accent)" stroke-width="1.1" stroke-linecap="round"/></svg>',
-  image: '<svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M4.5 2.5C4.5 1.67 5.17 1 6 1H11.5L15.5 5V16.5C15.5 17.33 14.83 18 14 18H6C5.17 18 4.5 17.33 4.5 16.5V2.5z" fill="#008272"/><circle cx="8" cy="8" r="1.5" fill="#ffffff"/><path d="M6 14l2.5-3 2 2.2 2-2.5 2 3.3H6z" fill="#ffffff"/></svg>',
-  cloudUpload: '<svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 13.5H3.5C2.12 13.5 1 12.38 1 11C1 9.74 1.94 8.68 3.18 8.53C3.21 6.57 4.8 5 6.78 5C8.16 5 9.38 5.78 10 6.92C10.42 6.65 10.93 6.5 11.5 6.5C12.88 6.5 14 7.62 14 9C14 9.23 13.97 9.45 13.91 9.66C14.56 10.17 15 10.97 15 11.87C15 13.33 13.82 14.5 12.37 14.5H11.5"/><path d="M9 9v6M9 9L6.5 11.5M9 9L11.5 11.5"/></svg>',
-  link: '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M6.5 9.5a3 3 0 0 1 0-4.24l1.77-1.77a3 3 0 0 1 4.24 4.24l-.88.88\"/><path d="M9.5 6.5a3 3 0 0 1 0 4.24l-1.77 1.77a3 3 0 0 1-4.24-4.24l.88-.88"/></svg>',
-  check: '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5L6.5 11.5L12.5 4.5"/></svg>',
-  trash: '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2.5 4h11M5.5 4V2.5a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1V4M13 4v9.5a1.5 1.5 0 0 1-1.5 1.5h-7A1.5 1.5 0 0 1 3 13.5V4M6.5 7v5M9.5 7v5"/></svg>',
-  search: '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3"/></svg>',
+  folder: svg('<path d="M2.25 5.25c0-.83.67-1.5 1.5-1.5h3.4l1.5 1.5h5.6c.83 0 1.5.67 1.5 1.5v6.75c0 .83-.67 1.5-1.5 1.5H3.75c-.83 0-1.5-.67-1.5-1.5z"/>'),
+  file: svg(PAGE),
+  doc: svg(`${PAGE}<path d="M6.5 9.5h5M6.5 12h3.5"/>`),
+  sheet: svg(`${PAGE}<path d="M6 9h6v4.5H6zM6 11.25h6M9 9v4.5"/>`),
+  slides: svg(`${PAGE}<path d="M6 9.25h6v3.5H6z"/>`),
+  image: svg('<rect x="2.5" y="3" width="13" height="12" rx="1.5"/><circle cx="6.5" cy="7" r="1.2"/><path d="m2.5 13 3.8-3.8 3 3 2-2 3.2 3.2"/>'),
+  vault: svg('<rect x="3.75" y="8" width="10.5" height="7.5" rx="1.5"/><path d="M6 8V5.75a3 3 0 0 1 6 0V8"/>'),
+  upload: svg(`<path d="M9 12V3.75M5.75 7 9 3.75 12.25 7"/>${TRAY}`),
+  download: svg(`<path d="M9 3v8.25M5.75 8 9 11.25 12.25 8"/>${TRAY}`),
+  link: svg('<path d="M7.5 10.5a3 3 0 0 0 4.24 0l2.12-2.12a3 3 0 0 0-4.24-4.24l-.7.7"/><path d="M10.5 7.5a3 3 0 0 0-4.24 0L4.14 9.62a3 3 0 0 0 4.24 4.24l.7-.7"/>'),
+  trash: svg('<path d="M3 4.75h12M7 4.75V3.5c0-.41.34-.75.75-.75h2.5c.41 0 .75.34.75.75v1.25M4.5 4.75l.6 9.6c.03.5.44.9.94.9h5.92c.5 0 .91-.4.94-.9l.6-9.6"/>'),
+  search: svg('<circle cx="8" cy="8" r="4.75"/><path d="m11.5 11.5 3.25 3.25"/>'),
+  open: '<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8l4-4M4.5 4H8v3.5"/></svg>',
 };
 
-function getFileIcon(name: string, isFolder: boolean): string {
-  if (isFolder) return ICONS.folder;
-  const ext = (name.split(".").pop() || "").toLowerCase();
-  if (["doc", "docx"].includes(ext)) return ICONS.word;
-  if (["xls", "xlsx", "csv"].includes(ext)) return ICONS.excel;
-  if (["ppt", "pptx"].includes(ext)) return ICONS.powerpoint;
-  if (["png", "jpg", "jpeg", "svg", "webp", "gif"].includes(ext)) return ICONS.image;
+function itemIcon(name: string, kind: "folder" | "file" | "other"): string {
+  if (kind === "folder") return ICONS.folder;
+  if (kind === "other") return ICONS.vault;
+  const ext = path.extname(name).slice(1).toLowerCase();
+  if (["doc", "docx", "pdf", "txt", "md", "rtf", "odt"].includes(ext)) return ICONS.doc;
+  if (["xls", "xlsx", "csv", "ods"].includes(ext)) return ICONS.sheet;
+  if (["ppt", "pptx", "odp"].includes(ext)) return ICONS.slides;
+  if (["png", "jpg", "jpeg", "gif", "webp", "heic", "svg"].includes(ext)) return ICONS.image;
   return ICONS.file;
 }
 
@@ -524,70 +532,110 @@ function formatSize(bytes?: number): string {
   if (bytes === undefined || bytes === null || isNaN(bytes)) return "—";
   if (bytes === 0) return "0 KB";
   const units = ["B", "KB", "MB", "GB", "TB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(1024));
-  const safeI = Math.min(i, units.length - 1);
-  return `${(bytes / Math.pow(1024, safeI)).toFixed(safeI === 0 ? 0 : 1)} ${units[safeI]}`;
+  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  return `${(bytes / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
 }
 
 function formatDate(dateStr?: string): string {
-  if (!dateStr) return "Recently";
-  try {
-    const d = new Date(dateStr);
-    if (isNaN(d.getTime())) return "Recently";
-    const now = new Date();
-    const diffMs = now.getTime() - d.getTime();
-    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-    if (diffHours < 1) return "Just now";
-    if (diffHours < 24) return `${diffHours}h ago`;
-    const diffDays = Math.floor(diffHours / 24);
-    if (diffDays === 1) return "Yesterday";
-    if (diffDays < 7) return `${diffDays}d ago`;
-    return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-  } catch {
-    return "Recently";
-  }
+  const d = new Date(dateStr ?? "");
+  if (isNaN(d.getTime())) return "Recently";
+  const hours = Math.floor((Date.now() - d.getTime()) / 3_600_000);
+  if (hours < 1) return "Just now";
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days === 1) return "Yesterday";
+  if (days < 7) return `${days}d ago`;
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
-// Fluent Design stylesheet utilizing theme variables
-const FLUENT_CSS = `
-.od-card{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--ink-1);padding:11px 13px 13px;background:transparent}
-.od-hd{display:flex;align-items:center;gap:8px;height:28px;margin-bottom:8px}
-.od-hd b{font-size:12.5px;font-weight:600;color:var(--ink-1);letter-spacing:-.01em}
-.od-bc{font-size:10.5px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-4);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
-.od-cnt{font-size:11px;color:var(--ink-4);font-variant-numeric:tabular-nums;margin-left:auto;flex:none}
-.od-rw{display:flex;align-items:center;gap:10px;height:42px;padding:0 8px;border-radius:6px;border-top:1px solid var(--line);text-decoration:none;color:inherit}
-.od-rw:first-of-type{border-top:0}
-.od-ico{flex:none;width:20px;height:20px;display:grid;place-items:center}
-.od-main{flex:1;min-width:0}
-.od-ttl{display:block;font-size:13px;font-weight:500;color:var(--ink-1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.od-sub{display:block;font-size:10.5px;color:var(--ink-4);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.od-fig{flex:none;min-width:58px;text-align:right;font-size:11.5px;color:var(--ink-3);font-variant-numeric:tabular-nums}
-.od-more{display:flex;align-items:center;justify-content:center;padding:7px 0 2px;font-size:11px;color:var(--ink-4);font-variant-numeric:tabular-nums;border-top:1px solid var(--line);margin-top:4px}
-.od-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:22px 14px}
-.od-empty-ico{margin-bottom:8px;opacity:.85}
-.od-empty-ttl{font-size:13.5px;font-weight:600;color:var(--ink-1)}
-.od-empty-hint{font-size:11px;color:var(--ink-4);margin-top:3px}
-.od-qpill{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;background:color-mix(in srgb,var(--accent) 14%,transparent);border:1px solid color-mix(in srgb,var(--accent) 30%,transparent);color:var(--accent);font-size:11px;font-weight:500;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.od-sr-badge{font-size:10.5px;color:var(--ink-4);margin-top:1px;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.od-receipt-hero{display:flex;align-items:center;gap:12px;padding:10px 12px;background:var(--fill-1);border-radius:8px;border:1px solid var(--line);margin-bottom:10px}
-.od-hero-ico{width:36px;height:36px;border-radius:6px;background:color-mix(in srgb,var(--accent) 20%,transparent);border:1px solid color-mix(in srgb,var(--accent) 40%,transparent);display:grid;place-items:center;flex:none;box-shadow:0 0 12px color-mix(in srgb,var(--accent) 25%,transparent);color:var(--accent)}
-.od-hero-m{flex:1;min-width:0}
-.od-hero-name{font-size:13.5px;font-weight:600;color:var(--ink-1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.od-hero-status{display:flex;align-items:center;gap:4px;font-size:10.5px;color:var(--good);margin-top:2px;font-weight:500}
-.od-rail{height:3px;border-radius:3px;background:var(--track);overflow:hidden;margin-bottom:9px}
-.od-rail-fill{height:100%;border-radius:3px;background:var(--accent);width:100%}
-.od-stats{display:flex;gap:8px;margin-bottom:8px}
-.od-stat-pill{flex:1;min-width:0;padding:5px 8px;border-radius:6px;background:var(--fill-1);border:1px solid var(--line);font-size:11px;color:var(--ink-2);font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.od-stat-pill b{font-weight:600;color:var(--ink-1);margin-right:4px}
-.od-local-path{font-family:ui-monospace,Menlo,Monaco,monospace;font-size:10.5px;color:var(--ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 2px}
-.od-pill{display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:600;padding:2px 7px;border-radius:999px;background:color-mix(in srgb,var(--accent) 18%,transparent);color:var(--accent);white-space:nowrap}
-.od-pill.good{background:color-mix(in srgb,var(--good) 18%,transparent);color:var(--good)}
-.od-pill.bad{background:color-mix(in srgb,var(--bad) 18%,transparent);color:var(--bad)}
-.od-callout{padding:10px 12px;background:var(--fill-1);border:1px solid var(--line);border-radius:6px;margin-bottom:8px}
-.od-callout.alert{background:color-mix(in srgb,var(--bad) 10%,transparent);border-color:color-mix(in srgb,var(--bad) 30%,transparent)}
-.od-link-box{display:flex;align-items:center;gap:8px;padding:8px 10px;background:color-mix(in srgb,var(--accent) 10%,transparent);border:1px solid color-mix(in srgb,var(--accent) 30%,transparent);border-radius:6px;margin:8px 0}
-.od-link-text{flex:1;min-width:0;font-family:ui-monospace,Menlo,Monaco,monospace;font-size:11px;color:var(--accent);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+function httpsUrl(url: unknown): string | undefined {
+  return typeof url === "string" && /^https:\/\/[^\s"']+$/i.test(url) ? url : undefined;
+}
+
+const CARD_CSS = `
+.c{padding:12px 14px 13px}
+.hd{display:flex;align-items:center;gap:8px;height:24px;margin-bottom:8px}
+.hd-t{flex:1;min-width:0;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hd-n{flex:none;font-size:11px;color:var(--ink-4);font-variant-numeric:tabular-nums}
+.tag{flex:none;font-size:10.5px;font-weight:600;padding:2px 8px;border-radius:999px;border:1px solid var(--line);color:var(--ink-2);white-space:nowrap}
+.ls{max-height:${VISIBLE_ROWS * ROW_HEIGHT}px;overflow-y:auto;overscroll-behavior:contain;margin:0 -6px}
+.ls.more{-webkit-mask-image:linear-gradient(#000 calc(100% - 30px),transparent);mask-image:linear-gradient(#000 calc(100% - 30px),transparent)}
+.ls.more.end{-webkit-mask-image:none;mask-image:none}
+.rw{display:flex;align-items:center;gap:11px;height:${ROW_HEIGHT}px;padding:0 8px;border-radius:10px;color:inherit;text-decoration:none}
+a.rw:hover,a.hero:hover{background:var(--fill-1)}
+.ic{flex:none;width:28px;height:28px;border-radius:8px;background:var(--fill-1);color:var(--ink-2);display:grid;place-items:center}
+.m{flex:1;min-width:0}
+.t{font-size:13.5px;font-weight:560;color:var(--ink-1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.s{font-size:11px;color:var(--ink-3);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.f{flex:none;font-size:11.5px;color:var(--ink-3);font-variant-numeric:tabular-nums}
+.go{flex:none;width:12px;color:var(--ink-4);opacity:.45;transition:opacity .15s}
+a.rw:hover .go,a.hero:hover .go{opacity:1}
+.hero{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:14px;border:1px solid var(--line);color:inherit;text-decoration:none}
+.hero .ic{width:36px;height:36px;border-radius:10px;color:var(--ink-1)}
+.hero .t{font-size:14.5px;font-weight:600}
+.kv{display:flex;gap:18px;margin-top:10px;padding:0 4px}
+.kv div{min-width:0}
+.kv b{display:block;font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-4)}
+.kv span{display:block;font-size:12.5px;color:var(--ink-1);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pv{margin-top:10px;padding:0 4px;font-size:12.5px;line-height:1.45;color:var(--ink-2);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}
+.mono{margin-top:8px;padding:0 4px;font:11px/1.4 ui-monospace,Menlo,monospace;color:var(--ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lnk{display:flex;align-items:center;gap:8px;margin-top:10px;padding:9px 12px;border-radius:12px;background:var(--fill-1);color:var(--ink-1);text-decoration:none;font:11.5px/1.3 ui-monospace,Menlo,monospace}
+.lnk span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lnk:hover{background:var(--fill-2)}
+.empty{padding:16px 8px 8px;text-align:center}
+.empty .ic{margin:0 auto 8px}
+.empty .s{white-space:normal}
 `;
+
+// Lifts the fade off a scrolled list once its last row is in view.
+const SCROLL_JS =
+  "<script>document.querySelectorAll('.ls.more').forEach(function(l){l.addEventListener('scroll',function(){l.classList.toggle('end',l.scrollTop+l.clientHeight>=l.scrollHeight-2)})})</script>";
+
+interface CardRow {
+  icon: string;
+  title: string;
+  subtitle: string;
+  figure?: string;
+  href?: string;
+}
+
+function header(title: string, trailing = ""): string {
+  return `<div class="hd">${markHtml()}<span class="hd-t">${esc(title)}</span>${trailing}</div>`;
+}
+
+const tag = (text: string) => `<span class="tag">${esc(text)}</span>`;
+const count = (text: string) => `<span class="hd-n">${esc(text)}</span>`;
+
+function rowHtml(r: CardRow): string {
+  const href = httpsUrl(r.href);
+  const inner = `<span class="ic">${r.icon}</span><span class="m"><div class="t">${esc(clip(r.title, 60))}</div><div class="s">${esc(r.subtitle)}</div></span>${r.figure ? `<span class="f">${esc(r.figure)}</span>` : ""}${href ? `<span class="go">${ICONS.open}</span>` : ""}`;
+  return href ? `<a class="rw" href="${esc(href)}">${inner}</a>` : `<div class="rw">${inner}</div>`;
+}
+
+function scrollList(rows: CardRow[]): string {
+  return `<div class="ls${rows.length > VISIBLE_ROWS ? " more" : ""}">${rows.map(rowHtml).join("")}</div>`;
+}
+
+function hero(icon: string, title: string, subtitle: string, href?: string): string {
+  const link = httpsUrl(href);
+  const inner = `<span class="ic">${icon}</span><span class="m"><div class="t">${esc(clip(title, 60))}</div><div class="s">${esc(subtitle)}</div></span>${link ? `<span class="go">${ICONS.open}</span>` : ""}`;
+  return link ? `<a class="hero" href="${esc(link)}">${inner}</a>` : `<div class="hero">${inner}</div>`;
+}
+
+function facts(pairs: Array<[string, string]>): string {
+  return `<div class="kv">${pairs.map(([k, v]) => `<div><b>${esc(k)}</b><span>${esc(v)}</span></div>`).join("")}</div>`;
+}
+
+function emptyState(icon: string, title: string, hint: string): string {
+  return `<div class="empty"><div class="ic">${icon}</div><div class="t">${esc(title)}</div><div class="s">${esc(hint)}</div></div>`;
+}
+
+function card(body: string, height: number) {
+  const scrolls = body.includes('class="ls more"');
+  return renderCustom({ accent: NEUTRAL_ACCENT, css: CARD_CSS, body: `<div class="c">${body}</div>${scrolls ? SCROLL_JS : ""}`, height });
+}
+
+const listCardHeight = (rows: number) => 50 + Math.min(rows, VISIBLE_ROWS) * ROW_HEIGHT;
 
 function copyToMacClipboard(text: string): boolean {
   try {
@@ -599,18 +647,17 @@ function copyToMacClipboard(text: string): boolean {
   }
 }
 
-function widgetResult(data: Record<string, unknown>, card: { html: string; height: number }) {
+function widgetResult(data: Record<string, unknown>, rendered: { html: string; height: number }) {
   return {
     content: [{
       type: "text" as const,
       text: JSON.stringify({
         ...data,
-        _voiceos_glance: { blocks: [{ type: "widget", html: card.html, height: card.height }] },
+        _voiceos_glance: { blocks: [{ type: "widget", html: rendered.html, height: rendered.height }] },
       }),
     }],
   };
 }
-
 
 // TOOL 1: list_files (READ)
 server.registerTool(
@@ -620,12 +667,12 @@ server.registerTool(
     description: "List files and folders inside a Microsoft OneDrive folder (root by default). Use when the user asks what's in their OneDrive or in a specific folder, or wants to browse directories. Each item comes back with a `path` to pass to download_file, create_share_link, or delete_file.",
     inputSchema: {
       folder_path: z.string().optional().describe("OneDrive folder path relative to the root (e.g. 'Documents' or 'Documents/Projects'); leave empty for the root"),
-      limit: z.number().min(1).max(20).optional().describe("Maximum number of items to return (1-20, default 8)"),
+      limit: z.number().min(1).max(50).optional().describe("Maximum number of items to return (1-50, default 20)"),
     },
   },
   async (args) => {
     const folder = normPath(args?.folder_path);
-    const limit = Math.min(Math.max(Math.round(args?.limit ?? 8), 1), 20);
+    const limit = Math.min(Math.max(Math.round(args?.limit ?? 20), 1), 50);
 
     const data = await composio("ONE_DRIVE_LIST_FOLDER_CHILDREN", {
       use_me_drive: true,
@@ -637,50 +684,22 @@ server.registerTool(
       return { ...s, path: folder ? `${folder}/${s.name}` : s.name };
     });
     const hasMore = Boolean(data?.next_page_token || data?.["@odata.nextLink"]);
-
-    const displayPath = folder ? `My files > ${folder.replace(/\//g, " > ")}` : "My files";
-    const countLabel = `${items.length}${hasMore ? "+" : ""} items`;
+    const title = folder ? `My files / ${folder.replace(/\//g, " / ")}` : "My files";
 
     if (items.length === 0) {
-      const body = `
-        <div class="od-card">
-          <div class="od-hd">${markHtml()}<span class="od-bc">${esc(displayPath)}</span><span class="od-cnt">0 items</span></div>
-          <div class="od-empty">
-            <div class="od-empty-ico">${ICONS.folder}</div>
-            <div class="od-empty-ttl">This folder is empty</div>
-            <div class="od-empty-hint">Ask VoiceOS to upload a note here.</div>
-          </div>
-        </div>
-      `;
-      const card = renderCustom({ accent: ACCENT, css: FLUENT_CSS, body, height: 160 });
-      return widgetResult({ folder: folder || "/", item_count: 0, items: [] }, card);
+      const rendered = card(header(title, count("0 items")) + emptyState(ICONS.folder, "This folder is empty", "Ask VoiceOS to upload a note here."), 150);
+      return widgetResult({ folder: folder || "/", item_count: 0, items: [] }, rendered);
     }
 
-    const shown = items.slice(0, CARD_ROWS);
-    const rowsHtml = shown.map((f) => `
-        <div class="od-rw">
-          <div class="od-ico">${getFileIcon(f.name, f.kind !== "file")}</div>
-          <div class="od-main">
-            <span class="od-ttl">${esc(clip(f.name, 36))}</span>
-            <span class="od-sub">Modified ${esc(formatDate(f.last_modified))}</span>
-          </div>
-          <div class="od-fig">${esc(f.kind === "folder" ? "Folder" : f.kind === "other" ? "—" : formatSize(f.size))}</div>
-        </div>
-      `).join("");
-
-    const moreCount = items.length - shown.length;
-    const moreHtml = moreCount > 0 || hasMore ? `<div class="od-more">+${moreCount}${hasMore ? "+" : ""} more items</div>` : "";
-    const cardHeight = 44 + shown.length * 42 + (moreHtml ? 28 : 0) + 12;
-
-    const body = `
-      <div class="od-card">
-        <div class="od-hd">${markHtml()}<span class="od-bc">${esc(displayPath)}</span><span class="od-cnt">${esc(countLabel)}</span></div>
-        ${rowsHtml}
-        ${moreHtml}
-      </div>
-    `;
-    const card = renderCustom({ accent: ACCENT, css: FLUENT_CSS, body, height: cardHeight });
-    return widgetResult({ folder: folder || "/", item_count: items.length, has_more: hasMore, items }, card);
+    const rows = items.map((f): CardRow => ({
+      icon: itemIcon(f.name, f.kind),
+      title: f.name,
+      subtitle: `Modified ${formatDate(f.last_modified)}`,
+      figure: f.kind === "file" ? formatSize(f.size) : undefined,
+      href: f.web_url,
+    }));
+    const rendered = card(header(title, count(`${items.length}${hasMore ? "+" : ""} items`)) + scrollList(rows), listCardHeight(rows.length));
+    return widgetResult({ folder: folder || "/", item_count: items.length, has_more: hasMore, items }, rendered);
   }
 );
 
@@ -692,62 +711,35 @@ server.registerTool(
     description: "Search Microsoft OneDrive for files and folders by keyword (matches names, metadata, and file contents). Use when the user wants to find or locate a file but doesn't know which folder it's in. Each result has an `id` (and usually a `path`) to pass to download_file, create_share_link, or delete_file.",
     inputSchema: {
       query: z.string().describe("Plain keywords or a file name (no wildcards or filters like 'filetype:')"),
-      limit: z.number().min(1).max(20).optional().describe("Maximum results to return (1-20, default 5)"),
+      limit: z.number().min(1).max(25).optional().describe("Maximum results to return (1-25, default 10)"),
     },
   },
   async (args) => {
     const query = String(args?.query || "").trim();
     if (!query) throw new Error("search_files needs a query.");
-    const limit = Math.min(Math.max(Math.round(args?.limit ?? 5), 1), 20);
+    const limit = Math.min(Math.max(Math.round(args?.limit ?? 10), 1), 25);
 
     const data = await composio("ONE_DRIVE_SEARCH_ITEMS", { q: query, top: limit });
     const items = listOf(data).slice(0, limit).map(summarizeItem);
-    const clippedQuery = clip(query, 24);
+    const title = `Search · "${clip(query, 28)}"`;
 
     if (items.length === 0) {
-      const body = `
-        <div class="od-card">
-          <div class="od-hd">${markHtml()}<span class="od-qpill">Search: "${esc(clippedQuery)}"</span><span class="od-cnt">0 results</span></div>
-          <div class="od-empty">
-            <div class="od-empty-ico">${ICONS.search}</div>
-            <div class="od-empty-ttl">No files match "${esc(clippedQuery)}"</div>
-            <div class="od-empty-hint">Check the spelling, or browse folders in My files.</div>
-          </div>
-        </div>
-      `;
-      const card = renderCustom({ accent: ACCENT, css: FLUENT_CSS, body, height: 165 });
-      return widgetResult({ query, total_matches: 0, results: [] }, card);
+      const rendered = card(header(title, count("0 results")) + emptyState(ICONS.search, "No matches", "Check the spelling, or browse folders in My files."), 150);
+      return widgetResult({ query, total_matches: 0, results: [] }, rendered);
     }
 
-    const shown = items.slice(0, CARD_ROWS);
-    const rowsHtml = shown.map((f) => {
+    const rows = items.map((f): CardRow => {
       const parent = f.path ? path.posix.dirname(f.path) : "";
-      const where = parent && parent !== "." ? `in ${esc(clip(parent, 30))}` : f.path ? "in My files" : "";
-      return `
-        <div class="od-rw">
-          <div class="od-ico">${getFileIcon(f.name, f.kind !== "file")}</div>
-          <div class="od-main">
-            <span class="od-ttl">${esc(clip(f.name, 34))}</span>
-            <span class="od-sr-badge">${where || `Modified ${esc(formatDate(f.last_modified))}`}</span>
-          </div>
-          <div class="od-fig">${esc(f.kind === "folder" ? "Folder" : f.kind === "other" ? "—" : formatSize(f.size))}</div>
-        </div>
-      `;
-    }).join("");
-
-    const moreCount = items.length - shown.length;
-    const moreHtml = moreCount > 0 ? `<div class="od-more">+${moreCount} more matching files</div>` : "";
-    const cardHeight = 44 + shown.length * 44 + (moreCount > 0 ? 28 : 0) + 12;
-
-    const body = `
-      <div class="od-card">
-        <div class="od-hd">${markHtml()}<span class="od-qpill">Search: "${esc(clippedQuery)}"</span><span class="od-cnt">${items.length} results</span></div>
-        ${rowsHtml}
-        ${moreHtml}
-      </div>
-    `;
-    const card = renderCustom({ accent: ACCENT, css: FLUENT_CSS, body, height: cardHeight });
-    return widgetResult({ query, total_matches: items.length, results: items }, card);
+      return {
+        icon: itemIcon(f.name, f.kind),
+        title: f.name,
+        subtitle: parent && parent !== "." ? `in ${parent}` : f.path ? "in My files" : `Modified ${formatDate(f.last_modified)}`,
+        figure: f.kind === "file" ? formatSize(f.size) : undefined,
+        href: f.web_url,
+      };
+    });
+    const rendered = card(header(title, count(`${items.length} result${items.length === 1 ? "" : "s"}`)) + scrollList(rows), listCardHeight(rows.length));
+    return widgetResult({ query, total_matches: items.length, results: items }, rendered);
   }
 );
 
@@ -775,25 +767,13 @@ server.registerTool(
     const savedName = path.basename(localTarget);
     const fileSizeStr = formatSize(buffer.length);
 
-    const body = `
-      <div class="od-card">
-        <div class="od-hd">${markHtml()}<b>Microsoft OneDrive</b><span class="od-pill good">Downloaded</span></div>
-        <div class="od-receipt-hero">
-          <div class="od-hero-ico">${ICONS.check}</div>
-          <div class="od-hero-m">
-            <div class="od-hero-name">${esc(clip(savedName, 34))}</div>
-            <div class="od-hero-status">${ICONS.check} Saved to Mac Downloads</div>
-          </div>
-        </div>
-        <div class="od-rail"><div class="od-rail-fill"></div></div>
-        <div class="od-stats">
-          <div class="od-stat-pill"><b>File size:</b> ${esc(fileSizeStr)}</div>
-          <div class="od-stat-pill"><b>Folder:</b> ~/Downloads</div>
-        </div>
-        <div class="od-local-path">${esc(localTarget)}</div>
-      </div>
-    `;
-    const card = renderCustom({ accent: ACCENT, css: FLUENT_CSS, body, height: 185 });
+    const rendered = card(
+      header("OneDrive", tag("Downloaded")) +
+        hero(ICONS.download, savedName, "Saved to your Mac · open in OneDrive", item?.webUrl) +
+        facts([["Size", fileSizeStr], ["Folder", "~/Downloads"]]) +
+        `<div class="mono">${esc(localTarget)}</div>`,
+      190,
+    );
     return widgetResult({
       status: "downloaded",
       onedrive_item: itemName,
@@ -801,7 +781,7 @@ server.registerTool(
       local_path: localTarget,
       bytes: buffer.length,
       file_size: fileSizeStr,
-    }, card);
+    }, rendered);
   }
 );
 
@@ -851,28 +831,18 @@ server.registerTool(
       .filter(Boolean)
       .join(" · ");
 
-    const body = `
-      <div class="od-card">
-        <div class="od-hd">${markHtml()}<b>Microsoft OneDrive</b><span class="od-pill">Read</span></div>
-        <div class="od-receipt-hero">
-          <div class="od-hero-ico">${getFileIcon(itemName, false)}</div>
-          <div class="od-hero-m">
-            <div class="od-hero-name">${esc(clip(itemName, 34))}</div>
-            <div class="od-sub">${esc(detail)}</div>
-          </div>
-        </div>
-        <div class="od-callout">
-          <div class="od-local-path">${esc(clip(previewText(text), 120))}</div>
-        </div>
-      </div>
-    `;
-    const card = renderCustom({ accent: ACCENT, css: FLUENT_CSS, body, height: 170 });
+    const rendered = card(
+      header("OneDrive", tag("Read")) +
+        hero(itemIcon(itemName, "file"), itemName, detail, item?.webUrl) +
+        `<div class="pv">${esc(clip(previewText(text), 280))}</div>`,
+      165,
+    );
     // The text leads, under a name that can't be mistaken for MCP's own `content`
     // array, with an explicit cue: the card is only a preview, so the agent has
     // to answer from document_text itself.
     return widgetResult({
       document_text: returned,
-      next_step: "Answer the user's request (summarize, explain, quote) from document_text. The card only shows a one-line preview.",
+      next_step: "Answer the user's request (summarize, explain, quote) from document_text. The card only shows a short preview.",
       file_name: itemName,
       path: item?.parentReference?.path ? itemPathOf(item) : undefined,
       format: kind,
@@ -881,7 +851,7 @@ server.registerTool(
       truncated,
       returned_chars: returned.length,
       total_chars: text.length,
-    }, card);
+    }, rendered);
   }
 );
 
@@ -920,39 +890,26 @@ server.registerTool(
       throw err;
     }
     const finalName = String(created?.name || fileName);
-    const folderDisplay = folder ? `/${folder}` : "My files";
+    const renamed = finalName !== fileName;
     const fileSizeStr = formatSize(typeof created?.size === "number" ? created.size : Buffer.byteLength(content, "utf-8"));
 
-    const body = `
-      <div class="od-card">
-        <div class="od-hd">${markHtml()}<b>Microsoft OneDrive</b><span class="od-pill good">Uploaded</span></div>
-        <div class="od-receipt-hero">
-          <div class="od-hero-ico">${ICONS.cloudUpload}</div>
-          <div class="od-hero-m">
-            <div class="od-hero-name">${esc(clip(finalName, 34))}</div>
-            <div class="od-sub">Saved in ${esc(folderDisplay)}</div>
-          </div>
-        </div>
-        <div class="od-stats">
-          <div class="od-stat-pill"><b>Size:</b> ${esc(fileSizeStr)}</div>
-          <div class="od-stat-pill"><b>Status:</b> ${finalName === fileName ? "Saved" : "Renamed (name taken)"}</div>
-        </div>
-        <div class="od-callout">
-          <div class="od-local-path">${padded ? "(empty — one blank line)" : esc(clip(content, 120))}</div>
-        </div>
-      </div>
-    `;
-    const card = renderCustom({ accent: ACCENT, css: FLUENT_CSS, body, height: 210 });
+    const rendered = card(
+      header("OneDrive", tag(renamed ? "Uploaded · renamed" : "Uploaded")) +
+        hero(itemIcon(finalName, "file"), finalName, `in ${folder ? `/${folder}` : "My files"}`, created?.webUrl) +
+        facts([["Size", fileSizeStr], ["Status", renamed ? "Name was taken" : "Saved"]]) +
+        `<div class="pv">${padded ? "Empty file (one blank line)" : esc(clip(content, 280))}</div>`,
+      200,
+    );
     return widgetResult({
       status: "uploaded",
       file_name: finalName,
-      renamed: finalName !== fileName,
+      renamed,
       path: folder ? `${folder}/${finalName}` : finalName,
       id: created?.id,
       web_url: created?.webUrl,
       size: fileSizeStr,
       note: padded ? "OneDrive's upload can't create a 0-byte file through Composio, so the file contains a single blank line." : undefined,
-    }, card);
+    }, rendered);
   }
 );
 
@@ -978,32 +935,21 @@ server.registerTool(
       conflict_behavior: "rename",
     });
     const finalName = String(created?.name || folderName);
-    const parentDisplay = parent ? `/${parent}` : "My files";
+    const renamed = finalName !== folderName;
 
-    const body = `
-      <div class="od-card">
-        <div class="od-hd">${markHtml()}<b>Microsoft OneDrive</b><span class="od-pill good">Folder Created</span></div>
-        <div class="od-receipt-hero">
-          <div class="od-hero-ico">${ICONS.folder}</div>
-          <div class="od-hero-m">
-            <div class="od-hero-name">${esc(clip(finalName, 34))}</div>
-            <div class="od-sub">Created in ${esc(parentDisplay)}</div>
-          </div>
-        </div>
-        <div class="od-stats">
-          <div class="od-stat-pill"><b>Type:</b> Folder</div>
-          <div class="od-stat-pill"><b>Status:</b> ${finalName === folderName ? "Created" : "Renamed (name taken)"}</div>
-        </div>
-      </div>
-    `;
-    const card = renderCustom({ accent: ACCENT, css: FLUENT_CSS, body, height: 175 });
+    const rendered = card(
+      header("OneDrive", tag("Folder created")) +
+        hero(ICONS.folder, finalName, `in ${parent ? `/${parent}` : "My files"}`, created?.webUrl) +
+        facts([["Status", renamed ? `"${folderName}" was taken` : "Created"]]),
+      150,
+    );
     return widgetResult({
       status: "folder_created",
       folder_name: finalName,
-      renamed: finalName !== folderName,
+      renamed,
       path: parent ? `${parent}/${finalName}` : finalName,
       id: created?.id,
-    }, card);
+    }, rendered);
   }
 );
 
@@ -1030,33 +976,19 @@ server.registerTool(
     const itemName = String(item?.name || args?.item_path);
 
     const perm = await composio("ONE_DRIVE_CREATE_LINK", { item_id: item.id, type });
-    const shareUrl = perm?.link?.webUrl || perm?.webUrl;
-    if (typeof shareUrl !== "string" || !shareUrl.startsWith("https://")) {
-      throw new Error(`OneDrive didn't return a sharing link for "${itemName}".`);
-    }
+    const shareUrl = httpsUrl(perm?.link?.webUrl || perm?.webUrl);
+    if (!shareUrl) throw new Error(`OneDrive didn't return a sharing link for "${itemName}".`);
     const copied = copyToMacClipboard(shareUrl);
-    const linkType = perm?.link?.type || type;
-    const permLabel = linkType === "edit" ? "Can edit" : "Can view";
+    const permLabel = (perm?.link?.type || type) === "edit" ? "Can edit" : "Can view";
     const audience = LINK_SCOPE_LABELS[String(perm?.link?.scope || "")] || "Default sharing settings";
 
-    const body = `
-      <div class="od-card">
-        <div class="od-hd">${markHtml()}<b>Microsoft OneDrive</b><span class="od-pill good">Link Created</span></div>
-        <div class="od-callout">
-          <div class="od-hero-name">${esc(clip(itemName, 36))}</div>
-          <div class="od-sub">${esc(audience)} · ${esc(permLabel)}</div>
-        </div>
-        <div class="od-link-box">
-          <span style="color:var(--accent);flex:none">${ICONS.link}</span>
-          <a class="od-link-text" href="${esc(shareUrl)}">${esc(clip(shareUrl, 42))}</a>
-        </div>
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px">
-          ${copied ? `<span class="od-pill good">Copied to clipboard</span>` : `<span class="od-pill bad">Not copied</span>`}
-          <span class="od-sub">${esc(permLabel)}</span>
-        </div>
-      </div>
-    `;
-    const card = renderCustom({ accent: ACCENT, css: FLUENT_CSS, body, height: 195 });
+    const rendered = card(
+      header("OneDrive", tag("Link created")) +
+        hero(itemIcon(itemName, itemKind(item)), itemName, `${audience} · ${permLabel}`, item?.webUrl) +
+        `<a class="lnk" href="${esc(shareUrl)}">${ICONS.link}<span>${esc(shareUrl)}</span></a>` +
+        facts([["Clipboard", copied ? "Copied" : "Not copied"]]),
+      200,
+    );
     return widgetResult({
       status: "link_created",
       item: itemName,
@@ -1064,7 +996,7 @@ server.registerTool(
       permission: permLabel,
       audience,
       copied_to_clipboard: copied,
-    }, card);
+    }, rendered);
   }
 );
 
@@ -1086,32 +1018,19 @@ server.registerTool(
 
     await composio("ONE_DRIVE_DELETE_ITEM", { item_id: item.id });
 
-    const body = `
-      <div class="od-card">
-        <div class="od-hd">
-          ${markHtml()}
-          <b>Microsoft OneDrive</b>
-          <span class="od-pill bad">Moved to Recycle Bin</span>
-        </div>
-        <div class="od-callout alert">
-          <div style="display:flex;align-items:center;gap:8px">
-            <span style="color:var(--bad);flex:none">${ICONS.trash}</span>
-            <span class="od-hero-name">"${esc(clip(itemName, 34))}"</span>
-          </div>
-          <div class="od-sub" style="margin-top:6px;line-height:1.35">
-            ${isFolder ? "Folder and its contents" : "File"} moved to the OneDrive recycle bin. Restore it from OneDrive on the web.
-          </div>
-        </div>
-      </div>
-    `;
-    const card = renderCustom({ accent: ACCENT, css: FLUENT_CSS, body, height: 160 });
+    const rendered = card(
+      header("OneDrive", tag("Deleted")) +
+        hero(ICONS.trash, itemName, `${isFolder ? "Folder and its contents" : "File"} moved to the recycle bin`) +
+        `<div class="pv">Restore it from the recycle bin on OneDrive on the web.</div>`,
+      150,
+    );
     return widgetResult({
       status: "deleted",
       item: itemName,
       path: item?.parentReference?.path ? itemPathOf(item) : undefined,
       was_folder: isFolder,
       destination: "Recycle Bin",
-    }, card);
+    }, rendered);
   }
 );
 
