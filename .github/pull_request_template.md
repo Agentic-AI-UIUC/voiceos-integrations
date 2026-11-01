@@ -6,7 +6,7 @@
 
 <!-- Replace <slug> with your integration's share slug from VoiceOS. -->
 
-Published link: https://api.voiceos.com/integration-share/<slug>
+Published link: https://api.voiceos.com/integration-share/<slug>/page
 
 ## What it does
 
