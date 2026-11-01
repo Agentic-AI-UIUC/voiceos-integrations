@@ -160,3 +160,25 @@ describe("downloadBytes()", () => {
     await expect(downloadBytes(item)).rejects.toThrow(/files\.example: HTTP 403/);
   });
 });
+
+describe("downloadBytes() response shapes", () => {
+  test("handles a message-only `data` with the file alongside it", async () => {
+    mockComposio({
+      ONE_DRIVE_DOWNLOAD_FILE: () => ({
+        json: { successful: true, data: { data: "File downloaded successfully", file: { s3url: "https://files.example/sibling" } } },
+      }),
+    });
+    expect((await downloadBytes({ id: "x", name: "a.txt" })).toString()).toBe("bytes of https://files.example/sibling");
+  });
+
+  test("falls back to Graph's pre-authenticated link", async () => {
+    mockComposio({ ONE_DRIVE_DOWNLOAD_FILE: () => ({ json: { successful: true, data: "Downloaded" } }) });
+    const item = { id: "x", name: "a.txt", "@microsoft.graph.downloadUrl": "https://files.example/graph" };
+    expect((await downloadBytes(item)).toString()).toBe("bytes of https://files.example/graph");
+  });
+
+  test("reports the response shape, not its values, when there is no link", async () => {
+    mockComposio({ ONE_DRIVE_DOWNLOAD_FILE: () => ({ json: { successful: true, data: { status: "ok", meta: { size: 4 } } } }) });
+    await expect(downloadBytes({ id: "x", name: "a.txt" })).rejects.toThrow("Response shape: {status: string, meta: {size: number}}");
+  });
+});

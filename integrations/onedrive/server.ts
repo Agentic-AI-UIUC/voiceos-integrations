@@ -85,20 +85,25 @@ async function resolveConnectedAccount(apiKey: string): Promise<{ accountId?: st
   return { userId: configuredUserId };
 }
 
-// Composio wraps Graph payloads to varying depths, and sometimes as a JSON string.
+function parseIfJson(value: any): any {
+  if (typeof value !== "string") return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}
+
+/**
+ * Composio wraps Graph payloads to varying depths, and sometimes as a JSON
+ * string. Only descends into a wrapper that holds an object: when `data` is a
+ * plain message ("File downloaded"), its siblings (such as `file`) are the payload.
+ */
 export function unwrap(data: any): any {
-  let d = data;
-  for (let i = 0; i < 4; i++) {
-    if (typeof d === "string") {
-      try {
-        d = JSON.parse(d);
-      } catch {
-        return d;
-      }
-    }
-    if (!d || typeof d !== "object" || Array.isArray(d)) return d;
-    const inner = d.response_data ?? d.data ?? d.result;
-    if (inner === undefined || inner === null) return d;
+  let d = parseIfJson(data);
+  for (let i = 0; i < 4 && d && typeof d === "object" && !Array.isArray(d); i++) {
+    const inner = parseIfJson(d.response_data ?? d.data ?? d.result);
+    if (!inner || typeof inner !== "object") return d;
     d = inner;
   }
   return d;
@@ -220,18 +225,35 @@ export async function resolveItem(ref: string, allowNameSearch: boolean): Promis
   throw new Error(`${hits.length} OneDrive items are named "${p}" (${where}). Ask the user which one, then pass its full path.`);
 }
 
-/** Composio stages downloads in its own storage and hands back a signed URL. */
-export function findDownloadUrl(d: any): string | undefined {
-  const candidates = [
-    d?.file?.s3url,
-    d?.s3url,
-    d?.file?.url,
-    d?.downloaded_file_content?.s3url,
-    d?.["@microsoft.graph.downloadUrl"],
-    d?.downloadUrl,
-    d?.download_url,
-  ];
-  return candidates.find((u) => typeof u === "string" && u.startsWith("https://"));
+const DOWNLOAD_URL_KEY_RE = /s3url|download|file_?url|^url$/i;
+const PAGE_URL_KEY_RE = /web_?url/i; // links to the OneDrive web page, not the file bytes
+
+/**
+ * Composio stages downloads in its own storage and hands back a signed URL, but
+ * the field holding it differs between actions (`file.s3url`, `file_url`, …),
+ * so search the whole response, shallowest match first.
+ */
+export function findDownloadUrl(d: any, depth = 0): string | undefined {
+  const obj = parseIfJson(d);
+  if (!obj || typeof obj !== "object" || depth > 5) return undefined;
+  for (const [key, value] of Object.entries(obj)) {
+    if (typeof value === "string" && value.startsWith("https://") && DOWNLOAD_URL_KEY_RE.test(key) && !PAGE_URL_KEY_RE.test(key)) {
+      return value;
+    }
+  }
+  for (const value of Object.values(obj)) {
+    const hit = findDownloadUrl(value, depth + 1);
+    if (hit) return hit;
+  }
+  return undefined;
+}
+
+/** Field names and types only, never values — safe to put in errors and logs. */
+export function describeShape(value: any, depth = 0): string {
+  if (Array.isArray(value)) return `[${value.length ? describeShape(value[0], depth + 1) : ""}]`;
+  if (!value || typeof value !== "object") return value === null ? "null" : typeof value;
+  if (depth > 3) return "{…}";
+  return `{${Object.keys(value).slice(0, 12).map((k) => `${k}: ${describeShape(value[k], depth + 1)}`).join(", ")}}`;
 }
 
 /**
@@ -247,10 +269,14 @@ export async function downloadBytes(item: any, opts: { asPdf?: boolean } = {}): 
         file_name: `${itemName.replace(/\.[^.]+$/, "")}.pdf`,
       }, 20000)
     : await composio("ONE_DRIVE_DOWNLOAD_FILE", { item_id: item.id, file_name: itemName }, 15000);
-  const url = findDownloadUrl(data);
+  // Graph's own item metadata carries a short-lived pre-authenticated link to
+  // the original bytes; it's the fallback when Composio's response has none.
+  const graphUrl = item?.["@microsoft.graph.downloadUrl"];
+  const url = findDownloadUrl(data) ?? (!opts.asPdf && typeof graphUrl === "string" && graphUrl.startsWith("https://") ? graphUrl : undefined);
   if (!url) {
-    const fields = data && typeof data === "object" ? Object.keys(data).join(", ") : typeof data;
-    throw new Error(`Composio didn't return a download link for "${itemName}" (got: ${fields || "nothing"}).`);
+    const shape = describeShape(data);
+    console.error(`No download URL in Composio response for "${itemName}": ${shape}`);
+    throw new Error(`Composio didn't return a download link for "${itemName}". Response shape: ${shape}`);
   }
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
@@ -459,7 +485,7 @@ export function truncateText(text: string, maxChars: number): { text: string; tr
 
 const READ_MAX_BYTES = 25 * 1024 * 1024;
 
-const server = new McpServer({ name: "microsoft-onedrive", version: "1.2.1" });
+const server = new McpServer({ name: "microsoft-onedrive", version: "1.2.2" });
 const ACCENT = "#0078d4"; // Microsoft OneDrive signature Fluent blue
 
 // Fluent icons in matching Microsoft 365 brand colors
