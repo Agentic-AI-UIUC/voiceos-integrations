@@ -189,20 +189,16 @@ bun run build    # src/ → server.ts, voiceos.integration.json, preview fixture
 bun test         # unit and acceptance tests against a fake Composio
 bun run verify   # launches server.ts on VoiceOS's bundled Bun, as VoiceOS does, and calls every tool
 bun verify.ts --package  # the shared files alone, empty folder and Bun cache: a teammate's first launch
-bun scripts/live-search-check.ts # read-only regressions using the existing connection and gh
-bun scripts/live-names-check.ts  # read-only: misheard names, owner-less names, all your PRs, against gh
-bun scripts/qa-trace.ts         # QA only: server.ts records each call's arguments and card text; bun run build undoes it
-bun scripts/agent-flicker-qa.ts <scenarios.json> --clean-screen  # real Agent Mode; flags a card a later result replaced
 ```
 
-Then reload the integration in VoiceOS. This installation also caches the
-manifest in `installedIntegrations` in VoiceOS's `config.json`; a restart alone
-can leave old descriptions and argument schemas there. If your host has no
-Reload button, quit VoiceOS, run `bun scripts/reload-registration.ts`, then
-reopen VoiceOS. The script keeps a private settings backup, replaces only this
-folder's cached manifest, and refuses to run while VoiceOS is open. The 2.3.0 repair
-refreshed only this integration's cached manifest and verified the saved
-connection, preferences and confirmation settings were preserved.
+`server.ts` is committed because VoiceOS runs it directly and a shared install
+has no `node_modules`. It's marked as generated in `.gitattributes`, so review
+`src/` instead.
+
+Then reload the integration in VoiceOS (Integration Studio → My Integrations →
+GitHub → Reload). VoiceOS also caches the manifest in `installedIntegrations`
+in its `config.json`, so a restart alone can leave old descriptions and
+argument schemas there.
 
 Don't use **Edit with AI → Save** in Integration Studio on this integration: it
 installs a fresh folder holding only `server.ts` and the manifest, and deletes

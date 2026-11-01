@@ -1,2 +1,4 @@
 # Runtime state the server writes while it runs (connection binding, write ledger, audit log). Local only.
 .state/
+node_modules/
+.env
