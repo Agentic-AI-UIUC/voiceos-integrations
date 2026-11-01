@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import {
   findDownloadUrl,
+  itemKind,
   itemPathOf,
   listOf,
   looksLikeItemId,
@@ -12,6 +13,7 @@ import {
   safeLocalName,
   summarizeItem,
   unwrap,
+  uploadableText,
   writeUnique,
 } from "../server.ts";
 
@@ -101,5 +103,24 @@ describe("writeUnique", () => {
     expect(path.basename(b)).toBe("r (1).txt");
     expect(fs.readFileSync(a, "utf8")).toBe("first");
     fs.rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+describe("itemKind", () => {
+  test("classifies folders, packages, files and special items", () => {
+    expect(itemKind({ folder: { childCount: 2 } })).toBe("folder");
+    expect(itemKind({ package: { type: "oneNote" } })).toBe("folder");
+    expect(itemKind({ file: { mimeType: "application/pdf" } })).toBe("file");
+    // Personal Vault comes back with neither facet and size 0.
+    expect(itemKind({ name: "Personal Vault", size: 0 })).toBe("other");
+    expect(summarizeItem({ name: "Personal Vault", size: 0 })).toMatchObject({ kind: "other", is_folder: false });
+  });
+});
+
+describe("uploadableText", () => {
+  test("never sends a 0-byte body to OneDrive's upload session", () => {
+    expect(uploadableText("")).toEqual({ content: "\n", padded: true });
+    expect(uploadableText("hello")).toEqual({ content: "hello", padded: false });
+    expect(uploadableText(" ")).toEqual({ content: " ", padded: false });
   });
 });

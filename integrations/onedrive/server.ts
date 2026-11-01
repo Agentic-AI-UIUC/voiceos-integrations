@@ -14,18 +14,18 @@ import { extractText as extractPdfText } from "unpdf";
 // Helpers are exported so tests can import them.
 
 // --- Composio client --------------------------------------------------------
-export const COMPOSIO_BASE_URL = "https://backend.composio.dev/api/v3.1";
-export const RECONNECT_HINT = "Reconnect OneDrive at https://app.composio.dev.";
-export const AUTH_ERROR_RE = /token|expire|oauth|reconnect|credentials|unauthori[sz]ed|invalid_grant|no connected account|no active account|access denied/i;
-export const NOT_FOUND_RE = /not ?found|itemNotFound|does not exist|404/i;
+const COMPOSIO_BASE_URL = "https://backend.composio.dev/api/v3.1";
+const RECONNECT_HINT = "Reconnect OneDrive at https://app.composio.dev.";
+const AUTH_ERROR_RE = /token|expire|oauth|reconnect|credentials|unauthori[sz]ed|invalid_grant|no connected account|no active account|access denied/i;
+const NOT_FOUND_RE = /not ?found|itemNotFound|does not exist|404/i;
 
-export function getApiKey(): string {
+function getApiKey(): string {
   const envKey = process.env.COMPOSIO_API_KEY?.trim();
   if (envKey && envKey.length > 5) return envKey;
   throw new Error("Missing Composio API key — please configure COMPOSIO_API_KEY in this integration's settings.");
 }
 
-export function extractErrorMessage(err: any): string {
+function extractErrorMessage(err: any): string {
   if (!err) return "Unknown error occurred";
   if (typeof err === "string") return err;
   if (typeof err === "object") {
@@ -50,7 +50,7 @@ export function extractErrorMessage(err: any): string {
 
 let cachedAccount: { accountId?: string; userId: string } | null = null;
 
-export async function resolveConnectedAccount(apiKey: string): Promise<{ accountId?: string; userId: string }> {
+async function resolveConnectedAccount(apiKey: string): Promise<{ accountId?: string; userId: string }> {
   const explicitAccountId = process.env.COMPOSIO_CONNECTED_ACCOUNT_ID?.trim();
   const configuredUserId = process.env.COMPOSIO_USER_ID?.trim() || "default";
 
@@ -133,7 +133,7 @@ export async function composio(slug: string, args: Record<string, unknown>, time
 
   const json: any = await res.json().catch(() => null);
   if (res.status === 401 || res.status === 403) {
-    throw new Error(`Composio rejected the request (HTTP ${res.status}). Check the API key in settings, or ${RECONNECT_HINT.toLowerCase()}`);
+    throw new Error(`Composio rejected the request (HTTP ${res.status}). Check the API key in settings. ${RECONNECT_HINT}`);
   }
   if (!res.ok || !json || json.successful === false || json.success === false || json.error) {
     const msg = extractErrorMessage(json?.error ?? json?.message ?? json?.detail ?? `HTTP ${res.status} ${res.statusText}`);
@@ -168,12 +168,24 @@ export function itemPathOf(item: any): string {
   return dir ? `${dir}/${item?.name}` : String(item?.name || "");
 }
 
+/**
+ * "folder", "file", or "other" — Personal Vault and similar special items come
+ * back from Graph with neither a folder nor a file facet.
+ */
+export function itemKind(item: any): "folder" | "file" | "other" {
+  if (item?.folder || item?.package) return "folder";
+  if (item?.file) return "file";
+  return "other";
+}
+
 export function summarizeItem(item: any) {
+  const kind = itemKind(item);
   return {
     id: String(item?.id || ""),
     name: String(item?.name || "Untitled"),
     path: item?.parentReference?.path ? itemPathOf(item) : undefined,
-    is_folder: Boolean(item?.folder),
+    kind,
+    is_folder: kind === "folder",
     size: typeof item?.size === "number" ? item.size : undefined,
     last_modified: item?.lastModifiedDateTime,
     web_url: item?.webUrl || undefined,
@@ -249,6 +261,15 @@ export async function downloadBytes(item: any, opts: { asPdf?: boolean } = {}): 
   }
 }
 
+/**
+ * Composio uploads text through a OneDrive upload session, and a 0-byte body
+ * produces a malformed Content-Range header ("bytes 0--1/0") that OneDrive
+ * rejects. An empty file is therefore sent as a single newline.
+ */
+export function uploadableText(content: string): { content: string; padded: boolean } {
+  return content.length === 0 ? { content: "\n", padded: true } : { content, padded: false };
+}
+
 /** A name that can only ever land directly inside ~/Downloads. */
 export function safeLocalName(requested: string | undefined, itemName: string): string {
   let name = String(requested || "").trim() || itemName;
@@ -282,18 +303,18 @@ export function resetAccountCache(): void {
 // --- Text extraction (read_file) --------------------------------------------
 // Office Open XML files (docx/xlsx/pptx) are zip archives of XML, so they are
 // unzipped and walked here rather than pulling in one heavy parser per format.
-export const TEXT_EXTENSIONS = new Set([
+const TEXT_EXTENSIONS = new Set([
   "txt", "md", "markdown", "csv", "tsv", "json", "xml", "html", "htm", "log", "yaml", "yml",
   "ini", "cfg", "conf", "toml", "js", "ts", "jsx", "tsx", "py", "rb", "go", "java", "c", "h",
   "cpp", "cs", "sh", "sql", "css", "srt", "vtt",
 ]);
-export const OOXML_EXTENSIONS = new Set(["docx", "xlsx", "pptx"]);
+const OOXML_EXTENSIONS = new Set(["docx", "xlsx", "pptx"]);
 /** Formats OneDrive can convert to PDF server-side before we read them. */
-export const CONVERTIBLE_EXTENSIONS = new Set(["doc", "xls", "ppt", "rtf", "odt", "ods", "odp", "docm", "xlsm", "pptm"]);
+const CONVERTIBLE_EXTENSIONS = new Set(["doc", "xls", "ppt", "rtf", "odt", "ods", "odp", "docm", "xlsm", "pptm"]);
 
 export type ReadStrategy = "text" | "ooxml" | "pdf" | "convert" | "unsupported";
 
-export function extensionOf(name: string): string {
+function extensionOf(name: string): string {
   return path.extname(name).slice(1).toLowerCase();
 }
 
@@ -438,7 +459,7 @@ export function truncateText(text: string, maxChars: number): { text: string; tr
 
 const READ_MAX_BYTES = 25 * 1024 * 1024;
 
-const server = new McpServer({ name: "microsoft-onedrive", version: "1.2.0" });
+const server = new McpServer({ name: "microsoft-onedrive", version: "1.2.1" });
 const ACCENT = "#0078d4"; // Microsoft OneDrive signature Fluent blue
 
 // Fluent icons in matching Microsoft 365 brand colors
@@ -453,7 +474,6 @@ const ICONS = {
   link: '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M6.5 9.5a3 3 0 0 1 0-4.24l1.77-1.77a3 3 0 0 1 4.24 4.24l-.88.88\"/><path d="M9.5 6.5a3 3 0 0 1 0 4.24l-1.77 1.77a3 3 0 0 1-4.24-4.24l.88-.88"/></svg>',
   check: '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5L6.5 11.5L12.5 4.5"/></svg>',
   trash: '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2.5 4h11M5.5 4V2.5a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1V4M13 4v9.5a1.5 1.5 0 0 1-1.5 1.5h-7A1.5 1.5 0 0 1 3 13.5V4M6.5 7v5M9.5 7v5"/></svg>',
-  alert: '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="var(--bad)" stroke-width="1.5"><path d="M8 1.5L14.5 13H1.5L8 1.5z"/><path d="M8 5.5v4M8 11.5h.01"/></svg>',
   search: '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3"/></svg>',
 };
 
@@ -568,9 +588,9 @@ server.registerTool(
     inputSchema: {
       folder_path: z.string().optional().describe("OneDrive folder path relative to the root (e.g. 'Documents' or 'Documents/Projects'); leave empty for the root"),
       limit: z.number().min(1).max(20).optional().describe("Maximum number of items to return (1-20, default 8)"),
-    } as any,
+    },
   },
-  async (args: any) => {
+  async (args) => {
     const folder = normPath(args?.folder_path);
     const limit = Math.min(Math.max(Math.round(args?.limit ?? 8), 1), 20);
 
@@ -606,12 +626,12 @@ server.registerTool(
     const shown = items.slice(0, 4);
     const rowsHtml = shown.map((f) => `
         <div class="od-rw">
-          <div class="od-ico">${getFileIcon(f.name, f.is_folder)}</div>
+          <div class="od-ico">${getFileIcon(f.name, f.kind !== "file")}</div>
           <div class="od-main">
             <span class="od-ttl">${esc(clip(f.name, 36))}</span>
             <span class="od-sub">Modified ${esc(formatDate(f.last_modified))}</span>
           </div>
-          <div class="od-fig">${esc(f.is_folder ? "Folder" : formatSize(f.size))}</div>
+          <div class="od-fig">${esc(f.kind === "folder" ? "Folder" : f.kind === "other" ? "—" : formatSize(f.size))}</div>
         </div>
       `).join("");
 
@@ -640,9 +660,9 @@ server.registerTool(
     inputSchema: {
       query: z.string().describe("Plain keywords or a file name (no wildcards or filters like 'filetype:')"),
       limit: z.number().min(1).max(20).optional().describe("Maximum results to return (1-20, default 5)"),
-    } as any,
+    },
   },
-  async (args: any) => {
+  async (args) => {
     const query = String(args?.query || "").trim();
     if (!query) throw new Error("search_files needs a query.");
     const limit = Math.min(Math.max(Math.round(args?.limit ?? 5), 1), 20);
@@ -672,12 +692,12 @@ server.registerTool(
       const where = parent && parent !== "." ? `in ${esc(clip(parent, 30))}` : f.path ? "in My files" : "";
       return `
         <div class="od-rw">
-          <div class="od-ico">${getFileIcon(f.name, f.is_folder)}</div>
+          <div class="od-ico">${getFileIcon(f.name, f.kind !== "file")}</div>
           <div class="od-main">
             <span class="od-ttl">${esc(clip(f.name, 34))}</span>
             <span class="od-sr-badge">${where || `Modified ${esc(formatDate(f.last_modified))}`}</span>
           </div>
-          <div class="od-fig">${esc(f.is_folder ? "Folder" : formatSize(f.size))}</div>
+          <div class="od-fig">${esc(f.kind === "folder" ? "Folder" : f.kind === "other" ? "—" : formatSize(f.size))}</div>
         </div>
       `;
     }).join("");
@@ -707,9 +727,9 @@ server.registerTool(
     inputSchema: {
       item_path: z.string().describe("OneDrive path relative to the root (e.g. 'Documents/Report.pdf'), item id, or unique file name"),
       file_name: z.string().optional().describe("Optional file name to save as inside ~/Downloads"),
-    } as any,
+    },
   },
-  async (args: any) => {
+  async (args) => {
     const item = await resolveItem(args?.item_path, true);
     if (item?.folder) throw new Error(`"${item.name}" is a folder; only files can be downloaded.`);
 
@@ -761,9 +781,9 @@ server.registerTool(
     inputSchema: {
       item_path: z.string().describe("OneDrive path relative to the root (e.g. 'Documents/Q3 Report.docx'), item id, or unique file name"),
       max_chars: z.number().min(1000).max(60000).optional().describe("Maximum characters of text to return (default 20000)"),
-    } as any,
+    },
   },
-  async (args: any) => {
+  async (args) => {
     const maxChars = Math.min(Math.max(Math.round(args?.max_chars ?? 20000), 1000), 60000);
     const item = await resolveItem(args?.item_path, true);
     if (item?.folder) throw new Error(`"${item.name}" is a folder. Use list_files to see what's inside.`);
@@ -838,21 +858,30 @@ server.registerTool(
       file_name: z.string().describe("File name to create, including extension (e.g. 'Notes.md' or 'Summary.txt')"),
       content: z.string().describe("Text content of the file"),
       folder_path: z.string().optional().describe("Destination OneDrive folder path relative to the root (default: 'Documents'; '/' for the root)"),
-    } as any,
+    },
   },
-  async (args: any) => {
+  async (args) => {
     const fileName = String(args?.file_name || "").trim();
     if (!fileName) throw new Error("upload_file needs a file name.");
-    const content = String(args?.content ?? "");
+    const { content, padded } = uploadableText(String(args?.content ?? ""));
     const rawFolder = String(args?.folder_path ?? "").trim();
     const folder = rawFolder ? normPath(rawFolder) : "Documents";
 
-    const created = await composio("ONE_DRIVE_ONEDRIVE_CREATE_TEXT_FILE", {
-      name: fileName,
-      content,
-      folder: folder ? `/${folder}` : "/",
-      conflict_behavior: "rename",
-    });
+    let created: any;
+    try {
+      created = await composio("ONE_DRIVE_ONEDRIVE_CREATE_TEXT_FILE", {
+        name: fileName,
+        content,
+        folder: folder ? `/${folder}` : "/",
+        conflict_behavior: "rename",
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (/content-range/i.test(msg)) {
+        throw new Error(`OneDrive rejected the upload of "${fileName}" (${msg}). Composio's upload step failed; try again, or check the destination folder "${folder || "/"}" exists.`);
+      }
+      throw err;
+    }
     const finalName = String(created?.name || fileName);
     const folderDisplay = folder ? `/${folder}` : "My files";
     const fileSizeStr = formatSize(typeof created?.size === "number" ? created.size : Buffer.byteLength(content, "utf-8"));
@@ -872,7 +901,7 @@ server.registerTool(
           <div class="od-stat-pill"><b>Status:</b> ${finalName === fileName ? "Saved" : "Renamed (name taken)"}</div>
         </div>
         <div class="od-callout">
-          <div class="od-local-path">${esc(clip(content, 120))}</div>
+          <div class="od-local-path">${padded ? "(empty — one blank line)" : esc(clip(content, 120))}</div>
         </div>
       </div>
     `;
@@ -885,6 +914,7 @@ server.registerTool(
       id: created?.id,
       web_url: created?.webUrl,
       size: fileSizeStr,
+      note: padded ? "OneDrive's upload can't create a 0-byte file through Composio, so the file contains a single blank line." : undefined,
     }, card);
   }
 );
@@ -898,9 +928,9 @@ server.registerTool(
     inputSchema: {
       folder_name: z.string().describe("Name of the folder to create (e.g. 'Projects' or 'Archive')"),
       parent_path: z.string().optional().describe("Existing parent folder path relative to the root (e.g. 'Documents'); leave blank for the root"),
-    } as any,
+    },
   },
-  async (args: any) => {
+  async (args) => {
     const folderName = String(args?.folder_name || "").trim();
     if (!folderName) throw new Error("create_folder needs a folder name.");
     const parent = normPath(args?.parent_path);
@@ -955,9 +985,9 @@ server.registerTool(
     inputSchema: {
       item_path: z.string().describe("OneDrive path relative to the root (e.g. 'Documents/Report.docx'), item id, or unique file name"),
       scope: z.enum(["view", "edit"]).or(z.literal("")).optional().describe("Link permission: 'view' for read-only or 'edit' to allow editing (default: 'view')"),
-    } as any,
+    },
   },
-  async (args: any) => {
+  async (args) => {
     const type = String(args?.scope || "").trim().toLowerCase() === "edit" ? "edit" : "view";
     const item = await resolveItem(args?.item_path, true);
     const itemName = String(item?.name || args?.item_path);
@@ -1009,9 +1039,9 @@ server.registerTool(
     description: "Delete a file or folder in Microsoft OneDrive (moves it to the OneDrive recycle bin, where it can be restored). Use when the user asks to delete, remove, or trash a OneDrive item. Requires the exact path or id from list_files/search_files — never guess one from a bare name.",
     inputSchema: {
       item_path: z.string().describe("Exact OneDrive path relative to the root (e.g. 'Documents/Old.docx') or item id"),
-    } as any,
+    },
   },
-  async (args: any) => {
+  async (args) => {
     // Strict: no fuzzy name search before a destructive action.
     const item = await resolveItem(args?.item_path, false);
     const itemName = String(item?.name || args?.item_path);

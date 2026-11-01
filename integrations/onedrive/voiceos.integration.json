@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "com.voiceos.generated.microsoft-onedrive",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "name": "OneDrive",
   "summary": "Manage your Microsoft OneDrive files with voice: list, search, read, download, upload, and share.",
   "description": "Connect your Microsoft account through Composio OAuth2 to browse folders, search documents, read and summarize Word, Excel, PowerPoint, PDF and text files, download files to your Mac Downloads folder, upload notes, create directories, share links, and manage OneDrive items.",
