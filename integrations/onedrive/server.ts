@@ -492,7 +492,7 @@ export function truncateText(text: string, maxChars: number): { text: string; tr
 const CARD_ROWS = 6;
 const READ_MAX_BYTES = 25 * 1024 * 1024;
 
-const server = new McpServer({ name: "microsoft-onedrive", version: "1.2.4" });
+const server = new McpServer({ name: "microsoft-onedrive", version: "1.2.5" });
 const ACCENT = "#0078d4"; // Microsoft OneDrive signature Fluent blue
 
 // Fluent icons in matching Microsoft 365 brand colors
@@ -810,7 +810,7 @@ server.registerTool(
   "read_file",
   {
     title: "Read file contents",
-    description: "Read the text of a Microsoft OneDrive file so you can summarize it, answer questions about it, or quote from it. Works with Word, Excel, PowerPoint, PDF, and plain-text files (txt, md, csv, json, code); not images or scanned PDFs. Use when the user asks what a OneDrive file says, wants it summarized, or asks a question about its contents. Pass a path or id from list_files/search_files; a bare file name also works if it's unique.",
+    description: "Read the text of a Microsoft OneDrive file so you can summarize it, answer questions about it, or quote from it. Works with Word, Excel, PowerPoint, PDF, and plain-text files (txt, md, csv, json, code); not images or scanned PDFs. Use when the user asks what a OneDrive file says, wants it summarized, or asks a question about its contents; then answer from the returned document_text (the card is only a preview). Pass a path or id from list_files/search_files; a bare file name also works if it's unique.",
     inputSchema: {
       item_path: z.string().describe("OneDrive path relative to the root (e.g. 'Documents/Q3 Report.docx'), item id, or unique file name"),
       max_chars: z.number().min(1000).max(60000).optional().describe("Maximum characters of text to return (default 20000)"),
@@ -867,7 +867,12 @@ server.registerTool(
       </div>
     `;
     const card = renderCustom({ accent: ACCENT, css: FLUENT_CSS, body, height: 170 });
+    // The text leads, under a name that can't be mistaken for MCP's own `content`
+    // array, with an explicit cue: the card is only a preview, so the agent has
+    // to answer from document_text itself.
     return widgetResult({
+      document_text: returned,
+      next_step: "Answer the user's request (summarize, explain, quote) from document_text. The card only shows a one-line preview.",
       file_name: itemName,
       path: item?.parentReference?.path ? itemPathOf(item) : undefined,
       format: kind,
@@ -876,7 +881,6 @@ server.registerTool(
       truncated,
       returned_chars: returned.length,
       total_chars: text.length,
-      content: returned,
     }, card);
   }
 );
