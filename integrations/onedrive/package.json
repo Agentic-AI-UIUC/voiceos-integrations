@@ -2,7 +2,7 @@
   "name": "microsoft-onedrive",
   "version": "1.0.0",
   "private": true,
-  "description": "Manage your Microsoft OneDrive files with voice: list, search, download, upload, and share.",
+  "description": "Manage your Microsoft OneDrive files with voice: list, search, read, download, upload, share, and delete.",
   "type": "module",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.28.0",
