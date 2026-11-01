@@ -188,7 +188,6 @@ export function summarizeItem(item: any) {
     name: String(item?.name || "Untitled"),
     path: item?.parentReference?.path ? itemPathOf(item) : undefined,
     kind,
-    is_folder: kind === "folder",
     size: typeof item?.size === "number" ? item.size : undefined,
     last_modified: item?.lastModifiedDateTime,
     web_url: item?.webUrl || undefined,
@@ -269,8 +268,7 @@ export async function downloadBytes(item: any, opts: { asPdf?: boolean } = {}): 
     : await composio("ONE_DRIVE_DOWNLOAD_FILE", { item_id: item.id, file_name: itemName }, 15000);
   // Graph's own item metadata carries a short-lived pre-authenticated link to
   // the original bytes; it's the fallback when Composio's response has none.
-  const graphUrl = item?.["@microsoft.graph.downloadUrl"];
-  const url = findDownloadUrl(data) ?? (!opts.asPdf && typeof graphUrl === "string" && graphUrl.startsWith("https://") ? graphUrl : undefined);
+  const url = findDownloadUrl(data) ?? (opts.asPdf ? undefined : httpsUrl(item?.["@microsoft.graph.downloadUrl"]));
   if (!url) {
     const shape = describeShape(data);
     console.error(`No download URL in Composio response for "${itemName}": ${shape}`);
@@ -336,7 +334,7 @@ const OOXML_EXTENSIONS = new Set(["docx", "xlsx", "pptx"]);
 /** Formats OneDrive can convert to PDF server-side before we read them. */
 const CONVERTIBLE_EXTENSIONS = new Set(["doc", "xls", "ppt", "rtf", "odt", "ods", "odp", "docm", "xlsm", "pptm"]);
 
-export type ReadStrategy = "text" | "ooxml" | "pdf" | "convert" | "unsupported";
+type ReadStrategy = "text" | "ooxml" | "pdf" | "convert" | "unsupported";
 
 function extensionOf(name: string): string {
   return path.extname(name).slice(1).toLowerCase();
@@ -509,7 +507,6 @@ const ICONS = {
   slides: svg(`${PAGE}<path d="M6 9.25h6v3.5H6z"/>`),
   image: svg('<rect x="2.5" y="3" width="13" height="12" rx="1.5"/><circle cx="6.5" cy="7" r="1.2"/><path d="m2.5 13 3.8-3.8 3 3 2-2 3.2 3.2"/>'),
   vault: svg('<rect x="3.75" y="8" width="10.5" height="7.5" rx="1.5"/><path d="M6 8V5.75a3 3 0 0 1 6 0V8"/>'),
-  upload: svg(`<path d="M9 12V3.75M5.75 7 9 3.75 12.25 7"/>${TRAY}`),
   download: svg(`<path d="M9 3v8.25M5.75 8 9 11.25 12.25 8"/>${TRAY}`),
   link: svg('<path d="M7.5 10.5a3 3 0 0 0 4.24 0l2.12-2.12a3 3 0 0 0-4.24-4.24l-.7.7"/><path d="M10.5 7.5a3 3 0 0 0-4.24 0L4.14 9.62a3 3 0 0 0 4.24 4.24l.7-.7"/>'),
   trash: svg('<path d="M3 4.75h12M7 4.75V3.5c0-.41.34-.75.75-.75h2.5c.41 0 .75.34.75.75v1.25M4.5 4.75l.6 9.6c.03.5.44.9.94.9h5.92c.5 0 .91-.4.94-.9l.6-9.6"/>'),
@@ -520,7 +517,7 @@ const ICONS = {
 function itemIcon(name: string, kind: "folder" | "file" | "other"): string {
   if (kind === "folder") return ICONS.folder;
   if (kind === "other") return ICONS.vault;
-  const ext = path.extname(name).slice(1).toLowerCase();
+  const ext = extensionOf(name);
   if (["doc", "docx", "pdf", "txt", "md", "rtf", "odt"].includes(ext)) return ICONS.doc;
   if (["xls", "xlsx", "csv", "ods"].includes(ext)) return ICONS.sheet;
   if (["ppt", "pptx", "odp"].includes(ext)) return ICONS.slides;
@@ -630,7 +627,7 @@ function emptyState(icon: string, title: string, hint: string): string {
   return `<div class="empty"><div class="ic">${icon}</div><div class="t">${esc(title)}</div><div class="s">${esc(hint)}</div></div>`;
 }
 
-export type CardTheme = "auto" | "dark" | "light";
+type CardTheme = "auto" | "dark" | "light";
 
 /** The user's Card theme setting (manifest preference CARD_THEME); anything unrecognised means auto. */
 export function cardTheme(raw = process.env.CARD_THEME): CardTheme {

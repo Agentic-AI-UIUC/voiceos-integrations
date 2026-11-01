@@ -53,7 +53,7 @@ describe("itemPathOf / summarizeItem", () => {
   });
   test("leaves path undefined when Graph gave no parent path", () => {
     const s = summarizeItem({ id: "1", name: "x.txt", size: 3, folder: undefined });
-    expect(s).toMatchObject({ id: "1", name: "x.txt", is_folder: false, size: 3 });
+    expect(s).toMatchObject({ id: "1", name: "x.txt", kind: "other", size: 3 });
     expect(s.path).toBeUndefined();
   });
 });
@@ -133,7 +133,7 @@ describe("itemKind", () => {
     expect(itemKind({ file: { mimeType: "application/pdf" } })).toBe("file");
     // Personal Vault comes back with neither facet and size 0.
     expect(itemKind({ name: "Personal Vault", size: 0 })).toBe("other");
-    expect(summarizeItem({ name: "Personal Vault", size: 0 })).toMatchObject({ kind: "other", is_folder: false });
+    expect(summarizeItem({ name: "Personal Vault", size: 0 })).toMatchObject({ kind: "other" });
   });
 });
 
