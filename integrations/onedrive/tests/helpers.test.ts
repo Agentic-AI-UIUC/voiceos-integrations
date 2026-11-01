@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
+  describeShape,
   findDownloadUrl,
   itemKind,
   itemPathOf,
@@ -60,6 +61,10 @@ describe("unwrap / listOf", () => {
     expect(unwrap({ data: JSON.stringify({ response_data: { value: [1] } }) })).toEqual({ value: [1] });
     expect(unwrap({ id: "x", name: "y" })).toEqual({ id: "x", name: "y" });
   });
+  test("keeps siblings when `data` is only a status message", () => {
+    const res = { data: "File downloaded successfully", file: { s3url: "https://store/x" } };
+    expect(unwrap(res)).toEqual(res);
+  });
   test("finds the item array", () => {
     expect(listOf({ value: [1, 2] })).toEqual([1, 2]);
     expect(listOf({ items: [3] })).toEqual([3]);
@@ -69,13 +74,26 @@ describe("unwrap / listOf", () => {
 });
 
 describe("findDownloadUrl", () => {
-  test("prefers Composio's staged file URL", () => {
+  test("finds the signed URL wherever Composio puts it", () => {
     expect(findDownloadUrl({ file: { s3url: "https://store/x" } })).toBe("https://store/x");
+    expect(findDownloadUrl({ file_url: "https://store/y" })).toBe("https://store/y");
+    expect(findDownloadUrl({ downloaded_file_content: { name: "a", s3url: "https://store/z" } })).toBe("https://store/z");
     expect(findDownloadUrl({ "@microsoft.graph.downloadUrl": "https://graph/y" })).toBe("https://graph/y");
+    expect(findDownloadUrl(JSON.stringify({ file: { s3url: "https://store/json" } }))).toBe("https://store/json");
   });
-  test("ignores non-https values", () => {
+  test("ignores web page links and non-https values", () => {
+    expect(findDownloadUrl({ webUrl: "https://onedrive.live.com/page", file: { s3url: "https://store/x" } })).toBe("https://store/x");
+    expect(findDownloadUrl({ webUrl: "https://onedrive.live.com/page" })).toBeUndefined();
     expect(findDownloadUrl({ file: { s3url: "http://insecure" } })).toBeUndefined();
     expect(findDownloadUrl({})).toBeUndefined();
+  });
+});
+
+describe("describeShape", () => {
+  test("lists field names and types without leaking values", () => {
+    const shape = describeShape({ data: "secret text", file: { name: "a.pdf", size: 3 }, items: [{ id: "x" }] });
+    expect(shape).toBe("{data: string, file: {name: string, size: number}, items: [{id: string}]}");
+    expect(shape).not.toContain("secret");
   });
 });
 
