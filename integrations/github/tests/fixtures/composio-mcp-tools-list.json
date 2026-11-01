@@ -1,0 +1,517 @@
+{
+ "tools": [
+  {
+   "name": "GITHUB_CREATE_A_REVIEW_FOR_A_PULL_REQUEST",
+   "title": "Create a review for a pull request",
+   "description": "Creates a pull request review, allowing approval, change requests, or comments; `body` is required if `event` is `REQUEST_CHANGES` or `COMMENT`, and omitting `event` makes the review `PENDING`.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "body": {
+      "type": "string",
+      "description": "Review's main body text; required if `event` is `REQUEST_CHANGES` or `COMMENT`.\nExamples:\n  \"This looks great overall!\"\n  \"Please address the comments below.\""
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name, without the `.git` extension (case-insensitive).\nExamples:\n  \"Hello-World\"\n  \"my-private-repo\""
+     },
+     "event": {
+      "type": "string",
+      "enum": [
+       "APPROVE",
+       "REQUEST_CHANGES",
+       "COMMENT"
+      ],
+      "description": "Review action type (`APPROVE`, `REQUEST_CHANGES`, `COMMENT`); if omitted, review is `PENDING` and requires later submission.\nExamples:\n  \"APPROVE\"\n  \"REQUEST_CHANGES\"\n  \"COMMENT\""
+     },
+     "owner": {
+      "type": "string",
+      "description": "Username of the account owning the repository (case-insensitive).\nExamples:\n  \"octocat\"\n  \"my-organization\""
+     },
+     "comments": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "body": {
+         "type": "string",
+         "description": "The text of the comment"
+        },
+        "line": {
+         "type": "integer",
+         "description": "The line number in the diff to comment on (required for single-line comments)"
+        },
+        "path": {
+         "type": "string",
+         "description": "The relative path to the file being commented on"
+        },
+        "side": {
+         "type": "string",
+         "enum": [
+          "LEFT",
+          "RIGHT"
+         ],
+         "description": "Which side of the diff to place the comment on. Use 'LEFT' for deleted lines (red in diff) or unchanged context on the old version. Use 'RIGHT' for added/changed lines (green in diff) or unchanged context on the new version. Defaults to 'RIGHT' if not specified."
+        },
+        "start_line": {
+         "type": "integer",
+         "description": "The start line number for multi-line comments"
+        },
+        "start_side": {
+         "type": "string",
+         "enum": [
+          "LEFT",
+          "RIGHT"
+         ],
+         "description": "Which side of the diff to start a multi-line comment on. Use 'LEFT' for deleted lines or unchanged context on the old version. Use 'RIGHT' for added/changed lines or unchanged context on the new version. Defaults to 'RIGHT' if not specified."
+        }
+       },
+       "required": [
+        "body",
+        "path"
+       ],
+       "additionalProperties": false,
+       "description": "Schema for individual review comments"
+      },
+      "description": "Inline draft review comments. Each object requires `path` (relative file path) and `body` (comment text). Optionally, specify `line` (or `start_line` for multi-line), and `side` (or `start_side`) for diff location. `position` is deprecated; use `line`. Example: `[{'path': 'file.py', 'line': 10, 'body': 'Refactor this.'}]`\nExamples:\n  \"[{\\\"path\\\": \\\"README.md\\\", \\\"line\\\": 5, \\\"body\\\": \\\"Needs more detail here.\\\"}]\"\n  \"[{\\\"path\\\": \\\"src/main.py\\\", \\\"start_line\\\": 10, \\\"line\\\": 12, \\\"side\\\": \\\"RIGHT\\\", \\\"body\\\": \\\"This logic can be simplified.\\\"}]\""
+     },
+     "commit_id": {
+      "type": "string",
+      "description": "SHA of the commit to review; defaults to the latest pull request commit. Outdated SHAs may lead to stale comments.\nExample: \"c4d3a6f8a0c2b0e8e2b8f3c9e8b4b0e5b0b0e0e0\""
+     },
+     "pull_number": {
+      "type": "integer",
+      "description": "Identifying number of the pull request.\nExamples:\n  1\n  123"
+     }
+    },
+    "required": [
+     "repo",
+     "owner",
+     "pull_number"
+    ],
+    "additionalProperties": false,
+    "$schema": "http://json-schema.org/draft-07/schema#"
+   },
+   "annotations": {
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true
+   },
+   "execution": {
+    "taskSupport": "forbidden"
+   }
+  },
+  {
+   "name": "GITHUB_CREATE_AN_ISSUE",
+   "title": "Create an issue",
+   "description": "Creates a new issue in a GitHub repository, requiring the repository to exist and have issues enabled; specific fields like assignees, milestone, or labels may require push access.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "body": {
+      "type": "string",
+      "description": "The detailed textual contents of the new issue.\nExamples:\n  \"Detailed description of the bug with steps to reproduce.\"\n  \"I think adding a dark mode would improve user experience...\""
+     },
+     "repo": {
+      "type": "string",
+      "description": "The name of the repository, without the `.git` extension (case-insensitive). The repository must exist, be accessible, and have issues enabled.\nExamples:\n  \"Spoon-Knife\"\n  \"linux\""
+     },
+     "owner": {
+      "type": "string",
+      "description": "The GitHub account owner of the repository (case-insensitive). The repository must exist and be accessible to the authenticated user.\nExamples:\n  \"octocat\"\n  \"torvalds\""
+     },
+     "title": {
+      "type": "string",
+      "description": "The title for the new issue.\nExamples:\n  \"Found a critical bug\"\n  \"Feature request: Add dark mode\""
+     },
+     "labels": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "description": "Array of label names to associate with this issue (generally case-insensitive). NOTE: Only users with push access can set labels; they are silently dropped otherwise. Pass an empty list to clear all labels.\nExamples:\n  [\"bug\",\"critical\"]\n  [\"enhancement\",\"ui\"]\n  [\"documentation\"]"
+     },
+     "assignee": {
+      "type": "string",
+      "description": "Login for the user to whom this issue should be assigned. NOTE: Only users with push access can set the assignee; it is silently dropped otherwise. **This field is deprecated in favor of `assignees`.**\nExamples:\n  \"octocat\"\n  \"monalisa\""
+     },
+     "assignees": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "description": "GitHub login names for users to assign to this issue. NOTE: Only users with push access can set assignees; they are silently dropped otherwise.\nExamples:\n  [\"octocat\"]\n  [\"monalisa\",\"hubot\"]"
+     },
+     "milestone": {
+      "type": "string",
+      "description": "The ID of the milestone to associate this issue with (e.g., \"5\"). NOTE: Only users with push access can set the milestone; it is silently dropped otherwise.\nExamples:\n  \"1\"\n  \"5\""
+     }
+    },
+    "required": [
+     "repo",
+     "owner",
+     "title"
+    ],
+    "additionalProperties": false,
+    "$schema": "http://json-schema.org/draft-07/schema#"
+   },
+   "annotations": {
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true
+   },
+   "execution": {
+    "taskSupport": "forbidden"
+   }
+  },
+  {
+   "name": "GITHUB_CREATE_AN_ISSUE_COMMENT",
+   "title": "Create an issue comment",
+   "description": "Creates a new comment on an existing GitHub issue or pull request within the specified repository.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "body": {
+      "type": "string",
+      "description": "Comment content in GitHub Flavored Markdown.\nExamples:\n  \"This is a **bold** comment!\"\n  \"Thanks for the update :+1:\"\n  \"Fixes #123\""
+     },
+     "repo": {
+      "type": "string",
+      "description": "Name of the repository (without `.git` extension); not case-sensitive.\nExamples:\n  \"Spoon-Knife\"\n  \"my-awesome-project\""
+     },
+     "owner": {
+      "type": "string",
+      "description": "Account owner of the repository (username or organization); not case-sensitive.\nExamples:\n  \"octocat\"\n  \"my-organization\""
+     },
+     "issue_number": {
+      "type": "integer",
+      "description": "Number identifying the issue or pull request for the comment.\nExamples:\n  42\n  101"
+     }
+    },
+    "required": [
+     "body",
+     "repo",
+     "owner",
+     "issue_number"
+    ],
+    "additionalProperties": false,
+    "$schema": "http://json-schema.org/draft-07/schema#"
+   },
+   "annotations": {
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true
+   },
+   "execution": {
+    "taskSupport": "forbidden"
+   }
+  },
+  {
+   "name": "GITHUB_GET_AN_ISSUE",
+   "title": "Get an issue",
+   "description": "Retrieves detailed information about a specific issue in a repository using the owner, repository name, and issue number.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "repo": {
+      "type": "string",
+      "description": "Name of the repository (without `.git` extension). Not case-sensitive.\nExample: \"Hello-World\""
+     },
+     "owner": {
+      "type": "string",
+      "description": "Username of the account owning the repository. Not case-sensitive.\nExample: \"octocat\""
+     },
+     "issue_number": {
+      "type": "integer",
+      "description": "The identifying number of the issue.\nExample: 1347"
+     }
+    },
+    "required": [
+     "repo",
+     "owner",
+     "issue_number"
+    ],
+    "additionalProperties": false,
+    "$schema": "http://json-schema.org/draft-07/schema#"
+   },
+   "annotations": {
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true
+   },
+   "execution": {
+    "taskSupport": "forbidden"
+   }
+  },
+  {
+   "name": "GITHUB_LIST_PULL_REQUESTS",
+   "title": "List pull requests",
+   "description": "Lists pull requests for a GitHub repository. REQUIRES 'owner' AND 'repo' parameters - both are MANDATORY and must be provided in every call. Does NOT support filtering by assignee or date range - use GITHUB_FIND_PULL_REQUESTS instead for searching PRs by assignee, author, or across multiple repositories.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "base": {
+      "type": "string",
+      "description": "Filter by base branch name.\nExamples:\n  \"main\"\n  \"develop\"\n  \"gh-pages\""
+     },
+     "head": {
+      "type": "string",
+      "description": "Filter by head user/org and branch name, e.g., `user:ref-name`.\nExamples:\n  \"octocat:test-branch\"\n  \"github:new-script-format\""
+     },
+     "page": {
+      "type": "integer",
+      "description": "Page number for results.\nExamples:\n  \"1\"\n  \"2\"\n  \"5\"",
+      "default": 1
+     },
+     "repo": {
+      "type": "string",
+      "minLength": 1,
+      "description": "[REQUIRED - MUST BE PROVIDED] The name of the repository (without the `.git` extension). This parameter is mandatory and cannot be omitted. Example: 'Spoon-Knife' or 'vscode'. To search PRs across multiple repos, use GITHUB_FIND_PULL_REQUESTS instead.\nExamples:\n  \"Spoon-Knife\"\n  \"my-project\"\n  \"vscode\""
+     },
+     "sort": {
+      "type": "string",
+      "description": "Sorts results. Valid values: 'created', 'updated', 'popularity', 'long-running'. 'popularity' is by comment count; 'long-running' by age and recent activity.\nExamples:\n  \"created\"\n  \"updated\"\n  \"popularity\"\n  \"long-running\"",
+      "default": "created"
+     },
+     "owner": {
+      "type": "string",
+      "minLength": 1,
+      "description": "[REQUIRED - MUST BE PROVIDED] The GitHub username or organization name that owns the repository. This parameter is mandatory and cannot be omitted. Example: 'octocat' or 'microsoft'. To search PRs across all repos without specifying owner, use GITHUB_FIND_PULL_REQUESTS instead.\nExamples:\n  \"octocat\"\n  \"my-organization\"\n  \"microsoft\""
+     },
+     "state": {
+      "type": "string",
+      "description": "Filter by pull request state. Valid values: 'open', 'closed', 'all'.\nExamples:\n  \"open\"\n  \"closed\"\n  \"all\"",
+      "default": "open"
+     },
+     "per_page": {
+      "type": "integer",
+      "description": "Number of results per page (maximum 100).\nExamples:\n  \"30\"\n  \"50\"\n  \"100\"",
+      "default": 30
+     },
+     "direction": {
+      "type": "string",
+      "description": "Sort direction. Valid values: 'asc', 'desc'. Defaults to 'desc' if sort is 'created' or unspecified, else 'asc'.\nExamples:\n  \"asc\"\n  \"desc\""
+     }
+    },
+    "required": [
+     "repo",
+     "owner"
+    ],
+    "additionalProperties": false,
+    "$schema": "http://json-schema.org/draft-07/schema#"
+   },
+   "annotations": {
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true
+   },
+   "execution": {
+    "taskSupport": "forbidden"
+   }
+  },
+  {
+   "name": "GITHUB_SEARCH_CODE",
+   "title": "Search code",
+   "description": "Searches code file contents and paths on the default branch of GitHub repositories using a query string; searches only files under 384KB, returns max 1000 results by best match, and is optimized for precision.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "q": {
+      "type": "string",
+      "description": "Code search query, including keywords and qualifiers (e.g., `language:python`, `user:octocat`, `repo:owner/repo`). For full syntax and qualifiers, see GitHub docs: [Constructing a search query](https://docs.github.com/rest/search/search#constructing-a-search-query) and [code search qualifiers](https://docs.github.com/search-github/searching-on-github/searching-code).\nExamples:\n  \"HelloWorld in:file language:python\"\n  \"user:octocat repo:hello-world extension:js\"\n  \"form path:/app/models language:ruby\""
+     },
+     "page": {
+      "type": "integer",
+      "description": "Page number for results. For pagination details, see GitHub docs: [Using pagination in the REST API](https://docs.github.com/rest/using-the-rest-api/using-pagination-in-the-rest-api).\nExamples:\n  \"1\"\n  \"2\"\n  \"10\"",
+      "default": 1
+     },
+     "sort": {
+      "type": "string",
+      "enum": [
+       "indexed",
+       "updated"
+      ],
+      "description": "DEPRECATED. Valid: 'indexed' (sorts by last indexed time) or 'updated' (sorts by last updated time). If unspecified, results sorted by best match. Docs: [ranking search results](https://docs.github.com/rest/search/search#ranking-search-results).\nExamples:\n  \"indexed\"\n  \"updated\""
+     },
+     "order": {
+      "type": "string",
+      "enum": [
+       "desc",
+       "asc"
+      ],
+      "description": "DEPRECATED. Order ('asc' or 'desc') for results; effective only if `sort` is specified. Docs: [ranking search results](https://docs.github.com/rest/search/search#ranking-search-results).\nExamples:\n  \"desc\"\n  \"asc\"",
+      "default": "desc"
+     },
+     "per_page": {
+      "type": "integer",
+      "description": "Results per page (max 100). For pagination details, see GitHub docs: [Using pagination in the REST API](https://docs.github.com/rest/using-the-rest-api/using-pagination-in-the-rest-api).\nExamples:\n  \"30\"\n  \"50\"\n  \"100\"",
+      "default": 30
+     }
+    },
+    "required": [
+     "q"
+    ],
+    "additionalProperties": false,
+    "$schema": "http://json-schema.org/draft-07/schema#"
+   },
+   "annotations": {
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true
+   },
+   "execution": {
+    "taskSupport": "forbidden"
+   }
+  },
+  {
+   "name": "GITHUB_SEARCH_REPOSITORIES",
+   "title": "Search repositories",
+   "description": "Searches GitHub repositories using a flexible query (keywords, qualifiers) with sorting, ordering, and pagination. IMPORTANT: The 'q' parameter (search query) is REQUIRED and must always be provided.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "q": {
+      "type": "string",
+      "minLength": 1,
+      "description": "REQUIRED non-empty search query. Max 5 AND/OR/NOT operators. Qualifiers: `language:LANG`, `stars:N`, `stars:>N`, `forks:N`, `size:N` (KB), `topic:TOPIC`, `license:LICENSE`, `created:DATE`, `pushed:DATE`, `is:public|private`, `archived:true|false`, `in:name|description|readme`, `user:USERNAME`, `org:ORGNAME`. Must use real GitHub usernames/orgs (e.g., `user:octocat`), not placeholders. Queries with logical operators must include at least one plain keyword; `topic:solana OR topic:ethereum` fails, use `solana OR ethereum stars:>100` instead.\nExamples:\n  \"tensorflow language:python stars:>1000\"\n  \"topic:react stars:>=10000\"\n  \"machine learning in:readme language:python\"\n  \"user:octocat\"\n  \"solana OR ethereum stars:>100\""
+     },
+     "page": {
+      "type": "integer",
+      "description": "The page number for pagination of search results. Defaults to 1. Used in conjunction with `per_page` to fetch subsequent sets of results. See GitHub API documentation for more on pagination.\nExamples:\n  \"1\"\n  \"2\"\n  \"10\"",
+      "default": 1
+     },
+     "sort": {
+      "type": "string",
+      "enum": [
+       "stars",
+       "forks",
+       "help-wanted-issues",
+       "updated",
+       "created"
+      ],
+      "description": "Specifies the field to sort the search results by. Options include `stars`, `forks`, `help-wanted-issues`, `updated` (recency of update), or `created` (creation date). If not provided, results are sorted by GitHub's default 'best match' ranking.\nExamples:\n  \"stars\"\n  \"forks\"\n  \"help-wanted-issues\"\n  \"updated\"\n  \"created\""
+     },
+     "order": {
+      "type": "string",
+      "enum": [
+       "desc",
+       "asc"
+      ],
+      "description": "Determines the order of search results: `desc` for descending or `asc` for ascending. This parameter is only effective when `sort` is also specified. Defaults to `desc`.\nExamples:\n  \"desc\"\n  \"asc\"",
+      "default": "desc"
+     },
+     "per_page": {
+      "type": "integer",
+      "description": "The number of repository results to return per page. The maximum value is 100. Defaults to 30. See GitHub API documentation for more on pagination.\nExamples:\n  \"30\"\n  \"50\"\n  \"100\"",
+      "default": 30
+     }
+    },
+    "required": [
+     "q"
+    ],
+    "additionalProperties": false,
+    "$schema": "http://json-schema.org/draft-07/schema#"
+   },
+   "annotations": {
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true
+   },
+   "execution": {
+    "taskSupport": "forbidden"
+   }
+  },
+  {
+   "name": "GITHUB_UPDATE_AN_ISSUE",
+   "title": "Update an issue",
+   "description": "Updates an existing GitHub issue's title, body, state, milestone, labels, or assignees; `state_reason` is only processed if `state` also changes, and use `null` or `[]` to clear applicable fields.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "body": {
+      "type": "string",
+      "description": "New issue body; send `null` to clear, omit to leave unchanged.\nExamples:\n  \"Updated details about the issue.\"\n  \"Steps to reproduce:\\n1. Do this\\n2. Do that\\nObserved behavior...\""
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name, without the `.git` extension (case-insensitive).\nExamples:\n  \"Spoon-Knife\"\n  \"my-awesome-project\""
+     },
+     "owner": {
+      "type": "string",
+      "description": "Owner of the repository (case-insensitive).\nExamples:\n  \"octocat\"\n  \"my-organization\""
+     },
+     "state": {
+      "type": "string",
+      "enum": [
+       "open",
+       "closed"
+      ],
+      "description": "New issue state; omit to leave unchanged."
+     },
+     "title": {
+      "type": "string",
+      "description": "New issue title; send `null` to clear, omit to leave unchanged.\nExamples:\n  \"New title for issue\"\n  \"Bugfix: Solves critical problem X\""
+     },
+     "labels": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "description": "Replaces all existing labels. Send `[]` to remove all; omit to leave unchanged. Requires push access for changes.\nExamples:\n  [\"bug\",\"documentation\"]\n  [\"enhancement\"]\n  []"
+     },
+     "assignee": {
+      "type": "string",
+      "description": "DEPRECATED: Username to assign; use `assignees`. Send `null` to unassign, omit to leave unchanged.\nExample: \"octocat\""
+     },
+     "assignees": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "description": "Replaces all existing assignees. Send `[]` to remove all; omit to leave unchanged. Requires push access for changes.\nExamples:\n  [\"octocat\",\"hubot\"]\n  [\"monalisa\"]\n  []"
+     },
+     "milestone": {
+      "type": "string",
+      "description": "Milestone ID (as string) or title. Send `null` to clear; omit to leave unchanged. Numeric ID recommended.\nExamples:\n  \"1\"\n  \"Q3 Sprint\"\n  \"42\""
+     },
+     "issue_number": {
+      "type": "integer",
+      "description": "Unique number identifying the issue.\nExamples:\n  \"1347\"\n  \"42\""
+     },
+     "state_reason": {
+      "type": "string",
+      "enum": [
+       "completed",
+       "not_planned",
+       "reopened"
+      ],
+      "description": "Reason for state change, considered only if `state` also changes. Valid reasons depend on the new `state`."
+     }
+    },
+    "required": [
+     "repo",
+     "owner",
+     "issue_number"
+    ],
+    "additionalProperties": false,
+    "$schema": "http://json-schema.org/draft-07/schema#"
+   },
+   "annotations": {
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true
+   },
+   "execution": {
+    "taskSupport": "forbidden"
+   }
+  }
+ ]
+}
