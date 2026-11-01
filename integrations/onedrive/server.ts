@@ -483,9 +483,11 @@ export function truncateText(text: string, maxChars: number): { text: string; tr
 
 // --- MCP server ---------------------------------------------------------------
 
+// Glance cards list at most 6 rows (VoiceOS card guidelines); the model gets every item.
+const CARD_ROWS = 6;
 const READ_MAX_BYTES = 25 * 1024 * 1024;
 
-const server = new McpServer({ name: "microsoft-onedrive", version: "1.2.2" });
+const server = new McpServer({ name: "microsoft-onedrive", version: "1.2.3" });
 const ACCENT = "#0078d4"; // Microsoft OneDrive signature Fluent blue
 
 // Fluent icons in matching Microsoft 365 brand colors
@@ -649,7 +651,7 @@ server.registerTool(
       return widgetResult({ folder: folder || "/", item_count: 0, items: [] }, card);
     }
 
-    const shown = items.slice(0, 4);
+    const shown = items.slice(0, CARD_ROWS);
     const rowsHtml = shown.map((f) => `
         <div class="od-rw">
           <div class="od-ico">${getFileIcon(f.name, f.kind !== "file")}</div>
@@ -712,7 +714,7 @@ server.registerTool(
       return widgetResult({ query, total_matches: 0, results: [] }, card);
     }
 
-    const shown = items.slice(0, 4);
+    const shown = items.slice(0, CARD_ROWS);
     const rowsHtml = shown.map((f) => {
       const parent = f.path ? path.posix.dirname(f.path) : "";
       const where = parent && parent !== "." ? `in ${esc(clip(parent, 30))}` : f.path ? "in My files" : "";
