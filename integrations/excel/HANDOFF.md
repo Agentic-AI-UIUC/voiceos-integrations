@@ -60,3 +60,7 @@ Read `AGENTS.md`, retain `bun.lock`, and use `bun install --frozen-lockfile` fol
 Keep all runtime assets together, especially `widgetKit.ts`. A GitHub upload does not publish or update the installed VoiceOS integration. Compare the actual running build marker with the source being reviewed.
 
 Do not commit credentials, private execution logs, `.env`, or `node_modules`. Review Studio fixtures and Git history for sensitive values before making the repository public.
+
+## CI regression tests
+
+Run `bun install --frozen-lockfile` and `bun test` from `integrations/excel`. `server.test.ts` runs 49 offline tests, including the 32 embedded checks, tool/manifest consistency, confirmation declarations, and range/chart mappings. These checks do not execute Composio actions or replace the previously reported live VoiceOS QA. Importing `server.ts` does not open the MCP transport; direct launcher execution still does.

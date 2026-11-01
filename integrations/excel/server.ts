@@ -1,3 +1,5 @@
+import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
@@ -2593,4 +2595,6 @@ server.registerTool(
   },
 );
 
-await server.connect(new StdioServerTransport());
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  await server.connect(new StdioServerTransport());
+}

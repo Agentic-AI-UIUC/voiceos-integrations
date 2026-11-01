@@ -63,3 +63,7 @@ Keep the generated runtime declaration and launchers unchanged. Runtime dependen
 Use a disposable worksheet and a workbook you can modify. Verify reads against Excel, then test create/rename/write/chart/delete with approval. Cancel a write first and verify no change. For Add Rows, manually create a real Excel table over the test data, use its exact name/ID, append once, and read back. Creating a worksheet or writing cells does not create a table. Delete the disposable worksheet only after testing its other operations.
 
 Publish through VoiceOS separately from uploading this source to GitHub. Verify a fresh installation, tool count, confirmations, and build marker; local edits may not replace the installed copy automatically. No published share URL is recorded here yet.
+
+## CI regression tests
+
+Run `bun install --frozen-lockfile` and `bun test` from `integrations/excel`. `server.test.ts` runs 49 offline tests, including the 32 embedded checks, tool/manifest consistency, confirmation declarations, and range/chart mappings. These checks do not execute Composio actions or replace the previously reported live VoiceOS QA. Importing `server.ts` does not open the MCP transport; direct launcher execution still does.
