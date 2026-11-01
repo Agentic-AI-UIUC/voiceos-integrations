@@ -1,0 +1,92 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      dirs: ${{ steps.find.outputs.dirs }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: find
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          # PRs check only the integrations they touch; pushes to main check all of them.
+          if [ "$EVENT" = pull_request ]; then
+            changed=$(git diff --name-only "$BASE" HEAD -- integrations/ | cut -d/ -f1-2 | sort -u)
+          else
+            changed=$(find integrations -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort)
+          fi
+          dirs=$(for d in $changed; do [ -d "$d" ] && echo "$d"; done | jq -R . | jq -sc .)
+          echo "dirs=$dirs" >> "$GITHUB_OUTPUT"
+          echo "Checking: $dirs"
+
+  integration:
+    needs: changes
+    if: needs.changes.outputs.dirs != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        dir: ${{ fromJSON(needs.changes.outputs.dirs) }}
+    defaults:
+      run:
+        working-directory: ${{ matrix.dir }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Required files
+        run: |
+          for f in package.json bun.lock server.ts run.sh voiceos.integration.json .env.example; do
+            [ -f "$f" ] || { echo "::error::missing $f"; exit 1; }
+          done
+
+      - name: Manifest is valid
+        run: jq -e '.schemaVersion and .id and .name and .version and .runtime.kind' voiceos.integration.json
+
+      - name: No .env files committed
+        run: |
+          if git ls-files | grep -E '(^|/)\.env($|\.)' | grep -v '\.env\.example$'; then
+            echo "::error::.env file committed - remove it and rotate any keys in it"
+            exit 1
+          fi
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: Build
+        # Bundles only the integration's own code; dependencies are checked by the install step.
+        run: bun build server.ts --target=bun --packages=external --outdir="$RUNNER_TEMP/build"
+
+      - name: Tests
+        run: |
+          if [ -n "$(git ls-files '*.test.ts' '*.test.js')" ]; then
+            bun test
+          else
+            echo "No tests found"
+          fi
+
+  # Single required check for branch protection, so it works however many integrations a PR touches.
+  ci:
+    if: always()
+    needs: [changes, integration]
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          CHANGES: ${{ needs.changes.result }}
+          INTEGRATION: ${{ needs.integration.result }}
+        run: |
+          [ "$CHANGES" = success ] || exit 1
+          case "$INTEGRATION" in success|skipped) ;; *) exit 1 ;; esac
