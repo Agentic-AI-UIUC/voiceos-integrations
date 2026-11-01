@@ -120,6 +120,40 @@ describe("resolveItem()", () => {
     await expect(resolveItem("Notes.txt", true)).rejects.toThrow(/A\/Notes.txt, B\/Notes.txt/);
   });
 
+  const searchReturns = (...items: any[]) => ({
+    ONE_DRIVE_GET_ITEM_BY_PATH: notFound,
+    ONE_DRIVE_SEARCH_ITEMS: () => ({ json: { successful: true, data: { value: items } } }),
+  });
+  const at = (dir: string, name: string, id = name) => ({ id, name, parentReference: { path: `/drive/root:${dir ? "/" + dir : ""}` } });
+
+  test("matches a spoken name without its extension or with a type word", async () => {
+    mockComposio(searchReturns(at("", "Getting started with OneDrive.pdf", "pdf"), at("", "Getting started notes.md", "md")));
+    expect((await resolveItem("Getting started with OneDrive PDF", true)).id).toBe("pdf");
+    expect((await resolveItem("getting started with onedrive", true)).id).toBe("pdf");
+  });
+
+  test("prefers an exact name over a looser match", async () => {
+    mockComposio(searchReturns(at("", "Budget.xlsx", "exact"), at("", "Budget 2026.xlsx", "longer")));
+    expect((await resolveItem("Budget.xlsx", true)).id).toBe("exact");
+  });
+
+  test("accepts a unique name prefix but refuses an ambiguous one", async () => {
+    mockComposio(searchReturns(at("", "Quarterly review 2026.pptx", "q"), at("", "Roadmap.pptx", "r")));
+    expect((await resolveItem("quarterly", true)).id).toBe("q");
+    mockComposio(searchReturns(at("A", "Plan v1.docx"), at("B", "Plan v2.docx")));
+    await expect(resolveItem("plan", true)).rejects.toThrow(/2 OneDrive items match "plan" \(A\/Plan v1.docx, B\/Plan v2.docx\)/);
+  });
+
+  test("keeps a named folder when matching loosely", async () => {
+    mockComposio(searchReturns(at("Other", "notes.md", "other"), at("VoiceOS Test", "notes.md", "mine")));
+    expect((await resolveItem("VoiceOS Test/notes", true)).id).toBe("mine");
+  });
+
+  test("reports no match instead of guessing", async () => {
+    mockComposio(searchReturns(at("", "Roadmap.pptx")));
+    await expect(resolveItem("budget", true)).rejects.toThrow(/No OneDrive item matches "budget"/);
+  });
+
   test("never searches by name when strict (delete)", async () => {
     mockComposio({ ONE_DRIVE_GET_ITEM_BY_PATH: notFound });
     await expect(resolveItem("Notes.txt", false)).rejects.toThrow(/itemNotFound/);

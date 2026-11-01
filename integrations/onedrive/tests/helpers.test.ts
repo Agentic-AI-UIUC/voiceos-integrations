@@ -13,6 +13,7 @@ import {
   looksLikeItemId,
   normPath,
   safeLocalName,
+  spokenName,
   summarizeItem,
   themePin,
   unwrap,
@@ -161,5 +162,17 @@ describe("card theme", () => {
     expect(themePin("dark").css).toBe("html{background:#000}");
     expect(themePin("light").js).toContain("MutationObserver");
     expect(themePin("light").js).toContain("t='light'");
+  });
+});
+
+describe("spokenName", () => {
+  test.each([
+    ["Getting started with OneDrive.pdf", "getting started with onedrive"],
+    ["Getting started with OneDrive PDF", "getting started with onedrive"],
+    ["q3_budget-final.xlsx", "q3 budget final"],
+    ["the roadmap deck", "the roadmap"],
+    ["notes", "notes"],
+  ])("%p → %p", (input, expected) => {
+    expect(spokenName(input)).toBe(expected);
   });
 });
