@@ -1,0 +1,72 @@
+{
+  "schemaVersion": 1,
+  "description": "Development-only sample inputs for bun verify.ts and Studio previews. Writes run only against verify.ts's local fake Composio.",
+  "tools": {
+    "create_issue": {
+      "args": {
+        "owner": "voiceos-test",
+        "repo": "sandbox",
+        "title": "VoiceOS preview issue",
+        "body": "Created by the VoiceOS preview harness."
+      },
+      "expectedGlanceBlocks": 1
+    },
+    "update_issue": {
+      "args": {
+        "owner": "voiceos-test",
+        "repo": "sandbox",
+        "issue_number": 1,
+        "state": "closed",
+        "state_reason": "completed"
+      },
+      "expectedGlanceBlocks": 1
+    },
+    "get_issue": {
+      "args": {
+        "owner": "octocat",
+        "repo": "Hello-World",
+        "issue_number": 1
+      },
+      "expectedGlanceBlocks": 1
+    },
+    "create_issue_comment": {
+      "args": {
+        "owner": "voiceos-test",
+        "repo": "sandbox",
+        "issue_number": 1,
+        "body": "Preview comment from VoiceOS."
+      },
+      "expectedGlanceBlocks": 1
+    },
+    "list_pull_requests": {
+      "args": {
+        "owner": "octocat",
+        "repo": "Hello-World",
+        "state": "open"
+      },
+      "expectedGlanceBlocks": 1
+    },
+    "create_pull_request_review": {
+      "args": {
+        "owner": "voiceos-test",
+        "repo": "sandbox",
+        "pull_number": 2,
+        "event": "COMMENT",
+        "body": "Preview review comment from VoiceOS."
+      },
+      "expectedGlanceBlocks": 1
+    },
+    "search_repositories": {
+      "args": {
+        "q": "voice assistant language:typescript stars:>100"
+      },
+      "expectedGlanceBlocks": 1
+    },
+    "search_code": {
+      "args": {
+        "q": "addClass repo:jquery/jquery"
+      },
+      "expectedGlanceBlocks": 1
+    }
+  }
+}
