@@ -18,12 +18,8 @@ integrations/
 3. Open a pull request into `main`.
 4. CI must pass and a code owner (@kidskoding or @syafino) must approve before it can merge.
 
-## CI checks
+## Testing
 
-For every integration a PR touches:
-
-- no `.env` files are committed
-- `bun install` succeeds
-- it has tests, and `bun test` passes
+Every integration must be thoroughly tested. Include a link to your integration on VoiceOS in your PR.
 
 Never commit API keys. Put them in `.env` (ignored) and document them in `.env.example`.
