@@ -12,7 +12,7 @@ integrations/
 ## Adding an integration
 
 1. Fork this repo and create a branch.
-2. Add your integration as `integrations/<name>/`. It must contain `package.json`, `bun.lock`, `server.ts`, `run.sh`, `voiceos.integration.json` and `.env.example`.
+2. Add your working integration, with its tests, under `integrations/<name>/`.
 3. Open a pull request into `main`.
 4. CI must pass and a code owner (@kidskoding or @syafino) must approve before it can merge.
 
@@ -20,11 +20,8 @@ integrations/
 
 For every integration a PR touches:
 
-- required files are present
-- `voiceos.integration.json` is valid and has `schemaVersion`, `id`, `name`, `version` and `runtime.kind`
 - no `.env` files are committed
-- `bun install --frozen-lockfile` succeeds
-- `server.ts` builds
-- `bun test` passes, if the integration has tests
+- `bun install` succeeds
+- it has tests, and `bun test` passes
 
 Never commit API keys. Put them in `.env` (ignored) and document them in `.env.example`.
