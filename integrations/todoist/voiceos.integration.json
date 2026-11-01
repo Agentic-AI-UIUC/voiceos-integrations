@@ -1,0 +1,961 @@
+{
+  "schemaVersion": 1,
+  "id": "com.voiceos.generated.composio-todoist",
+  "version": "1.0.7",
+  "name": "Todoist",
+  "summary": "Manage Todoist tasks, projects, sections, and labels through Composio OAuth.",
+  "description": "Todoist account controls, task/project/section/label actions, and productivity statistics. Only project and section deletion ask for confirmation. Writes report success or failure using VoiceOS notifications.",
+  "icon": "icon.png",
+  "categories": [
+    "Productivity"
+  ],
+  "supportedPlatforms": [
+    "darwin"
+  ],
+  "publisher": {
+    "id": "pub_user",
+    "name": "Made in VoiceOS"
+  },
+  "runtime": {
+    "kind": "local-mcp",
+    "command": "/bin/zsh",
+    "args": [
+      "run.sh"
+    ]
+  },
+  "permissions": [
+    {
+      "kind": "network",
+      "domains": [
+        "backend.composio.dev"
+      ]
+    },
+    {
+      "kind": "background"
+    },
+    {
+      "kind": "notify"
+    }
+  ],
+  "preferences": [
+    {
+      "name": "COMPOSIO_API_KEY",
+      "title": "Composio API key",
+      "description": "Settings -> API Keys in your Composio dashboard at app.composio.dev.",
+      "type": "password",
+      "required": true
+    }
+  ],
+  "setupGuide": {
+    "title": "Todoist account",
+    "blocks": [
+      {
+        "type": "text",
+        "text": "Save your Composio API key. Say \u201cshow my Todoist connection\u201d for Connect/Disconnect controls, or say \u201cconnect me to Todoist\u201d to authorize in your browser. Say \u201cdisconnect Todoist\u201d to unlink this installation\u2019s connection."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "connect_account",
+      "title": "Connect Todoist",
+      "description": "Connect Todoist using Composio OAuth. Use when asked to connect or authorize Todoist. Reuse a verified saved connection; otherwise open browser authorization and wait. OAuth consent happens in the browser without an extra VoiceOS confirmation.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      },
+      "execution": {
+        "mode": "background",
+        "estimatedDurationMs": 180000
+      },
+      "uiCallable": true
+    },
+    {
+      "name": "connection_status",
+      "title": "Todoist account",
+      "description": "Show Todoist connection status with Connect, Disconnect, and Refresh controls. Use when asked about Todoist account settings, connection status, expired authorization, or account linking. Read only; does not start OAuth.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      },
+      "uiCallable": true
+    },
+    {
+      "name": "disconnect_account",
+      "title": "Disconnect Todoist",
+      "description": "Disconnect this installation\u2019s saved Todoist account, revoke its authorization when supported, and clear its local account and pending-link references. Use only when explicitly asked to disconnect or unlink Todoist. Does not delete Todoist tasks or projects.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      },
+      "uiCallable": true
+    },
+    {
+      "name": "create_task",
+      "title": "Create task",
+      "description": "Create a Todoist task. Use when asked to add a task, reminder, or recurring task. Put scheduling in due_string or exactly one precise due field. Resolve project and section IDs using lookups; never guess IDs.",
+      "inputSchema": {
+        "type": "object",
+        "title": "CreateTaskRequest",
+        "required": [
+          "content"
+        ],
+        "properties": {
+          "order": {
+            "type": "integer",
+            "title": "Order",
+            "examples": [
+              1,
+              2,
+              3
+            ],
+            "description": "Non-zero integer value used to sort tasks under the same parent."
+          },
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "title": "Labels",
+            "examples": [
+              [
+                "Food",
+                "Shopping"
+              ]
+            ],
+            "description": "The task's labels (list of names for personal/shared labels). Labels must already exist in Todoist; referencing non-existent labels may fail silently."
+          },
+          "content": {
+            "type": "string",
+            "title": "Content",
+            "examples": [
+              "Buy milk",
+              "Call John about the project"
+            ],
+            "description": "Task content/title. Can contain markdown-formatted text and hyperlinks. Do NOT include due dates or times in this field - use due_string instead."
+          },
+          "due_date": {
+            "type": "string",
+            "title": "Due Date",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "examples": [
+              "2023-12-25"
+            ],
+            "description": "Specific date in YYYY-MM-DD format relative to user's timezone. Use this for exact dates without time. For natural language dates, use due_string instead. Only one due_* field can be used at a time (except due_lang). Cannot express recurrence; one-off tasks only. Use due_string (e.g., 'every Friday') for recurring schedules."
+          },
+          "due_lang": {
+            "type": "string",
+            "title": "Due Lang",
+            "pattern": "^[a-z]{2}$",
+            "examples": [
+              "en",
+              "pt",
+              "es",
+              "fr",
+              "de"
+            ],
+            "description": "2-letter ISO 639-1 language code for parsing due_string. Required when due_string is in a language other than English. Supported codes: da (Danish), de (German), en (English), es (Spanish), fi (Finnish), fr (French), it (Italian), ja (Japanese), ko (Korean), nb (Norwegian), nl (Dutch), pl (Polish), pt (Portuguese), ru (Russian), sv (Swedish), tw (Traditional Chinese), zh (Chinese)."
+          },
+          "duration": {
+            "type": "integer",
+            "title": "Duration",
+            "examples": [
+              15,
+              30,
+              60
+            ],
+            "description": "Task duration amount as a positive integer. Must be used together with duration_unit. Use this field for task duration instead of embedding 'for X minutes' in due_string. Example: for a 15-minute task, set duration=15 and duration_unit='minute'.",
+            "exclusiveMinimum": 0,
+            "minimum": 1
+          },
+          "priority": {
+            "type": "integer",
+            "title": "Priority",
+            "maximum": 4,
+            "minimum": 1,
+            "examples": [
+              1,
+              2,
+              3,
+              4
+            ],
+            "description": "Task priority from 1 (normal) to 4 (urgent)."
+          },
+          "parent_id": {
+            "type": "string",
+            "title": "Parent Id",
+            "examples": [
+              "2995104339"
+            ],
+            "description": "Parent task ID for creating subtasks. Use IDs from TODOIST_GET_ALL_TASKS or TODOIST_GET_ACTIVE_TASK."
+          },
+          "due_string": {
+            "type": "string",
+            "title": "Due String",
+            "examples": [
+              "tomorrow at 12:00",
+              "next Monday at 15:00",
+              "in 2 hours",
+              "every Friday at 9am",
+              "Jan 21, 2026"
+            ],
+            "description": "Human-defined due date in arbitrary format. Accepts natural language expressions like 'tomorrow', 'next Monday at 3pm', 'in 2 hours', 'every Friday'. Also accepts formatted dates like 'Jan 21, 2026' or ISO dates like '2026-01-21'. Value is interpreted using local time. IMPORTANT: If the due string is in a language other than English (e.g., 'esta semana' in Portuguese, 'ma\u00f1ana' in Spanish, 'demain' in French), you MUST also set the due_lang field with the appropriate 2-letter language code (e.g., 'pt' for Portuguese, 'es' for Spanish, 'fr' for French, 'de' for German), otherwise the API will reject it with 'Invalid date format'. Do NOT include duration phrases like 'for X minutes' or 'for X days' in this field - use the separate duration and duration_unit fields instead. If duration is included, it will be automatically extracted and applied to the duration fields. Only one due_* field can be used at a time (except due_lang)."
+          },
+          "project_id": {
+            "type": "string",
+            "title": "Project Id",
+            "examples": [
+              "2203306141"
+            ],
+            "description": "Project ID where the task will be created. Use IDs from TODOIST_GET_ALL_PROJECTS or TODOIST_CREATE_PROJECT. If not set, task is added to the user's Inbox. Project names are not unique; always use numeric IDs."
+          },
+          "section_id": {
+            "type": "string",
+            "title": "Section Id",
+            "examples": [
+              "2203306141"
+            ],
+            "description": "Section ID to put task into. Use IDs from TODOIST_GET_ALL_SECTIONS."
+          },
+          "assignee_id": {
+            "type": "string",
+            "title": "Assignee Id",
+            "examples": [
+              "53792166"
+            ],
+            "description": "The responsible user ID for shared tasks (numeric format)."
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "examples": [
+              "Need to get 2 gallons of milk from the store",
+              "Remember to bring the report"
+            ],
+            "description": "Additional notes or details about the task. Can contain markdown-formatted text and hyperlinks. IMPORTANT: Do NOT include due dates, times, or scheduling information here - use the due_string field for natural language dates (e.g., 'tomorrow at 2pm') or due_date/due_datetime for specific dates."
+          },
+          "due_datetime": {
+            "type": "string",
+            "title": "Due Datetime",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$",
+            "examples": [
+              "2023-12-25T12:00:00Z"
+            ],
+            "description": "Specific date and time in RFC3339 format in UTC. Use this for exact date and time. Only one due_* field can be used at a time (except due_lang). Cannot express recurrence; one-off tasks only. Use due_string for recurring schedules."
+          },
+          "duration_unit": {
+            "enum": [
+              "minute",
+              "day"
+            ],
+            "type": "string",
+            "title": "DurationUnit",
+            "examples": [
+              "minute",
+              "day"
+            ],
+            "description": "Units for task duration in Todoist."
+          }
+        },
+        "description": "Request model for creating a task."
+      }
+    },
+    {
+      "name": "update_task",
+      "title": "Update task",
+      "description": "Update an existing Todoist task. Use when asked to rename, reschedule, reprioritize, assign, or change task labels or notes. Find the exact task with get_active_tasks first. Send only requested changes; labels replaces the entire label list.",
+      "inputSchema": {
+        "type": "object",
+        "title": "UpdateTaskRequest",
+        "required": [
+          "task_id"
+        ],
+        "properties": {
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "title": "Labels",
+            "examples": [
+              [
+                "Food",
+                "Shopping"
+              ]
+            ],
+            "description": "List of label names to assign to the task. Replaces the entire existing labels list \u2014 omit a label only if intentionally removing it. Labels must already exist in Todoist; non-existent names fail silently."
+          },
+          "content": {
+            "type": "string",
+            "title": "Content",
+            "examples": [
+              "Buy groceries and snacks"
+            ],
+            "description": "New content for the task."
+          },
+          "task_id": {
+            "type": "string",
+            "title": "Task Id",
+            "examples": [
+              "2995104339"
+            ],
+            "description": "The ID of the task to update."
+          },
+          "due_date": {
+            "type": "string",
+            "title": "Due Date",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "examples": [
+              "2023-12-31"
+            ],
+            "description": "Due date in YYYY-MM-DD format."
+          },
+          "due_lang": {
+            "type": "string",
+            "title": "Due Lang",
+            "pattern": "^[a-z]{2}$",
+            "examples": [
+              "en",
+              "fr",
+              "de"
+            ],
+            "description": "Language code for parsing `due_string`, e.g., 'en'."
+          },
+          "duration": {
+            "type": "integer",
+            "title": "Duration",
+            "examples": [
+              15,
+              30,
+              60
+            ],
+            "description": "Positive integer for task duration amount (how long the task takes). Must be used together with duration_unit. This is separate from due date - use due_string/due_date/due_datetime for when the task is due.",
+            "exclusiveMinimum": 0,
+            "minimum": 1
+          },
+          "priority": {
+            "type": "integer",
+            "title": "Priority",
+            "maximum": 4,
+            "minimum": 1,
+            "examples": [
+              1,
+              2,
+              3,
+              4
+            ],
+            "description": "Task priority from 1 (normal) to 4 (urgent)."
+          },
+          "due_string": {
+            "type": "string",
+            "title": "Due String",
+            "examples": [
+              "tomorrow at 17:00",
+              "next Monday",
+              "Jan 15 at 3pm"
+            ],
+            "description": "Human-readable due date string for natural language date parsing. Examples: 'tomorrow', 'next Monday', 'Jan 15 at 3pm', 'in 2 days'. Duration syntax like 'for X minutes' is automatically extracted and converted to the duration/duration_unit fields. Provide exactly one of due_string, due_date, or due_datetime per call \u2014 supplying multiple may cause silent failures. To clear an existing due date, pass 'no date'."
+          },
+          "assignee_id": {
+            "type": "string",
+            "title": "Assignee Id",
+            "examples": [
+              "1234567"
+            ],
+            "description": "User ID to assign the task to."
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "examples": [
+              "Include fruits and vegetables"
+            ],
+            "description": "New description for the task."
+          },
+          "due_datetime": {
+            "type": "string",
+            "title": "Due Datetime",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$",
+            "examples": [
+              "2023-12-31T17:00:00Z"
+            ],
+            "description": "Due date and time in RFC3339 format."
+          },
+          "deadline_date": {
+            "type": "string",
+            "title": "Deadline Date",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "examples": [
+              "2026-03-15"
+            ],
+            "description": "Deadline date in YYYY-MM-DD format (premium feature)."
+          },
+          "duration_unit": {
+            "enum": [
+              "minute",
+              "day"
+            ],
+            "type": "string",
+            "title": "DurationUnit",
+            "examples": [
+              "minute",
+              "day"
+            ],
+            "description": "Units for task duration in Todoist."
+          },
+          "target_name": {
+            "type": "string",
+            "title": "Selected target",
+            "description": "Human-readable name/title from the lookup, for confirmation display only. Never invent a name or substitute it for the required ID."
+          }
+        },
+        "description": "Request model for updating an existing task in Todoist."
+      }
+    },
+    {
+      "name": "close_task",
+      "title": "Close task",
+      "description": "Complete a Todoist task. Use when asked to finish or check off a task. Find its ID with get_active_tasks. Recurring tasks advance to their next occurrence instead of permanently completing.",
+      "inputSchema": {
+        "type": "object",
+        "title": "CloseTaskV1Request",
+        "required": [
+          "task_id"
+        ],
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "title": "Task Id",
+            "examples": [
+              "6Xvwww8jQhrQjFPW",
+              "2995104339"
+            ],
+            "description": "String ID of the task to close. Regular tasks are marked complete and moved to history along with their subtasks. Tasks with recurring due dates are scheduled to their next occurrence."
+          },
+          "target_name": {
+            "type": "string",
+            "title": "Selected target",
+            "description": "Human-readable name/title from the lookup, for confirmation display only. Never invent a name or substitute it for the required ID."
+          }
+        },
+        "description": "Request model for closing a task."
+      }
+    },
+    {
+      "name": "get_active_tasks",
+      "title": "Get active tasks",
+      "description": "Read incomplete Todoist tasks. Use for a task list, tasks due today, overdue tasks, or finding IDs before updating or completing a task. Use valid Todoist filter syntax and follow next_cursor for more results. Does not retrieve completed tasks.",
+      "inputSchema": {
+        "type": "object",
+        "title": "GetAllTasksRequest",
+        "properties": {
+          "ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "title": "Ids",
+            "examples": [
+              [
+                "6Xvwww9XFpHQc2qW",
+                "6Xvwww8jQhrQjFPW"
+              ]
+            ],
+            "description": "List of task IDs to retrieve (alphanumeric string IDs)."
+          },
+          "lang": {
+            "type": "string",
+            "title": "Lang",
+            "examples": [
+              "en",
+              "es"
+            ],
+            "description": "Language code for parsing date/times in queries."
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit",
+            "minimum": 1,
+            "examples": [
+              50,
+              100
+            ],
+            "description": "The number of tasks to return per page. Default is 50."
+          },
+          "cursor": {
+            "type": "string",
+            "title": "Cursor",
+            "description": "Cursor for pagination. Provide the next_cursor value from previous response to get next page."
+          },
+          "filter": {
+            "type": "string",
+            "title": "Filter",
+            "examples": [
+              "today | overdue",
+              "7 days",
+              "-7 days",
+              "created after: -14 days",
+              "p1 & !#Work",
+              "#Personal",
+              "search: meeting",
+              "search: yoga | search: gym",
+              "due after: 2024-01-01",
+              "no due date"
+            ],
+            "description": "Filter tasks using Todoist filter syntax. This endpoint only returns INCOMPLETE tasks. Terms must be valid keywords or reference existing entities; arbitrary text causes 400 errors. Supported filters: predefined keywords ('today', 'overdue', 'no due date', etc.), priority ('p1'-'p4'), projects ('#Name'), labels ('@Name'), relative dates ('7 days', '-7 days'), date filters ('due before: YYYY-MM-DD'), created/deadline ('created after: -14 days'), search ('search: keyword'). Operators: '&' (AND), '|' (OR), '!' (NOT). DO NOT USE: 'completed', '!completed', 'completed after' - these cause 400 errors on this endpoint (use TODOIST_GET_COMPLETED_TASKS_BY_COMPLETION_DATE instead)."
+          }
+        }
+      }
+    },
+    {
+      "name": "create_project",
+      "title": "Create project",
+      "description": "Create a Todoist project. Use when asked to make a new project or subproject. Find a parent project ID with list_projects; clarify duplicate names.",
+      "inputSchema": {
+        "type": "object",
+        "title": "TodoistCreateProject2Request",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "examples": [
+              "Work Tasks",
+              "Personal Goals"
+            ],
+            "description": "The project name. This is the only required field."
+          },
+          "color": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "title": "Color",
+            "examples": [
+              "blue",
+              "berry_red",
+              41
+            ],
+            "description": "Project color. Can be either a color name (e.g., 'berry_red', 'blue') or a numeric color code. Default is 'charcoal'."
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "title": "Parent Id",
+            "examples": [
+              "2203306141",
+              2203306141
+            ],
+            "description": "Parent project ID. If provided, creates this project as a sub-project. Can be either a string or integer ID."
+          },
+          "view_style": {
+            "type": "string",
+            "title": "View Style",
+            "examples": [
+              "list",
+              "board"
+            ],
+            "description": "View style of the project. Can be 'list' or 'board'.",
+            "enum": [
+              "list",
+              "board"
+            ]
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "examples": [
+              "Project for tracking work-related tasks"
+            ],
+            "description": "Description of the project. Optional field."
+          },
+          "is_favorite": {
+            "type": "boolean",
+            "title": "Is Favorite",
+            "examples": [
+              true,
+              false
+            ],
+            "description": "Whether the project is a favorite for the user. Default is false."
+          },
+          "workspace_id": {
+            "type": "integer",
+            "title": "Workspace Id",
+            "examples": [
+              123456
+            ],
+            "description": "Workspace ID. If provided, creates a workspace project instead of a personal project."
+          }
+        }
+      }
+    },
+    {
+      "name": "delete_project",
+      "title": "Delete project",
+      "description": "Delete a Todoist project and its contents. Use only when explicitly asked to delete a project. First resolve its exact ID and name using list_projects. Clarify ambiguous names before proposing deletion.",
+      "inputSchema": {
+        "type": "object",
+        "title": "TodoistDeleteProject2Request",
+        "required": [
+          "project_id"
+        ],
+        "properties": {
+          "project_id": {
+            "type": "string",
+            "title": "Project Id",
+            "examples": [
+              "2203306141",
+              "6fq4qcJ8x47WJh6g"
+            ],
+            "description": "The ID of the project to delete. Can be numeric or alphanumeric format."
+          },
+          "target_name": {
+            "type": "string",
+            "title": "Selected target",
+            "description": "Human-readable name/title from the lookup, for confirmation display only. Never invent a name or substitute it for the required ID."
+          }
+        },
+        "description": "Request model for deleting a project using API v1."
+      },
+      "confirmation": {
+        "schemaVersion": 1,
+        "root": {
+          "type": "card",
+          "title": "Delete project",
+          "children": [
+            {
+              "type": "text",
+              "text": "Delete the selected project, including its sections and tasks. Check the name and ID carefully."
+            },
+            {
+              "type": "keyValue",
+              "rows": [
+                {
+                  "label": "Project Id",
+                  "value": "{{project_id}}"
+                },
+                {
+                  "label": "Selected target",
+                  "value": "{{target_name}}"
+                }
+              ]
+            }
+          ],
+          "footer": [
+            {
+              "type": "actions",
+              "items": [
+                {
+                  "label": "Cancel",
+                  "role": "cancel"
+                },
+                {
+                  "label": "Delete project",
+                  "role": "confirm",
+                  "color": "accent"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "create_section",
+      "title": "Create section",
+      "description": "Create a section inside an existing Todoist project. Use when asked to add a section. Resolve the project ID with list_projects before proposing the action.",
+      "inputSchema": {
+        "type": "object",
+        "title": "CreateSectionV1Request",
+        "required": [
+          "name",
+          "project_id"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "examples": [
+              "Backlog",
+              "In Progress",
+              "Done"
+            ],
+            "description": "Name of the new section. This will be the section heading in the project."
+          },
+          "order": {
+            "type": "integer",
+            "title": "Order",
+            "examples": [
+              1,
+              2,
+              5
+            ],
+            "description": "Position of the new section in the project. Lower values appear first. If not specified, the section will be added to the end."
+          },
+          "project_id": {
+            "type": "string",
+            "title": "Project Id",
+            "examples": [
+              "6XvwwRvRfmCjM5PW",
+              "6fm7p873Gr4m66Gw"
+            ],
+            "description": "ID of the project to add the section to. Must be a new-format alphanumeric string ID. Legacy numeric project IDs are not supported by the v1 API."
+          }
+        },
+        "description": "Request model for creating a new section using API v1."
+      }
+    },
+    {
+      "name": "delete_section",
+      "title": "Delete section",
+      "description": "Delete a Todoist section and its tasks. Use only when explicitly asked to delete a section. Resolve its exact ID using list_sections within the selected project; clarify ambiguity.",
+      "inputSchema": {
+        "type": "object",
+        "title": "DeleteSection2Request",
+        "required": [
+          "section_id"
+        ],
+        "properties": {
+          "section_id": {
+            "type": "string",
+            "title": "Section Id",
+            "examples": [
+              "6fvWm9G4XJvWRcfF",
+              "82181370"
+            ],
+            "description": "ID of the section to delete. This will delete the section and all tasks within it."
+          },
+          "target_name": {
+            "type": "string",
+            "title": "Selected target",
+            "description": "Human-readable name/title from the lookup, for confirmation display only. Never invent a name or substitute it for the required ID."
+          }
+        },
+        "description": "Request model for deleting a section."
+      },
+      "confirmation": {
+        "schemaVersion": 1,
+        "root": {
+          "type": "card",
+          "title": "Delete section",
+          "children": [
+            {
+              "type": "text",
+              "text": "Delete the selected section and every task within it. Check its name and ID carefully."
+            },
+            {
+              "type": "keyValue",
+              "rows": [
+                {
+                  "label": "Section Id",
+                  "value": "{{section_id}}"
+                },
+                {
+                  "label": "Selected target",
+                  "value": "{{target_name}}"
+                }
+              ]
+            }
+          ],
+          "footer": [
+            {
+              "type": "actions",
+              "items": [
+                {
+                  "label": "Cancel",
+                  "role": "cancel"
+                },
+                {
+                  "label": "Delete section",
+                  "role": "confirm",
+                  "color": "accent"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "get_productivity_stats",
+      "title": "Get productivity stats",
+      "description": "Read Todoist productivity statistics. Use for karma, completion totals, daily or weekly completion history, and productivity questions. Report only values returned by Todoist.",
+      "inputSchema": {
+        "type": "object",
+        "title": "GetProductivityStatsRequest",
+        "properties": {},
+        "description": "Request model for retrieving productivity statistics. No parameters required."
+      }
+    },
+    {
+      "name": "list_projects",
+      "title": "List Todoist projects",
+      "description": "Read Todoist projects. Use when asked to show projects or to resolve project names into IDs before an approved action. Names may repeat: clarify ambiguous matches. Follow next_cursor for more results.",
+      "inputSchema": {
+        "type": "object",
+        "title": "GetAllProjectsRequest",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "title": "Limit",
+            "minimum": 1,
+            "description": "The number of projects to return per page. Defaults to server default if not provided."
+          },
+          "cursor": {
+            "type": "string",
+            "title": "Cursor",
+            "description": "Pagination cursor from a previous response. Use the next_cursor value to fetch the next page of results."
+          }
+        }
+      }
+    },
+    {
+      "name": "list_sections",
+      "title": "List Todoist sections",
+      "description": "Read Todoist sections, optionally restricted to a project ID. Use when asked for sections or to find the exact section ID before an approved action. Follow next_cursor for more results.",
+      "inputSchema": {
+        "type": "object",
+        "title": "ListSectionsRequest",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "title": "Limit",
+            "minimum": 1,
+            "examples": [
+              50,
+              100
+            ],
+            "description": "The number of objects to return in a page. Default is 50."
+          },
+          "cursor": {
+            "type": "string",
+            "title": "Cursor",
+            "examples": [
+              "eyJwYWdlIjogMn0"
+            ],
+            "description": "Pagination cursor for fetching the next page of results. Use the next_cursor value from a previous response."
+          },
+          "project_id": {
+            "type": "string",
+            "title": "Project Id",
+            "examples": [
+              "2203306141"
+            ],
+            "description": "String ID of the project to get sections from. If omitted or null, get sections from all projects."
+          }
+        },
+        "description": "Request model for listing sections with pagination support."
+      }
+    },
+    {
+      "name": "manage_labels",
+      "title": "Manage labels",
+      "description": "List, create, update, or delete personal Todoist labels. Use for label management and finding existing label IDs. Choose the action explicitly. List first to resolve a name; clarify duplicate matches. Deleting a label removes it from tasks, not the tasks themselves. These label operations do not require a confirmation popup.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "list",
+              "create",
+              "update",
+              "delete"
+            ],
+            "description": "Choose list, create, update, or delete. Create requires name; update/delete require label_id. Update requires at least one changed field."
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit",
+            "default": 50,
+            "minimum": 1,
+            "examples": [
+              50,
+              100
+            ],
+            "description": "The number of objects to return in a page. Default is 50."
+          },
+          "cursor": {
+            "type": "string",
+            "title": "Cursor",
+            "examples": [
+              "eyJpZCI6ICI3MTg0MzI5OCIsICJvcmRlciI6IDB9"
+            ],
+            "description": "Cursor for pagination. Use the next_cursor value from the previous response to get the next page of results."
+          },
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "examples": [
+              "Updated Reading Label",
+              "Work Tasks"
+            ],
+            "maxLength": 128,
+            "minLength": 1,
+            "description": "Updated label name. Must be between 1 and 128 characters if provided. Passing null or omitting this field will leave it unchanged."
+          },
+          "color": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "title": "Color",
+            "examples": [
+              "blue",
+              "charcoal",
+              30,
+              41
+            ],
+            "description": "Label color. Can be a color name (e.g., 'blue', 'red') or a color code (integer). Passing null or omitting this field will leave it unchanged."
+          },
+          "order": {
+            "type": "integer",
+            "title": "Order",
+            "examples": [
+              1,
+              5,
+              10
+            ],
+            "description": "Position of the label in the label list. Used by clients to sort labels. Passing null or omitting this field will leave it unchanged."
+          },
+          "is_favorite": {
+            "type": "boolean",
+            "title": "Is Favorite",
+            "examples": [
+              true,
+              false
+            ],
+            "description": "Whether the label is marked as a favorite. Passing null or omitting this field will leave it unchanged."
+          },
+          "label_id": {
+            "type": "string",
+            "title": "Label Id",
+            "examples": [
+              "2182932094"
+            ],
+            "description": "The ID of the personal label to delete. All instances of the label will be removed from tasks."
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    }
+  ]
+}
