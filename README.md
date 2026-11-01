@@ -1,6 +1,8 @@
 # voiceos-integrations
 
-VoiceOS MCP integrations built by Agentic AI @ UIUC. Each integration lives in its own folder under `integrations/`.
+voice os (yc p25) mcp integrations built by Agentic AI @ UIUC MTS. this is an internal repo to our mts
+
+Each integration lives in its own folder under `integrations/`.
 
 ```
 integrations/
