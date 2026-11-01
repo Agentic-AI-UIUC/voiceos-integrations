@@ -16,6 +16,8 @@
 
 <!-- Which actions you ran live in VoiceOS, and what happened. Screenshots or a short recording help reviewers. -->
 
+<!-- Please also show that your tests effectively pass with unit and integration tests-->
+
 ## Checklist
 
 - [ ] Everything lives in `integrations/<name>/` and nothing outside it changed

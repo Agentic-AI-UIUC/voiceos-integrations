@@ -14,7 +14,7 @@ integrations/
 1. Fork this repo and create a branch.
 2. Add your integration as `integrations/<name>/`. It must contain `package.json`, `bun.lock`, `server.ts`, `run.sh`, `voiceos.integration.json` and `.env.example`.
 3. Open a pull request into `main`.
-4. CI must pass and a reviewer from `@Agentic-AI-UIUC/voiceos-reviewers` must approve before it can merge.
+4. CI must pass and a code owner (@kidskoding or @syafino) must approve before it can merge.
 
 ## CI checks
 
