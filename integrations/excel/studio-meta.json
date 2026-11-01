@@ -1,0 +1,441 @@
+{
+  "originalPrompt": "Build a Microsoft Excel (Cloud) integration for VoiceOS using Composio.\n\nUse Composio-managed OAuth2 to connect a Microsoft 365 account.\n\nFor the initial version, expose only these two Composio tools:\n- EXCEL_GET_WORKBOOK\n- EXCEL_GET_RANGE\n\nDo not expose any other tools.\n\nUse the Composio API key provided during integration setup. Return structured JSON containing the workbook information or requested cell values.\n\nHandle missing, expired, or revoked authentication with clear error messages.\n\nUse native VoiceOS result cards to display workbook information and Excel range data.\n\nDo not build an additional AI agent. VoiceOS Agent Mode will handle tool selection and responses.\n\nFocus on making authentication and these two tools work correctly. Additional tools will be added later.",
+  "preview": {
+    "utterances": [
+      "What worksheets are in my Excel workbook?",
+      "Show me the numbers in cells 'VoiceOS QA'!A1:C4",
+      "Rename worksheet Sheet1 to Revenue Summary",
+      "Append a new QA result row to ReleaseQATable",
+      "Update cell range Sheet1!A1:B2 with the latest sales figures"
+    ],
+    "toolPreviews": [
+      {
+        "tool": "excel_get_workbook",
+        "sampleArgs": {
+          "workbook_id": "AF3F7AC4C1C35888!sd7d606b969da41cba957662263ee8d07"
+        },
+        "stressCases": [
+          {
+            "state": "empty",
+            "sampleArgs": {
+              "workbook_id": "01EMPTY_WORKBOOK_ID"
+            },
+            "sampleData": {
+              "name": "Empty_Model.xlsx",
+              "id": "01EMPTY_WORKBOOK_ID",
+              "worksheets": []
+            },
+            "expected": "Card displays 'Connected · Active Workbook' status and item ID cleanly"
+          },
+          {
+            "state": "single",
+            "sampleArgs": {
+              "workbook_id": "01SINGLE_SHEET_ID"
+            },
+            "sampleData": {
+              "name": "Annual_Budget.xlsx",
+              "id": "01SINGLE_SHEET_ID",
+              "worksheets": [
+                {
+                  "name": "Summary",
+                  "position": 0
+                }
+              ]
+            },
+            "expected": "Card displays single active worksheet tab with total sheet count cleanly"
+          },
+          {
+            "state": "long-text",
+            "sampleArgs": {
+              "workbook_id": "01LONG_TITLE_WORKBOOK_ID"
+            },
+            "sampleData": {
+              "name": "Global_Enterprise_Consolidated_Financial_Forecast_and_Variance_Analysis_FY2025_Q4_Final_Approved_Version_v3_Consolidated_Executive_Review.xlsx",
+              "id": "01LONG_TITLE_WORKBOOK_ID",
+              "worksheets": [
+                {
+                  "name": "Executive_Summary_and_Capital_Allocation_Overview_North_America",
+                  "position": 0
+                }
+              ]
+            },
+            "expected": "Truncates the pathologically long workbook file name with an ellipsis in one line"
+          },
+          {
+            "state": "error",
+            "sampleArgs": {
+              "workbook_id": "01INVALID_ID"
+            },
+            "sampleData": {
+              "error": "Microsoft 365 authentication is missing, expired, or revoked in Composio. Reconnect at app.composio.dev."
+            },
+            "expected": "Renders an error card badge detailing Microsoft 365 auth expiration and reconnect instructions"
+          }
+        ],
+        "sampleGlance": {
+          "blocks": [
+            {
+              "type": "widget",
+              "html": "<!doctype html><html data-k-accent=\"\" style=\"--accent:#107c41;--accent-light:#107c41\"><head><meta charset=\"utf-8\"><style>*{box-sizing:border-box;margin:0;padding:0;scrollbar-width:none}\n/* No scrollbar chrome, EVER — on the document or on anything an author makes\n   scrollable inside it. A card is glanced at on black glass; a scrollbar is\n   desktop-browser furniture that instantly breaks that. This is the same\n   rule the notch window applies to itself, mirrored here because the host's\n   CSS cannot reach into the sandbox. Content stays scrollable (wheel,\n   trackpad, drag) — only the bar is gone. */\n::-webkit-scrollbar{display:none}\n:root{--ink-1:rgba(255,255,255,.95);--ink-2:rgba(255,255,255,.72);--ink-3:rgba(255,255,255,.5);--ink-4:rgba(255,255,255,.42);--line:rgba(255,255,255,.08);--fill-1:rgba(255,255,255,.06);--fill-2:rgba(255,255,255,.1);--track:rgba(255,255,255,.12);--good:#30d158;--bad:#ff453a;--accent:#3987e5;--k-radius:26px;color-scheme:dark}\nhtml[data-k-theme=light]{--ink-1:rgba(0,0,0,.92);--ink-2:rgba(0,0,0,.66);--ink-3:rgba(0,0,0,.46);--ink-4:rgba(0,0,0,.38);--line:rgba(0,0,0,.09);--fill-1:rgba(0,0,0,.04);--fill-2:rgba(0,0,0,.07);--track:rgba(0,0,0,.1);color-scheme:light;--accent:var(--accent-light,#2563c9)}\n/* A body background PROPAGATES to the frame canvas — a transparent root does\n   not stop that; per spec the canvas takes body's background when the root\n   has none. So an author's `body{background:#111}` fills the whole frame,\n   square and full-height, which is the right outcome: every host clips the\n   frame at the card arc, so the fill meets the corner exactly. The one trap\n   is repeat — the canvas tiles a gradient sized to a short body, so any\n   gradient put on body must say no-repeat (the kit's accent wash does). */\nbody{font:13.5px/1.45 -apple-system,BlinkMacSystemFont,\"SF Pro Text\",\"Segoe UI\",system-ui,sans-serif;color:var(--ink-1);background:transparent;border-radius:var(--k-radius);-webkit-font-smoothing:antialiased}\n.k-wrap{padding:13px 15px 14px;display:flex;flex-direction:column;gap:10px;border-radius:var(--k-radius)}\n.k-wrap.k-confirm{padding-bottom:52px}\n.k-num{font-variant-numeric:tabular-nums;font-feature-settings:\"tnum\"}\n.k-hd{display:flex;align-items:center;justify-content:space-between;gap:10px}\n.k-hd-l{display:flex;align-items:center;gap:7px;min-width:0}\n.k-dot{width:6px;height:6px;border-radius:50%;background:var(--accent);flex:none}\n.k-mk{display:flex;align-items:center;flex:none}\n.k-mk:empty{display:none}\n.k-mk-i{width:15px;height:15px;border-radius:4px;object-fit:contain;display:block}\n.k-hd-t{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n.k-hd-tr{font-size:11px;color:var(--ink-4);white-space:nowrap;flex:none}\n.k-hd-sub{font-size:14.5px;font-weight:590;letter-spacing:-.01em;margin-top:-4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n.k-list{display:flex;flex-direction:column}\n.k-rw{display:flex;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--line);text-decoration:none;color:inherit;min-width:0}\n.k-rw:first-child{border-top:0;padding-top:1px}\na.k-rw{cursor:pointer}\na.k-rw:hover .k-rw-t{color:var(--accent)}\n.k-rw-img{width:32px;height:32px;border-radius:6px;object-fit:cover;flex:none;background:var(--fill-1)}\n.k-rw-m{min-width:0;flex:1}\n.k-rw-t{font-size:14px;font-weight:590;letter-spacing:-.01em;line-height:1.25;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n.k-rw-sub{font-size:11.5px;color:var(--ink-3);line-height:1.35;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n.k-rw-tr{text-align:right;flex:none;display:flex;flex-direction:column;align-items:flex-end}\n.k-rw-tr .k-num{font-size:12px;color:var(--ink-2)}\n.k-rw-trs{font-size:10px;color:var(--ink-4);line-height:1.2}\n.k-more{font-size:11px;color:var(--ink-4);padding-top:7px;border-top:1px solid var(--line)}\n.k-chip{font-size:10.5px;font-weight:600;letter-spacing:.02em;padding:2px 7px;border-radius:999px;background:var(--fill-1);white-space:nowrap;flex:none}\n.k-bdg{display:flex;gap:6px;flex-wrap:wrap}\n.k-sts{display:flex;gap:18px}\n.k-sts.k-ruled{padding-top:9px;border-top:1px solid var(--line)}\n.k-st{min-width:0}\n.k-st-v{font-size:24px;font-weight:600;letter-spacing:-.02em;line-height:1.1;font-variant-numeric:tabular-nums;white-space:nowrap}\n.k-st-d{font-size:11px;font-weight:500;color:var(--ink-3);margin-left:5px;letter-spacing:0}\n.k-st-l{font-size:11px;color:var(--ink-3);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n.k-kvs{display:flex;flex-direction:column;gap:0}\n.k-kv{display:flex;align-items:baseline;justify-content:space-between;gap:14px;padding:3px 0}\n.k-kv-l{font-size:12.5px;color:var(--ink-3);white-space:nowrap}\n.k-kv-v{font-size:12.5px;color:var(--ink-1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right}\n.k-bars{display:flex;align-items:flex-end;gap:6px;height:72px}\n.k-bar{flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;min-width:0}\n.k-bar-c{width:100%;height:56px;display:flex;align-items:flex-end;justify-content:center;position:relative}\n.k-bar-f{width:100%;background:var(--fill-2);border-radius:4px 4px 2px 2px}\n.k-bar-f.k-on{background:var(--accent)}\n.k-bar-v{position:absolute;top:-2px;font-size:10px;font-weight:600;color:var(--ink-2);font-variant-numeric:tabular-nums}\n.k-bar-l{font-size:10px;color:var(--ink-4);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}\n.k-spk{width:100%;height:32px;display:block;overflow:visible}\n.k-spk-x{display:flex;justify-content:space-between;font-size:10px;color:var(--ink-4);margin-top:4px;font-variant-numeric:tabular-nums}\n.k-cap{font-size:10px;color:var(--ink-4);margin-top:4px}\n.k-mt-h{display:flex;justify-content:space-between;gap:12px;font-size:11.5px;color:var(--ink-3);margin-bottom:6px}\n.k-mt{height:5px;border-radius:5px;background:var(--track);overflow:hidden}\n.k-mt-f{height:100%;border-radius:5px}\n.k-hero{display:flex;align-items:center;gap:12px;min-width:0}\n.k-hero-img{width:52px;height:52px;border-radius:8px;object-fit:cover;flex:none;background:var(--fill-1)}\n.k-hero-m{min-width:0}\n.k-hero-e{font-size:10px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-4)}\n.k-hero-t{font-size:17px;font-weight:640;letter-spacing:-.02em;line-height:1.2;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n.k-hero-s{font-size:12.5px;color:var(--ink-3);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n.k-note{font-size:12.5px;line-height:1.4;color:var(--ink-2);overflow-wrap:anywhere;word-break:break-word}\n.k-div{height:1px;background:var(--line);margin:4px 0}\n.k-empty{text-align:center;padding:8px 0}\n.k-empty-t{font-size:13px;color:var(--ink-3)}\n.k-empty-h{font-size:11.5px;color:var(--ink-4);margin-top:3px}\n.k-fld{display:block}\n.k-fld-l{display:block;font-size:11px;color:var(--ink-3);margin-bottom:5px}\n.k-in{width:100%;font:13px/1.4 inherit;color:var(--ink-1);background:var(--fill-1);border:1px solid var(--line);border-radius:7px;padding:7px 9px;outline:none;resize:none}\n.k-in:focus{border-color:var(--accent)}\n/* Custom-card shell (renderCustom): no padding, no gap, no layout opinion —\n   the author owns the surface edge to edge. Only the confirm reserve, the\n   floated mark, and the corner are the kit's.\n\n   The corner is the kit's because it is not the author's to choose: the host\n   cuts the card at --k-radius whatever this document says, so a surface drawn\n   at any other radius shows a second edge inside the real one. Carrying it\n   here means a card that paints a background or border on this element lands\n   on the host's arc for free; a card that paints its own root still has\n   var(--k-radius) to name. */\n.k-cwrap{position:relative;border-radius:var(--k-radius)}\n.k-cwrap.k-confirm{padding-bottom:52px}\n.k-mkbar{position:absolute;top:11px;left:13px;z-index:9;display:flex}\n/* ---- Surface finish (default-on) ----------------------------------------\n   The liquid-glass rim: a 1px hairline with a brighter top edge, drawn as an\n   INSET shadow on a fixed overlay so it (a) hugs the visible frame whatever\n   height the content settles at, and (b) shares border-radius:var(--k-radius)\n   with the host's clip — same arc, drawn inward, so it can neither gap nor\n   get shaved by the cutout. This is the same rim recipe the notch's own\n   chrome uses. */\n.k-rim{position:fixed;inset:0;pointer-events:none;z-index:40;border-radius:var(--k-radius);box-shadow:inset 0 1px 0 rgba(255,255,255,.13),inset 0 0 0 1px rgba(255,255,255,.07)}\nhtml[data-k-theme=light] .k-rim{box-shadow:inset 0 1px 0 rgba(255,255,255,.7),inset 0 0 0 1px rgba(0,0,0,.1)}\n/* Brand presence (only when the integration declared an accent):\n   a soft wash of the brand colour bleeding out of the top-left corner —\n   colour the SURFACE, never the mark. The mark stays the bare glyph: a tile\n   painted under the logo is chrome the icon didn't ask for, and it reads as\n   the harness inventing a colour (see WIDGET_MARK_FLATTEN_HTML in ../ui.ts,\n   which strips exactly that tile out of documents generated while the kit\n   still drew one). color-mix degrades to no wash on engines without it. */\nhtml[data-k-accent] body{background:radial-gradient(150% 120% at 0% 0%,color-mix(in srgb,var(--accent) 15%,transparent),transparent 44%) no-repeat}\nhtml[data-k-theme=light][data-k-accent] body{background:radial-gradient(150% 120% at 0% 0%,color-mix(in srgb,var(--accent) 9%,transparent),transparent 44%) no-repeat}\n/* The entrance is OPT-IN, never opt-out. Declaring `animation: … both` from\n   opacity:0 and cancelling it under prefers-reduced-motion:reduce means any\n   environment that doesn't actually run animations — a headless renderer, a\n   paused compositor, a screenshotter — paints an invisible card and never\n   recovers. Gating on no-preference makes the un-animated state the readable\n   one, so the worst case is a card that simply appears. */\n@media(prefers-reduced-motion:no-preference){\n.k-wrap>*{animation:k-in .34s cubic-bezier(.22,.61,.36,1) both}\n.k-wrap>*:nth-child(2){animation-delay:.04s}\n.k-wrap>*:nth-child(3){animation-delay:.08s}\n.k-wrap>*:nth-child(n+4){animation-delay:.12s}\n}\n@keyframes k-in{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}\n\n.xl{font:13px/1.4 -apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,sans-serif;padding:12px 14px 14px}\n.xl-hd{display:flex;align-items:center;gap:10px;margin-bottom:10px}\n.xl-meta{flex:1;min-width:0}\n.xl-title{display:block;font-size:13.5px;font-weight:600;color:var(--ink-1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;letter-spacing:-.01em}\n.xl-sub{display:block;font-size:11px;color:var(--ink-3);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n.xl-chip{display:inline-flex;align-items:center;padding:2px 8px;border-radius:4px;background:color-mix(in srgb,var(--accent) 15%,transparent);border:1px solid var(--accent);color:var(--accent);font:600 11px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:.02em;text-transform:uppercase;flex:none}\n.xl-dim{font-size:11px;color:var(--ink-3);font-variant-numeric:tabular-nums;margin-left:auto}\n.xl-pill{flex:none;font-size:10px;font-weight:600;letter-spacing:.02em;padding:2px 7px;border-radius:999px;white-space:nowrap;background:color-mix(in srgb,var(--accent) 18%,transparent);color:var(--accent)}\n.xl-pill.good{background:color-mix(in srgb,var(--good) 18%,transparent);color:var(--good)}\n.xl-pill.bad{background:color-mix(in srgb,var(--bad) 18%,transparent);color:var(--bad)}\n.xl-status-bar{display:flex;align-items:center;gap:6px;padding:6px 9px;border-radius:5px;background:var(--fill-1);border:1px solid var(--line);margin-bottom:10px}\n.xl-status-dot{width:6px;height:6px;border-radius:50%;background:var(--good);flex:none}\n.xl-status-txt{font-size:11px;font-weight:500;color:var(--ink-2);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n.xl-tabs-hd{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}\n.xl-tabs-lbl{font-size:10px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-4)}\n.xl-tabs{display:flex;align-items:center;gap:6px;overflow-x:auto;padding-bottom:2px;scrollbar-width:none}\n.xl-tabs::-webkit-scrollbar{display:none}\n.xl-tab{display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 9px;border-radius:4px;font-size:11.5px;font-weight:500;white-space:nowrap;flex:none;background:var(--fill-1);border:1px solid var(--line);color:var(--ink-2)}\n.xl-tab.active{background:color-mix(in srgb,var(--accent) 18%,transparent);border-color:var(--accent);color:var(--ink-1);font-weight:600}\n.xl-dot{width:5px;height:5px;border-radius:50%;background:var(--accent);flex:none}\n.xl-stats{display:flex;align-items:center;gap:14px;margin-top:10px;padding-top:10px;border-top:1px solid var(--line)}\n.xl-stat{flex:1;min-width:0}\n.xl-stat-k{display:block;font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:.03em;color:var(--ink-4)}\n.xl-stat-v{display:block;font-size:12.5px;font-weight:600;color:var(--ink-1);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-variant-numeric:tabular-nums}\n.xl-list{border-radius:6px;border:1px solid var(--line);background:var(--fill-1);overflow:hidden}\n.xl-rw{display:flex;align-items:center;gap:9px;padding:7px 10px;border-top:1px solid var(--line);text-decoration:none;color:inherit}\n.xl-rw:first-child{border-top:0}\n.xl-rw-idx{flex:none;width:18px;font-size:10.5px;font-weight:600;color:var(--ink-4);font-variant-numeric:tabular-nums}\n.xl-rw-m{flex:1;min-width:0}\n.xl-rw-title{display:block;font-size:12.5px;font-weight:500;color:var(--ink-1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n.xl-rw-sub{display:block;font-size:10.5px;color:var(--ink-4);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n.xl-rw-v{flex:none;font-size:11.5px;font-weight:500;color:var(--ink-3);font-variant-numeric:tabular-nums}\n.xl-hint{font-size:10.5px;color:var(--ink-4);margin-top:7px;font-style:italic}\n.xl-empty{padding:16px;text-align:center;color:var(--ink-3);font-size:12px}\n.xl-err{display:flex;align-items:flex-start;gap:8px;padding:10px 12px;border-radius:6px;background:color-mix(in srgb,var(--bad) 12%,transparent);border:1px solid color-mix(in srgb,var(--bad) 30%,transparent);color:var(--ink-1);font-size:11.5px;margin-top:8px}\n.xl-err-ico{color:var(--bad);flex:none;margin-top:1px}\n\n.xr-wrap{border-radius:6px;border:1px solid var(--line);background:var(--fill-1);overflow:hidden}\n.xr-tbl{width:100%;border-collapse:collapse;font-size:11.5px;table-layout:fixed}\n.xr-th{height:24px;padding:0 6px;background:var(--fill-2);border-right:1px solid var(--line);border-bottom:1px solid var(--line);font-size:10px;font-weight:600;color:var(--ink-3);text-align:center;user-select:none}\n.xr-corner{width:28px;background:var(--fill-2);border-right:1px solid var(--line);border-bottom:1px solid var(--line)}\n.xr-idx{width:28px;height:25px;padding:0 4px;background:var(--fill-2);border-right:1px solid var(--line);border-bottom:1px solid var(--line);font-size:10px;font-weight:600;color:var(--ink-3);text-align:center;user-select:none;font-variant-numeric:tabular-nums}\n.xr-cell{height:25px;padding:0 7px;border-right:1px solid var(--line);border-bottom:1px solid var(--line);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11.5px;background:var(--fill-1)}\n.xr-cell:last-child{border-right:0}\n.xr-rw:last-child .xr-cell{border-bottom:0}\n.xr-rw:last-child .xr-idx{border-bottom:0}\n.xr-num{text-align:right;font-variant-numeric:tabular-nums;color:var(--ink-1)}\n.xr-txt{text-align:left;color:var(--ink-2)}\n.xr-blank{color:var(--ink-4);font-style:italic;font-size:11px}\n.xr-more{display:block;margin-top:6px;font-size:11px;color:var(--ink-4);text-align:right;font-style:italic}\n\n.xl-chart-box{margin-top:8px;padding:12px;border-radius:6px;border:1px solid var(--line);background:var(--fill-1);display:flex;align-items:center;justify-content:center}\n</style></head><body><div class=\"k-cwrap\">\n        <div class=\"xl\">\n          <div class=\"xl-hd\">\n            <span class=\"k-mk\" data-k-mk><img class=\"k-mk-i\" src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADAAAAAwCAIAAADYYG7QAAAAAXNSR0IArs4c6QAAATVJREFUWIXtlrFNxEAQRf9f9iREAuJMAzRAK2ScRDPUQkANlEAJFEBwwUUEnE7Y+wm8NieSEbMgOZgXWR6N/Tw7ux6+317DhSAAqz5tu8Pj5q0kQCAhAAB9DwWSN/G/CCGLELIIIYsQsgghixCyCCGLELJYnFBWnTl/zZgoSJDqnaOAd4b9uwo5v+snedU7neYhP/ckIIJCvWgY8vO2O7QI5SHtLj7rsmkO+eHDc0P29Hpx8mDVobdEuWdTGwkglKCxH6mjgAt2Ty9uGUJFp5f59e78/gTaCGuiCGBDD+2GG7cQIOhsIEVSuiLWrEVzk8kPtxChAmTuCYnoCwpQpu3mFGrIHRn3OAmBSIQEtixZU32/hTAfzkTTObS4f1kIWYSQRQhZhJBFCFmEkEUIWYSQxeKEvgDHM16kOfn8fAAAAABJRU5ErkJggg==\" alt=\"\"></span>\n            <div class=\"xl-meta\">\n              <span class=\"xl-title\">Workbook (AF3F7AC4C1C3588…)</span>\n              <span class=\"xl-sub\">OneDrive · AF3F7AC4C1C35888!sd7d…</span>\n            </div>\n          </div>\n          \n          <div class=\"xl-status-bar\"><span class=\"xl-status-dot\"></span><span class=\"xl-status-txt\">Connected · Active Workbook</span></div>\n          <div class=\"xl-stats\">\n            <div class=\"xl-stat\"><span class=\"xl-stat-k\">Status</span><span class=\"xl-stat-v\">Ready</span></div>\n            <div class=\"xl-stat\"><span class=\"xl-stat-k\">Drive Item</span><span class=\"xl-stat-v\">AF3F7AC4C1C35888!…</span></div>\n          </div>\n        \n        </div>\n      </div><div class=\"k-rim\" aria-hidden=\"true\"></div><script>(function(){\nvar send=function(m){try{parent.postMessage(m,'*')}catch(e){}};\n/* Result-widget actions. Only the parent can advertise access or return a result.\n   Confirmation is owned by VoiceOS, outside this document. Never retry a send. */\nvar pendingTools=new Map();\nvar voiceos=window.voiceos=window.voiceos||{};\nvoiceos.canInvokeTools=false;\nvoiceos.invokeTool=function(name,args,options){\n  var id=options&&options.requestId;\n  if(!id){var bytes=new Uint32Array(4);crypto.getRandomValues(bytes);id=Array.from(bytes,function(n){return n.toString(16)}).join('_')}\n  var failure=function(status,error){return {type:'voiceos:toolResult',requestId:id,status:status,error:error}};\n  if(typeof id!=='string'||!/^[a-zA-Z0-9_-]{1,128}$/.test(id))return Promise.resolve(failure('failed','Invalid requestId.'));\n  if(!voiceos.canInvokeTools)return Promise.resolve(failure('failed','Tool actions are unavailable in this card.'));\n  var signature;try{signature=JSON.stringify([name,args])}catch(e){return Promise.resolve(failure('failed','Arguments must be JSON.'))}\n  var prior=pendingTools.get(id);\n  if(prior)return prior.signature===signature?prior.promise:Promise.resolve(failure('failed','This requestId already has different arguments.'));\n  if(pendingTools.size>=64)return Promise.resolve(failure('failed','Too many pending actions.'));\n  var resolve;var promise=new Promise(function(done){resolve=done});\n  var timer=setTimeout(function(){pendingTools.delete(id);resolve(failure('unknown','No final response. Check the app before trying again.'))},135000);\n  pendingTools.set(id,{resolve:resolve,promise:promise,timer:timer,signature:signature});\n  send({type:'voiceos:invokeTool',name:name,args:args,requestId:id});\n  return promise;\n};\nvar last=0;\nvar report=function(){\n  /* Never report a collapsed measurement. A frame that is display:none, zero\n     width, or in a hidden tab measures ~0, and since the host CLAMPS to 60 and\n     we'd then consider that our last known height, one bad sample pins a\n     277px card at 60px forever. Staying silent leaves the declared estimate\n     in place, which is close to right by construction. */\n  if(document.hidden)return;\n  var el=document.documentElement;\n  if(!el.offsetWidth)return;\n  var h=Math.ceil(el.getBoundingClientRect().height);\n  if(h<8)return;\n  if(Math.abs(h-last)>1){last=h;send({type:'voiceos:resize',height:h})}\n};\n/* data-voiceos-key is the alias custom markup uses; data-k-key is what the\n   kit's own vField emits. Same contract either way. */\nvar argKey=function(el){\n  if(!el||!el.getAttribute)return null;\n  return el.getAttribute('data-k-key')||el.getAttribute('data-voiceos-key');\n};\naddEventListener('message',function(e){\n  if(e.source!==parent)return;\n  var m=e.data;if(!m)return;\n  if(m.type==='voiceos:toolResult'){\n    var pending=pendingTools.get(m.requestId);\n    if(pending&&['completed','failed','cancelled','unknown'].indexOf(m.status)!==-1){clearTimeout(pending.timer);pendingTools.delete(m.requestId);pending.resolve(m)}\n    return;\n  }\n  if(m.type!=='voiceos:init')return;\n  voiceos.canInvokeTools=!!(m.capabilities&&m.capabilities.invokeTool);\n  if(m.theme&&m.theme.mode)document.documentElement.setAttribute('data-k-theme',m.theme.mode);\n  /* The corner the HOST will actually cut this card at. Same shape as the\n     theme leg: the document ships with a correct default and the surface\n     corrects it, so a card is never briefly drawn at the wrong radius and\n     never depends on the host to send anything. Clamped because the value\n     lands in CSS. */\n  if(typeof m.radius==='number'&&isFinite(m.radius))document.documentElement.style.setProperty('--k-radius',Math.max(0,Math.min(48,m.radius))+'px');\n  var args=m.args||{};\n  var fields=document.querySelectorAll('[data-k-key],[data-voiceos-key]');\n  for(var i=0;i<fields.length;i++){\n    var key=argKey(fields[i]);\n    if(Object.prototype.hasOwnProperty.call(args,key)&&args[key]!=null)fields[i].value=String(args[key]);\n  }\n  report();\n});\ndocument.addEventListener('input',function(e){\n  var key=argKey(e.target);\n  if(key)send({type:'voiceos:updateInput',key:key,value:e.target.value});\n});\ndocument.addEventListener('click',function(e){\n  /* Routes BOTH the kit's data-k-link rows and plain <a href=\"https://…\">\n     anchors in custom markup out through the host. The sandbox blocks\n     navigation anyway, so an unrouted anchor is a click that does nothing. */\n  var el=e.target;\n  while(el&&el!==document.body){\n    if(el.getAttribute&&(el.hasAttribute('data-k-link')||(el.tagName==='A'&&el.hasAttribute('href')))){\n      e.preventDefault();\n      var href=el.getAttribute('href')||'';\n      if(/^https:\\/\\//i.test(href))send({type:'voiceos:openUrl',url:href});\n      return;\n    }\n    el=el.parentNode;\n  }\n});\nif(window.ResizeObserver){new ResizeObserver(report).observe(document.documentElement)}\naddEventListener('load',report);setTimeout(report,0);setTimeout(report,120);\n})()</script></body></html>",
+              "height": 155
+            }
+          ]
+        }
+      },
+      {
+        "tool": "excel_get_worksheet",
+        "sampleArgs": {
+          "worksheet_name": "Sheet1",
+          "workbook_id": "AF3F7AC4C1C35888!sd7d606b969da41cba957662263ee8d07"
+        },
+        "stressCases": [
+          {
+            "state": "long-text",
+            "sampleArgs": {
+              "worksheet_name": "FY2025_Q4_Audited_Financial_Statement_Consolidated_Review_Sheet_For_Executive_Board_Committee_Approval_Final_Version_v3",
+              "workbook_id": "AF3F7AC4C1C35888!sd7d606b969da41cba957662263ee8d07"
+            },
+            "sampleData": {
+              "name": "FY2025_Q4_Audited_Financial_Statement_Consolidated_Review_Sheet_For_Executive_Board_Committee_Approval_Final_Version_v3",
+              "position": 2,
+              "visibility": "Visible",
+              "id": "01SHEETID99"
+            },
+            "expected": "Truncates the long worksheet name with ellipsis without breaking card layout"
+          },
+          {
+            "state": "error",
+            "sampleArgs": {
+              "worksheet_name": "MissingSheet"
+            },
+            "sampleData": {
+              "error": "The worksheet 'MissingSheet' was not found in workbook AF3F7AC4C1C35888!sd7d606b969da41cba957662263ee8d07."
+            },
+            "expected": "Displays worksheet lookup error message cleanly"
+          }
+        ],
+        "sampleGlance": {
+          "blocks": [
+            {
+              "type": "widget",
+              "html": "<!doctype html><html data-k-accent=\"\" style=\"--accent:#107c41;--accent-light:#107c41\"><head><meta charset=\"utf-8\"><style>*{box-sizing:border-box;margin:0;padding:0;scrollbar-width:none}\n/* No scrollbar chrome, EVER — on the document or on anything an author makes\n   scrollable inside it. A card is glanced at on black glass; a scrollbar is\n   desktop-browser furniture that instantly breaks that. This is the same\n   rule the notch window applies to itself, mirrored here because the host's\n   CSS cannot reach into the sandbox. Content stays scrollable (wheel,\n   trackpad, drag) — only the bar is gone. */\n::-webkit-scrollbar{display:none}\n:root{--ink-1:rgba(255,255,255,.95);--ink-2:rgba(255,255,255,.72);--ink-3:rgba(255,255,255,.5);--ink-4:rgba(255,255,255,.42);--line:rgba(255,255,255,.08);--fill-1:rgba(255,255,255,.06);--fill-2:rgba(255,255,255,.1);--track:rgba(255,255,255,.12);--good:#30d158;--bad:#ff453a;--accent:#3987e5;--k-radius:26px;color-scheme:dark}\nhtml[data-k-theme=light]{--ink-1:rgba(0,0,0,.92);--ink-2:rgba(0,0,0,.66);--ink-3:rgba(0,0,0,.46);--ink-4:rgba(0,0,0,.38);--line:rgba(0,0,0,.09);--fill-1:rgba(0,0,0,.04);--fill-2:rgba(0,0,0,.07);--track:rgba(0,0,0,.1);color-scheme:light;--accent:var(--accent-light,#2563c9)}\n/* A body background PROPAGATES to the frame canvas — a transparent root does\n   not stop that; per spec the canvas takes body's background when the root\n   has none. So an author's `body{background:#111}` fills the whole frame,\n   square and full-height, which is the right outcome: every host clips the\n   frame at the card arc, so the fill meets the corner exactly. The one trap\n   is repeat — the canvas tiles a gradient sized to a short body, so any\n   gradient put on body must say no-repeat (the kit's accent wash does). */\nbody{font:13.5px/1.45 -apple-system,BlinkMacSystemFont,\"SF Pro Text\",\"Segoe UI\",system-ui,sans-serif;color:var(--ink-1);background:transparent;border-radius:var(--k-radius);-webkit-font-smoothing:antialiased}\n.k-wrap{padding:13px 15px 14px;display:flex;flex-direction:column;gap:10px;border-radius:var(--k-radius)}\n.k-wrap.k-confirm{padding-bottom:52px}\n.k-num{font-variant-numeric:tabular-nums;font-feature-settings:\"tnum\"}\n.k-hd{display:flex;align-items:center;justify-content:space-between;gap:10px}\n.k-hd-l{display:flex;align-items:center;gap:7px;min-width:0}\n.k-dot{width:6px;height:6px;border-radius:50%;background:var(--accent);flex:none}\n.k-mk{display:flex;align-items:center;flex:none}\n.k-mk:empty{display:none}\n.k-mk-i{width:15px;height:15px;border-radius:4px;object-fit:contain;display:block}\n.k-hd-t{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n.k-hd-tr{font-size:11px;color:var(--ink-4);white-space:nowrap;flex:none}\n.k-hd-sub{font-size:14.5px;font-weight:590;letter-spacing:-.01em;margin-top:-4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n.k-list{display:flex;flex-direction:column}\n.k-rw{display:flex;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--line);text-decoration:none;color:inherit;min-width:0}\n.k-rw:first-child{border-top:0;padding-top:1px}\na.k-rw{cursor:pointer}\na.k-rw:hover .k-rw-t{color:var(--accent)}\n.k-rw-img{width:32px;height:32px;border-radius:6px;object-fit:cover;flex:none;background:var(--fill-1)}\n.k-rw-m{min-width:0;flex:1}\n.k-rw-t{font-size:14px;font-weight:590;letter-spacing:-.01em;line-height:1.25;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n.k-rw-sub{font-size:11.5px;color:var(--ink-3);line-height:1.35;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n.k-rw-tr{text-align:right;flex:none;display:flex;flex-direction:column;align-items:flex-end}\n.k-rw-tr .k-num{font-size:12px;color:var(--ink-2)}\n.k-rw-trs{font-size:10px;color:var(--ink-4);line-height:1.2}\n.k-more{font-size:11px;color:var(--ink-4);padding-top:7px;border-top:1px solid var(--line)}\n.k-chip{font-size:10.5px;font-weight:600;letter-spacing:.02em;padding:2px 7px;border-radius:999px;background:var(--fill-1);white-space:nowrap;flex:none}\n.k-bdg{display:flex;gap:6px;flex-wrap:wrap}\n.k-sts{display:flex;gap:18px}\n.k-sts.k-ruled{padding-top:9px;border-top:1px solid var(--line)}\n.k-st{min-width:0}\n.k-st-v{font-size:24px;font-weight:600;letter-spacing:-.02em;line-height:1.1;font-variant-numeric:tabular-nums;white-space:nowrap}\n.k-st-d{font-size:11px;font-weight:500;color:var(--ink-3);margin-left:5px;letter-spacing:0}\n.k-st-l{font-size:11px;color:var(--ink-3);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n.k-kvs{display:flex;flex-direction:column;gap:0}\n.k-kv{display:flex;align-items:baseline;justify-content:space-between;gap:14px;padding:3px 0}\n.k-kv-l{font-size:12.5px;color:var(--ink-3);white-space:nowrap}\n.k-kv-v{font-size:12.5px;color:var(--ink-1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right}\n.k-bars{display:flex;align-items:flex-end;gap:6px;height:72px}\n.k-bar{flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;min-width:0}\n.k-bar-c{width:100%;height:56px;display:flex;align-items:flex-end;justify-content:center;position:relative}\n.k-bar-f{width:100%;background:var(--fill-2);border-radius:4px 4px 2px 2px}\n.k-bar-f.k-on{background:var(--accent)}\n.k-bar-v{position:absolute;top:-2px;font-size:10px;font-weight:600;color:var(--ink-2);font-variant-numeric:tabular-nums}\n.k-bar-l{font-size:10px;color:var(--ink-4);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}\n.k-spk{width:100%;height:32px;display:block;overflow:visible}\n.k-spk-x{display:flex;justify-content:space-between;font-size:10px;color:var(--ink-4);margin-top:4px;font-variant-numeric:tabular-nums}\n.k-cap{font-size:10px;color:var(--ink-4);margin-top:4px}\n.k-mt-h{display:flex;justify-content:space-between;gap:12px;font-size:11.5px;color:var(--ink-3);margin-bottom:6px}\n.k-mt{height:5px;border-radius:5px;background:var(--track);overflow:hidden}\n.k-mt-f{height:100%;border-radius:5px}\n.k-hero{display:flex;align-items:center;gap:12px;min-width:0}\n.k-hero-img{width:52px;height:52px;border-radius:8px;object-fit:cover;flex:none;background:var(--fill-1)}\n.k-hero-m{min-width:0}\n.k-hero-e{font-size:10px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-4)}\n.k-hero-t{font-size:17px;font-weight:640;letter-spacing:-.02em;line-height:1.2;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n.k-hero-s{font-size:12.5px;color:var(--ink-3);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n.k-note{font-size:12.5px;line-height:1.4;color:var(--ink-2);overflow-wrap:anywhere;word-break:break-word}\n.k-div{height:1px;background:var(--line);margin:4px 0}\n.k-empty{text-align:center;padding:8px 0}\n.k-empty-t{font-size:13px;color:var(--ink-3)}\n.k-empty-h{font-size:11.5px;color:var(--ink-4);margin-top:3px}\n.k-fld{display:block}\n.k-fld-l{display:block;font-size:11px;color:var(--ink-3);margin-bottom:5px}\n.k-in{width:100%;font:13px/1.4 inherit;color:var(--ink-1);background:var(--fill-1);border:1px solid var(--line);border-radius:7px;padding:7px 9px;outline:none;resize:none}\n.k-in:focus{border-color:var(--accent)}\n/* Custom-card shell (renderCustom): no padding, no gap, no layout opinion —\n   the author owns the surface edge to edge. Only the confirm reserve, the\n   floated mark, and the corner are the kit's.\n\n   The corner is the kit's because it is not the author's to choose: the host\n   cuts the card at --k-radius whatever this document says, so a surface drawn\n   at any other radius shows a second edge inside the real one. Carrying it\n   here means a card that paints a background or border on this element lands\n   on the host's arc for free; a card that paints its own root still has\n   var(--k-radius) to name. */\n.k-cwrap{position:relative;border-radius:var(--k-radius)}\n.k-cwrap.k-confirm{padding-bottom:52px}\n.k-mkbar{position:absolute;top:11px;left:13px;z-index:9;display:flex}\n/* ---- Surface finish (default-on) ----------------------------------------\n   The liquid-glass rim: a 1px hairline with a brighter top edge, drawn as an\n   INSET shadow on a fixed overlay so it (a) hugs the visible frame whatever\n   height the content settles at, and (b) shares border-radius:var(--k-radius)\n   with the host's clip — same arc, drawn inward, so it can neither gap nor\n   get shaved by the cutout. This is the same rim recipe the notch's own\n   chrome uses. */\n.k-rim{position:fixed;inset:0;pointer-events:none;z-index:40;border-radius:var(--k-radius);box-shadow:inset 0 1px 0 rgba(255,255,255,.13),inset 0 0 0 1px rgba(255,255,255,.07)}\nhtml[data-k-theme=light] .k-rim{box-shadow:inset 0 1px 0 rgba(255,255,255,.7),inset 0 0 0 1px rgba(0,0,0,.1)}\n/* Brand presence (only when the integration declared an accent):\n   a soft wash of the brand colour bleeding out of the top-left corner —\n   colour the SURFACE, never the mark. The mark stays the bare glyph: a tile\n   painted under the logo is chrome the icon didn't ask for, and it reads as\n   the harness inventing a colour (see WIDGET_MARK_FLATTEN_HTML in ../ui.ts,\n   which strips exactly that tile out of documents generated while the kit\n   still drew one). color-mix degrades to no wash on engines without it. */\nhtml[data-k-accent] body{background:radial-gradient(150% 120% at 0% 0%,color-mix(in srgb,var(--accent) 15%,transparent),transparent 44%) no-repeat}\nhtml[data-k-theme=light][data-k-accent] body{background:radial-gradient(150% 120% at 0% 0%,color-mix(in srgb,var(--accent) 9%,transparent),transparent 44%) no-repeat}\n/* The entrance is OPT-IN, never opt-out. Declaring `animation: … both` from\n   opacity:0 and cancelling it under prefers-reduced-motion:reduce means any\n   environment that doesn't actually run animations — a headless renderer, a\n   paused compositor, a screenshotter — paints an invisible card and never\n   recovers. Gating on no-preference makes the un-animated state the readable\n   one, so the worst case is a card that simply appears. */\n@media(prefers-reduced-motion:no-preference){\n.k-wrap>*{animation:k-in .34s cubic-bezier(.22,.61,.36,1) both}\n.k-wrap>*:nth-child(2){animation-delay:.04s}\n.k-wrap>*:nth-child(3){animation-delay:.08s}\n.k-wrap>*:nth-child(n+4){animation-delay:.12s}\n}\n@keyframes k-in{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}\n\n.xl{font:13px/1.4 -apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,sans-serif;padding:12px 14px 14px}\n.xl-hd{display:flex;align-items:center;gap:10px;margin-bottom:10px}\n.xl-meta{flex:1;min-width:0}\n.xl-title{display:block;font-size:13.5px;font-weight:600;color:var(--ink-1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;letter-spacing:-.01em}\n.xl-sub{display:block;font-size:11px;color:var(--ink-3);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n.xl-chip{display:inline-flex;align-items:center;padding:2px 8px;border-radius:4px;background:color-mix(in srgb,var(--accent) 15%,transparent);border:1px solid var(--accent);color:var(--accent);font:600 11px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:.02em;text-transform:uppercase;flex:none}\n.xl-dim{font-size:11px;color:var(--ink-3);font-variant-numeric:tabular-nums;margin-left:auto}\n.xl-pill{flex:none;font-size:10px;font-weight:600;letter-spacing:.02em;padding:2px 7px;border-radius:999px;white-space:nowrap;background:color-mix(in srgb,var(--accent) 18%,transparent);color:var(--accent)}\n.xl-pill.good{background:color-mix(in srgb,var(--good) 18%,transparent);color:var(--good)}\n.xl-pill.bad{background:color-mix(in srgb,var(--bad) 18%,transparent);color:var(--bad)}\n.xl-status-bar{display:flex;align-items:center;gap:6px;padding:6px 9px;border-radius:5px;background:var(--fill-1);border:1px solid var(--line);margin-bottom:10px}\n.xl-status-dot{width:6px;height:6px;border-radius:50%;background:var(--good);flex:none}\n.xl-status-txt{font-size:11px;font-weight:500;color:var(--ink-2);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n.xl-tabs-hd{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}\n.xl-tabs-lbl{font-size:10px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-4)}\n.xl-tabs{display:flex;align-items:center;gap:6px;overflow-x:auto;padding-bottom:2px;scrollbar-width:none}\n.xl-tabs::-webkit-scrollbar{display:none}\n.xl-tab{display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 9px;border-radius:4px;font-size:11.5px;font-weight:500;white-space:nowrap;flex:none;background:var(--fill-1);border:1px solid var(--line);color:var(--ink-2)}\n.xl-tab.active{background:color-mix(in srgb,var(--accent) 18%,transparent);border-color:var(--accent);color:var(--ink-1);font-weight:600}\n.xl-dot{width:5px;height:5px;border-radius:50%;background:var(--accent);flex:none}\n.xl-stats{display:flex;align-items:center;gap:14px;margin-top:10px;padding-top:10px;border-top:1px solid var(--line)}\n.xl-stat{flex:1;min-width:0}\n.xl-stat-k{display:block;font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:.03em;color:var(--ink-4)}\n.xl-stat-v{display:block;font-size:12.5px;font-weight:600;color:var(--ink-1);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-variant-numeric:tabular-nums}\n.xl-list{border-radius:6px;border:1px solid var(--line);background:var(--fill-1);overflow:hidden}\n.xl-rw{display:flex;align-items:center;gap:9px;padding:7px 10px;border-top:1px solid var(--line);text-decoration:none;color:inherit}\n.xl-rw:first-child{border-top:0}\n.xl-rw-idx{flex:none;width:18px;font-size:10.5px;font-weight:600;color:var(--ink-4);font-variant-numeric:tabular-nums}\n.xl-rw-m{flex:1;min-width:0}\n.xl-rw-title{display:block;font-size:12.5px;font-weight:500;color:var(--ink-1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n.xl-rw-sub{display:block;font-size:10.5px;color:var(--ink-4);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n.xl-rw-v{flex:none;font-size:11.5px;font-weight:500;color:var(--ink-3);font-variant-numeric:tabular-nums}\n.xl-hint{font-size:10.5px;color:var(--ink-4);margin-top:7px;font-style:italic}\n.xl-empty{padding:16px;text-align:center;color:var(--ink-3);font-size:12px}\n.xl-err{display:flex;align-items:flex-start;gap:8px;padding:10px 12px;border-radius:6px;background:color-mix(in srgb,var(--bad) 12%,transparent);border:1px solid color-mix(in srgb,var(--bad) 30%,transparent);color:var(--ink-1);font-size:11.5px;margin-top:8px}\n.xl-err-ico{color:var(--bad);flex:none;margin-top:1px}\n\n.xr-wrap{border-radius:6px;border:1px solid var(--line);background:var(--fill-1);overflow:hidden}\n.xr-tbl{width:100%;border-collapse:collapse;font-size:11.5px;table-layout:fixed}\n.xr-th{height:24px;padding:0 6px;background:var(--fill-2);border-right:1px solid var(--line);border-bottom:1px solid var(--line);font-size:10px;font-weight:600;color:var(--ink-3);text-align:center;user-select:none}\n.xr-corner{width:28px;background:var(--fill-2);border-right:1px solid var(--line);border-bottom:1px solid var(--line)}\n.xr-idx{width:28px;height:25px;padding:0 4px;background:var(--fill-2);border-right:1px solid var(--line);border-bottom:1px solid var(--line);font-size:10px;font-weight:600;color:var(--ink-3);text-align:center;user-select:none;font-variant-numeric:tabular-nums}\n.xr-cell{height:25px;padding:0 7px;border-right:1px solid var(--line);border-bottom:1px solid var(--line);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11.5px;background:var(--fill-1)}\n.xr-cell:last-child{border-right:0}\n.xr-rw:last-child .xr-cell{border-bottom:0}\n.xr-rw:last-child .xr-idx{border-bottom:0}\n.xr-num{text-align:right;font-variant-numeric:tabular-nums;color:var(--ink-1)}\n.xr-txt{text-align:left;color:var(--ink-2)}\n.xr-blank{color:var(--ink-4);font-style:italic;font-size:11px}\n.xr-more{display:block;margin-top:6px;font-size:11px;color:var(--ink-4);text-align:right;font-style:italic}\n\n.xl-chart-box{margin-top:8px;padding:12px;border-radius:6px;border:1px solid var(--line);background:var(--fill-1);display:flex;align-items:center;justify-content:center}\n</style></head><body><div class=\"k-cwrap\">\n        <div class=\"xl\">\n          <div class=\"xl-hd\">\n            <span class=\"k-mk\" data-k-mk><img class=\"k-mk-i\" src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADAAAAAwCAIAAADYYG7QAAAAAXNSR0IArs4c6QAAATVJREFUWIXtlrFNxEAQRf9f9iREAuJMAzRAK2ScRDPUQkANlEAJFEBwwUUEnE7Y+wm8NieSEbMgOZgXWR6N/Tw7ux6+317DhSAAqz5tu8Pj5q0kQCAhAAB9DwWSN/G/CCGLELIIIYsQsgghixCyCCGLELJYnFBWnTl/zZgoSJDqnaOAd4b9uwo5v+snedU7neYhP/ckIIJCvWgY8vO2O7QI5SHtLj7rsmkO+eHDc0P29Hpx8mDVobdEuWdTGwkglKCxH6mjgAt2Ty9uGUJFp5f59e78/gTaCGuiCGBDD+2GG7cQIOhsIEVSuiLWrEVzk8kPtxChAmTuCYnoCwpQpu3mFGrIHRn3OAmBSIQEtixZU32/hTAfzkTTObS4f1kIWYSQRQhZhJBFCFmEkEUIWYSQxeKEvgDHM16kOfn8fAAAAABJRU5ErkJggg==\" alt=\"\"></span>\n            <div class=\"xl-meta\">\n              <span class=\"xl-title\">Sheet1</span>\n              <span class=\"xl-sub\">Worksheet details</span>\n            </div>\n            <span class=\"xl-pill good\">Visible</span>\n          </div>\n          <div class=\"xl-stats\">\n            <div class=\"xl-stat\"><span class=\"xl-stat-k\">Index</span><span class=\"xl-stat-v\">#1</span></div>\n            <div class=\"xl-stat\"><span class=\"xl-stat-k\">Sheet ID</span><span class=\"xl-stat-v\">{00000000-0001-…</span></div>\n          </div>\n          <div class=\"xl-hint\">Use excel_get_range to inspect cell data in this sheet.</div>\n        </div>\n      </div><div class=\"k-rim\" aria-hidden=\"true\"></div><script>(function(){\nvar send=function(m){try{parent.postMessage(m,'*')}catch(e){}};\n/* Result-widget actions. Only the parent can advertise access or return a result.\n   Confirmation is owned by VoiceOS, outside this document. Never retry a send. */\nvar pendingTools=new Map();\nvar voiceos=window.voiceos=window.voiceos||{};\nvoiceos.canInvokeTools=false;\nvoiceos.invokeTool=function(name,args,options){\n  var id=options&&options.requestId;\n  if(!id){var bytes=new Uint32Array(4);crypto.getRandomValues(bytes);id=Array.from(bytes,function(n){return n.toString(16)}).join('_')}\n  var failure=function(status,error){return {type:'voiceos:toolResult',requestId:id,status:status,error:error}};\n  if(typeof id!=='string'||!/^[a-zA-Z0-9_-]{1,128}$/.test(id))return Promise.resolve(failure('failed','Invalid requestId.'));\n  if(!voiceos.canInvokeTools)return Promise.resolve(failure('failed','Tool actions are unavailable in this card.'));\n  var signature;try{signature=JSON.stringify([name,args])}catch(e){return Promise.resolve(failure('failed','Arguments must be JSON.'))}\n  var prior=pendingTools.get(id);\n  if(prior)return prior.signature===signature?prior.promise:Promise.resolve(failure('failed','This requestId already has different arguments.'));\n  if(pendingTools.size>=64)return Promise.resolve(failure('failed','Too many pending actions.'));\n  var resolve;var promise=new Promise(function(done){resolve=done});\n  var timer=setTimeout(function(){pendingTools.delete(id);resolve(failure('unknown','No final response. Check the app before trying again.'))},135000);\n  pendingTools.set(id,{resolve:resolve,promise:promise,timer:timer,signature:signature});\n  send({type:'voiceos:invokeTool',name:name,args:args,requestId:id});\n  return promise;\n};\nvar last=0;\nvar report=function(){\n  /* Never report a collapsed measurement. A frame that is display:none, zero\n     width, or in a hidden tab measures ~0, and since the host CLAMPS to 60 and\n     we'd then consider that our last known height, one bad sample pins a\n     277px card at 60px forever. Staying silent leaves the declared estimate\n     in place, which is close to right by construction. */\n  if(document.hidden)return;\n  var el=document.documentElement;\n  if(!el.offsetWidth)return;\n  var h=Math.ceil(el.getBoundingClientRect().height);\n  if(h<8)return;\n  if(Math.abs(h-last)>1){last=h;send({type:'voiceos:resize',height:h})}\n};\n/* data-voiceos-key is the alias custom markup uses; data-k-key is what the\n   kit's own vField emits. Same contract either way. */\nvar argKey=function(el){\n  if(!el||!el.getAttribute)return null;\n  return el.getAttribute('data-k-key')||el.getAttribute('data-voiceos-key');\n};\naddEventListener('message',function(e){\n  if(e.source!==parent)return;\n  var m=e.data;if(!m)return;\n  if(m.type==='voiceos:toolResult'){\n    var pending=pendingTools.get(m.requestId);\n    if(pending&&['completed','failed','cancelled','unknown'].indexOf(m.status)!==-1){clearTimeout(pending.timer);pendingTools.delete(m.requestId);pending.resolve(m)}\n    return;\n  }\n  if(m.type!=='voiceos:init')return;\n  voiceos.canInvokeTools=!!(m.capabilities&&m.capabilities.invokeTool);\n  if(m.theme&&m.theme.mode)document.documentElement.setAttribute('data-k-theme',m.theme.mode);\n  /* The corner the HOST will actually cut this card at. Same shape as the\n     theme leg: the document ships with a correct default and the surface\n     corrects it, so a card is never briefly drawn at the wrong radius and\n     never depends on the host to send anything. Clamped because the value\n     lands in CSS. */\n  if(typeof m.radius==='number'&&isFinite(m.radius))document.documentElement.style.setProperty('--k-radius',Math.max(0,Math.min(48,m.radius))+'px');\n  var args=m.args||{};\n  var fields=document.querySelectorAll('[data-k-key],[data-voiceos-key]');\n  for(var i=0;i<fields.length;i++){\n    var key=argKey(fields[i]);\n    if(Object.prototype.hasOwnProperty.call(args,key)&&args[key]!=null)fields[i].value=String(args[key]);\n  }\n  report();\n});\ndocument.addEventListener('input',function(e){\n  var key=argKey(e.target);\n  if(key)send({type:'voiceos:updateInput',key:key,value:e.target.value});\n});\ndocument.addEventListener('click',function(e){\n  /* Routes BOTH the kit's data-k-link rows and plain <a href=\"https://…\">\n     anchors in custom markup out through the host. The sandbox blocks\n     navigation anyway, so an unrouted anchor is a click that does nothing. */\n  var el=e.target;\n  while(el&&el!==document.body){\n    if(el.getAttribute&&(el.hasAttribute('data-k-link')||(el.tagName==='A'&&el.hasAttribute('href')))){\n      e.preventDefault();\n      var href=el.getAttribute('href')||'';\n      if(/^https:\\/\\//i.test(href))send({type:'voiceos:openUrl',url:href});\n      return;\n    }\n    el=el.parentNode;\n  }\n});\nif(window.ResizeObserver){new ResizeObserver(report).observe(document.documentElement)}\naddEventListener('load',report);setTimeout(report,0);setTimeout(report,120);\n})()</script></body></html>",
+              "height": 150
+            }
+          ]
+        }
+      },
+      {
+        "tool": "excel_get_range",
+        "sampleArgs": {
+          "range": "'VoiceOS QA'!A1:B4",
+          "workbook_id": "AF3F7AC4C1C35888!sd7d606b969da41cba957662263ee8d07"
+        },
+        "stressCases": [
+          {
+            "state": "empty",
+            "sampleArgs": {
+              "range": "Sheet1!Z90:AA92"
+            },
+            "sampleData": {
+              "address": "Sheet1!Z90:AA92",
+              "values": [],
+              "rowCount": 0,
+              "columnCount": 0
+            },
+            "expected": "Micro-grid displays 'Empty range (no cell data)' message"
+          },
+          {
+            "state": "single",
+            "sampleArgs": {
+              "range": "'VoiceOS QA'!B2"
+            },
+            "sampleData": {
+              "address": "'VoiceOS QA'!B2",
+              "values": [
+                [
+                  "$482,900"
+                ]
+              ],
+              "rowCount": 1,
+              "columnCount": 1
+            },
+            "expected": "A single cell holds the micro-grid composition cleanly without extra dividers"
+          },
+          {
+            "state": "long-text",
+            "sampleArgs": {
+              "range": "Notes!A1:B2"
+            },
+            "sampleData": {
+              "address": "Notes!A1:B2",
+              "values": [
+                [
+                  "Executive Summary Note",
+                  "This quarterly financial model projection assumes enterprise software contract renewals close prior to fiscal year end with zero churn across strategic accounts"
+                ],
+                [
+                  "Status",
+                  "Pending Audit Committee Review and Board Approval"
+                ]
+              ],
+              "rowCount": 2,
+              "columnCount": 2
+            },
+            "expected": "Cell text truncates neatly with an ellipsis without bursting the card boundary"
+          },
+          {
+            "state": "error",
+            "sampleArgs": {
+              "range": "InvalidRangeSyntax!$$$%%%"
+            },
+            "sampleData": {
+              "error": "Composio action error (EXCEL_GET_RANGE): [INVALID_RANGE] The range specification 'InvalidRangeSyntax!$$$%%%' is invalid."
+            },
+            "expected": "Renders an alert strip displaying the range syntax error and target address"
+          }
+        ]
+      },
+      {
+        "tool": "excel_list_worksheets",
+        "sampleArgs": {
+          "workbook_id": "AF3F7AC4C1C35888!sd7d606b969da41cba957662263ee8d07"
+        },
+        "stressCases": [
+          {
+            "state": "empty",
+            "sampleArgs": {
+              "workbook_id": "01EMPTY_ID"
+            },
+            "sampleData": {
+              "worksheets": [],
+              "count": 0
+            },
+            "expected": "Renders 'No worksheets found' empty state"
+          },
+          {
+            "state": "single",
+            "sampleArgs": {
+              "workbook_id": "01SINGLE_ID"
+            },
+            "sampleData": {
+              "worksheets": [
+                {
+                  "name": "Sheet1",
+                  "position": 0,
+                  "visibility": "Visible"
+                }
+              ],
+              "count": 1
+            },
+            "expected": "Renders single row cleanly"
+          },
+          {
+            "state": "long-text",
+            "sampleArgs": {
+              "workbook_id": "01LONG_TABS_ID"
+            },
+            "sampleData": {
+              "worksheets": [
+                {
+                  "name": "Consolidated_Global_Balance_Sheet_Audited_Variance_Analysis_Report_FY2025_Final_Approved_Executive_Review_Edition",
+                  "position": 0,
+                  "visibility": "Visible"
+                }
+              ],
+              "count": 1
+            },
+            "expected": "Truncates long sheet tab names in rows"
+          },
+          {
+            "state": "error",
+            "sampleArgs": {
+              "workbook_id": "01ERR_ID"
+            },
+            "sampleData": {
+              "error": "Composio action error (EXCEL_LIST_WORKSHEETS): Workbook not found"
+            },
+            "expected": "Renders error banner cleanly"
+          }
+        ],
+        "sampleGlance": {
+          "blocks": [
+            {
+              "type": "widget",
+              "html": "<!doctype html><html data-k-accent=\"\" style=\"--accent:#107c41;--accent-light:#107c41\"><head><meta charset=\"utf-8\"><style>*{box-sizing:border-box;margin:0;padding:0;scrollbar-width:none}\n/* No scrollbar chrome, EVER — on the document or on anything an author makes\n   scrollable inside it. A card is glanced at on black glass; a scrollbar is\n   desktop-browser furniture that instantly breaks that. This is the same\n   rule the notch window applies to itself, mirrored here because the host's\n   CSS cannot reach into the sandbox. Content stays scrollable (wheel,\n   trackpad, drag) — only the bar is gone. */\n::-webkit-scrollbar{display:none}\n:root{--ink-1:rgba(255,255,255,.95);--ink-2:rgba(255,255,255,.72);--ink-3:rgba(255,255,255,.5);--ink-4:rgba(255,255,255,.42);--line:rgba(255,255,255,.08);--fill-1:rgba(255,255,255,.06);--fill-2:rgba(255,255,255,.1);--track:rgba(255,255,255,.12);--good:#30d158;--bad:#ff453a;--accent:#3987e5;--k-radius:26px;color-scheme:dark}\nhtml[data-k-theme=light]{--ink-1:rgba(0,0,0,.92);--ink-2:rgba(0,0,0,.66);--ink-3:rgba(0,0,0,.46);--ink-4:rgba(0,0,0,.38);--line:rgba(0,0,0,.09);--fill-1:rgba(0,0,0,.04);--fill-2:rgba(0,0,0,.07);--track:rgba(0,0,0,.1);color-scheme:light;--accent:var(--accent-light,#2563c9)}\n/* A body background PROPAGATES to the frame canvas — a transparent root does\n   not stop that; per spec the canvas takes body's background when the root\n   has none. So an author's `body{background:#111}` fills the whole frame,\n   square and full-height, which is the right outcome: every host clips the\n   frame at the card arc, so the fill meets the corner exactly. The one trap\n   is repeat — the canvas tiles a gradient sized to a short body, so any\n   gradient put on body must say no-repeat (the kit's accent wash does). */\nbody{font:13.5px/1.45 -apple-system,BlinkMacSystemFont,\"SF Pro Text\",\"Segoe UI\",system-ui,sans-serif;color:var(--ink-1);background:transparent;border-radius:var(--k-radius);-webkit-font-smoothing:antialiased}\n.k-wrap{padding:13px 15px 14px;display:flex;flex-direction:column;gap:10px;border-radius:var(--k-radius)}\n.k-wrap.k-confirm{padding-bottom:52px}\n.k-num{font-variant-numeric:tabular-nums;font-feature-settings:\"tnum\"}\n.k-hd{display:flex;align-items:center;justify-content:space-between;gap:10px}\n.k-hd-l{display:flex;align-items:center;gap:7px;min-width:0}\n.k-dot{width:6px;height:6px;border-radius:50%;background:var(--accent);flex:none}\n.k-mk{display:flex;align-items:center;flex:none}\n.k-mk:empty{display:none}\n.k-mk-i{width:15px;height:15px;border-radius:4px;object-fit:contain;display:block}\n.k-hd-t{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n.k-hd-tr{font-size:11px;color:var(--ink-4);white-space:nowrap;flex:none}\n.k-hd-sub{font-size:14.5px;font-weight:590;letter-spacing:-.01em;margin-top:-4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n.k-list{display:flex;flex-direction:column}\n.k-rw{display:flex;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--line);text-decoration:none;color:inherit;min-width:0}\n.k-rw:first-child{border-top:0;padding-top:1px}\na.k-rw{cursor:pointer}\na.k-rw:hover .k-rw-t{color:var(--accent)}\n.k-rw-img{width:32px;height:32px;border-radius:6px;object-fit:cover;flex:none;background:var(--fill-1)}\n.k-rw-m{min-width:0;flex:1}\n.k-rw-t{font-size:14px;font-weight:590;letter-spacing:-.01em;line-height:1.25;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n.k-rw-sub{font-size:11.5px;color:var(--ink-3);line-height:1.35;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n.k-rw-tr{text-align:right;flex:none;display:flex;flex-direction:column;align-items:flex-end}\n.k-rw-tr .k-num{font-size:12px;color:var(--ink-2)}\n.k-rw-trs{font-size:10px;color:var(--ink-4);line-height:1.2}\n.k-more{font-size:11px;color:var(--ink-4);padding-top:7px;border-top:1px solid var(--line)}\n.k-chip{font-size:10.5px;font-weight:600;letter-spacing:.02em;padding:2px 7px;border-radius:999px;background:var(--fill-1);white-space:nowrap;flex:none}\n.k-bdg{display:flex;gap:6px;flex-wrap:wrap}\n.k-sts{display:flex;gap:18px}\n.k-sts.k-ruled{padding-top:9px;border-top:1px solid var(--line)}\n.k-st{min-width:0}\n.k-st-v{font-size:24px;font-weight:600;letter-spacing:-.02em;line-height:1.1;font-variant-numeric:tabular-nums;white-space:nowrap}\n.k-st-d{font-size:11px;font-weight:500;color:var(--ink-3);margin-left:5px;letter-spacing:0}\n.k-st-l{font-size:11px;color:var(--ink-3);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n.k-kvs{display:flex;flex-direction:column;gap:0}\n.k-kv{display:flex;align-items:baseline;justify-content:space-between;gap:14px;padding:3px 0}\n.k-kv-l{font-size:12.5px;color:var(--ink-3);white-space:nowrap}\n.k-kv-v{font-size:12.5px;color:var(--ink-1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right}\n.k-bars{display:flex;align-items:flex-end;gap:6px;height:72px}\n.k-bar{flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;min-width:0}\n.k-bar-c{width:100%;height:56px;display:flex;align-items:flex-end;justify-content:center;position:relative}\n.k-bar-f{width:100%;background:var(--fill-2);border-radius:4px 4px 2px 2px}\n.k-bar-f.k-on{background:var(--accent)}\n.k-bar-v{position:absolute;top:-2px;font-size:10px;font-weight:600;color:var(--ink-2);font-variant-numeric:tabular-nums}\n.k-bar-l{font-size:10px;color:var(--ink-4);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}\n.k-spk{width:100%;height:32px;display:block;overflow:visible}\n.k-spk-x{display:flex;justify-content:space-between;font-size:10px;color:var(--ink-4);margin-top:4px;font-variant-numeric:tabular-nums}\n.k-cap{font-size:10px;color:var(--ink-4);margin-top:4px}\n.k-mt-h{display:flex;justify-content:space-between;gap:12px;font-size:11.5px;color:var(--ink-3);margin-bottom:6px}\n.k-mt{height:5px;border-radius:5px;background:var(--track);overflow:hidden}\n.k-mt-f{height:100%;border-radius:5px}\n.k-hero{display:flex;align-items:center;gap:12px;min-width:0}\n.k-hero-img{width:52px;height:52px;border-radius:8px;object-fit:cover;flex:none;background:var(--fill-1)}\n.k-hero-m{min-width:0}\n.k-hero-e{font-size:10px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-4)}\n.k-hero-t{font-size:17px;font-weight:640;letter-spacing:-.02em;line-height:1.2;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n.k-hero-s{font-size:12.5px;color:var(--ink-3);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n.k-note{font-size:12.5px;line-height:1.4;color:var(--ink-2);overflow-wrap:anywhere;word-break:break-word}\n.k-div{height:1px;background:var(--line);margin:4px 0}\n.k-empty{text-align:center;padding:8px 0}\n.k-empty-t{font-size:13px;color:var(--ink-3)}\n.k-empty-h{font-size:11.5px;color:var(--ink-4);margin-top:3px}\n.k-fld{display:block}\n.k-fld-l{display:block;font-size:11px;color:var(--ink-3);margin-bottom:5px}\n.k-in{width:100%;font:13px/1.4 inherit;color:var(--ink-1);background:var(--fill-1);border:1px solid var(--line);border-radius:7px;padding:7px 9px;outline:none;resize:none}\n.k-in:focus{border-color:var(--accent)}\n/* Custom-card shell (renderCustom): no padding, no gap, no layout opinion —\n   the author owns the surface edge to edge. Only the confirm reserve, the\n   floated mark, and the corner are the kit's.\n\n   The corner is the kit's because it is not the author's to choose: the host\n   cuts the card at --k-radius whatever this document says, so a surface drawn\n   at any other radius shows a second edge inside the real one. Carrying it\n   here means a card that paints a background or border on this element lands\n   on the host's arc for free; a card that paints its own root still has\n   var(--k-radius) to name. */\n.k-cwrap{position:relative;border-radius:var(--k-radius)}\n.k-cwrap.k-confirm{padding-bottom:52px}\n.k-mkbar{position:absolute;top:11px;left:13px;z-index:9;display:flex}\n/* ---- Surface finish (default-on) ----------------------------------------\n   The liquid-glass rim: a 1px hairline with a brighter top edge, drawn as an\n   INSET shadow on a fixed overlay so it (a) hugs the visible frame whatever\n   height the content settles at, and (b) shares border-radius:var(--k-radius)\n   with the host's clip — same arc, drawn inward, so it can neither gap nor\n   get shaved by the cutout. This is the same rim recipe the notch's own\n   chrome uses. */\n.k-rim{position:fixed;inset:0;pointer-events:none;z-index:40;border-radius:var(--k-radius);box-shadow:inset 0 1px 0 rgba(255,255,255,.13),inset 0 0 0 1px rgba(255,255,255,.07)}\nhtml[data-k-theme=light] .k-rim{box-shadow:inset 0 1px 0 rgba(255,255,255,.7),inset 0 0 0 1px rgba(0,0,0,.1)}\n/* Brand presence (only when the integration declared an accent):\n   a soft wash of the brand colour bleeding out of the top-left corner —\n   colour the SURFACE, never the mark. The mark stays the bare glyph: a tile\n   painted under the logo is chrome the icon didn't ask for, and it reads as\n   the harness inventing a colour (see WIDGET_MARK_FLATTEN_HTML in ../ui.ts,\n   which strips exactly that tile out of documents generated while the kit\n   still drew one). color-mix degrades to no wash on engines without it. */\nhtml[data-k-accent] body{background:radial-gradient(150% 120% at 0% 0%,color-mix(in srgb,var(--accent) 15%,transparent),transparent 44%) no-repeat}\nhtml[data-k-theme=light][data-k-accent] body{background:radial-gradient(150% 120% at 0% 0%,color-mix(in srgb,var(--accent) 9%,transparent),transparent 44%) no-repeat}\n/* The entrance is OPT-IN, never opt-out. Declaring `animation: … both` from\n   opacity:0 and cancelling it under prefers-reduced-motion:reduce means any\n   environment that doesn't actually run animations — a headless renderer, a\n   paused compositor, a screenshotter — paints an invisible card and never\n   recovers. Gating on no-preference makes the un-animated state the readable\n   one, so the worst case is a card that simply appears. */\n@media(prefers-reduced-motion:no-preference){\n.k-wrap>*{animation:k-in .34s cubic-bezier(.22,.61,.36,1) both}\n.k-wrap>*:nth-child(2){animation-delay:.04s}\n.k-wrap>*:nth-child(3){animation-delay:.08s}\n.k-wrap>*:nth-child(n+4){animation-delay:.12s}\n}\n@keyframes k-in{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}\n\n.xl{font:13px/1.4 -apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,sans-serif;padding:12px 14px 14px}\n.xl-hd{display:flex;align-items:center;gap:10px;margin-bottom:10px}\n.xl-meta{flex:1;min-width:0}\n.xl-title{display:block;font-size:13.5px;font-weight:600;color:var(--ink-1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;letter-spacing:-.01em}\n.xl-sub{display:block;font-size:11px;color:var(--ink-3);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n.xl-chip{display:inline-flex;align-items:center;padding:2px 8px;border-radius:4px;background:color-mix(in srgb,var(--accent) 15%,transparent);border:1px solid var(--accent);color:var(--accent);font:600 11px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:.02em;text-transform:uppercase;flex:none}\n.xl-dim{font-size:11px;color:var(--ink-3);font-variant-numeric:tabular-nums;margin-left:auto}\n.xl-pill{flex:none;font-size:10px;font-weight:600;letter-spacing:.02em;padding:2px 7px;border-radius:999px;white-space:nowrap;background:color-mix(in srgb,var(--accent) 18%,transparent);color:var(--accent)}\n.xl-pill.good{background:color-mix(in srgb,var(--good) 18%,transparent);color:var(--good)}\n.xl-pill.bad{background:color-mix(in srgb,var(--bad) 18%,transparent);color:var(--bad)}\n.xl-status-bar{display:flex;align-items:center;gap:6px;padding:6px 9px;border-radius:5px;background:var(--fill-1);border:1px solid var(--line);margin-bottom:10px}\n.xl-status-dot{width:6px;height:6px;border-radius:50%;background:var(--good);flex:none}\n.xl-status-txt{font-size:11px;font-weight:500;color:var(--ink-2);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n.xl-tabs-hd{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}\n.xl-tabs-lbl{font-size:10px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-4)}\n.xl-tabs{display:flex;align-items:center;gap:6px;overflow-x:auto;padding-bottom:2px;scrollbar-width:none}\n.xl-tabs::-webkit-scrollbar{display:none}\n.xl-tab{display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 9px;border-radius:4px;font-size:11.5px;font-weight:500;white-space:nowrap;flex:none;background:var(--fill-1);border:1px solid var(--line);color:var(--ink-2)}\n.xl-tab.active{background:color-mix(in srgb,var(--accent) 18%,transparent);border-color:var(--accent);color:var(--ink-1);font-weight:600}\n.xl-dot{width:5px;height:5px;border-radius:50%;background:var(--accent);flex:none}\n.xl-stats{display:flex;align-items:center;gap:14px;margin-top:10px;padding-top:10px;border-top:1px solid var(--line)}\n.xl-stat{flex:1;min-width:0}\n.xl-stat-k{display:block;font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:.03em;color:var(--ink-4)}\n.xl-stat-v{display:block;font-size:12.5px;font-weight:600;color:var(--ink-1);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-variant-numeric:tabular-nums}\n.xl-list{border-radius:6px;border:1px solid var(--line);background:var(--fill-1);overflow:hidden}\n.xl-rw{display:flex;align-items:center;gap:9px;padding:7px 10px;border-top:1px solid var(--line);text-decoration:none;color:inherit}\n.xl-rw:first-child{border-top:0}\n.xl-rw-idx{flex:none;width:18px;font-size:10.5px;font-weight:600;color:var(--ink-4);font-variant-numeric:tabular-nums}\n.xl-rw-m{flex:1;min-width:0}\n.xl-rw-title{display:block;font-size:12.5px;font-weight:500;color:var(--ink-1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n.xl-rw-sub{display:block;font-size:10.5px;color:var(--ink-4);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n.xl-rw-v{flex:none;font-size:11.5px;font-weight:500;color:var(--ink-3);font-variant-numeric:tabular-nums}\n.xl-hint{font-size:10.5px;color:var(--ink-4);margin-top:7px;font-style:italic}\n.xl-empty{padding:16px;text-align:center;color:var(--ink-3);font-size:12px}\n.xl-err{display:flex;align-items:flex-start;gap:8px;padding:10px 12px;border-radius:6px;background:color-mix(in srgb,var(--bad) 12%,transparent);border:1px solid color-mix(in srgb,var(--bad) 30%,transparent);color:var(--ink-1);font-size:11.5px;margin-top:8px}\n.xl-err-ico{color:var(--bad);flex:none;margin-top:1px}\n\n.xr-wrap{border-radius:6px;border:1px solid var(--line);background:var(--fill-1);overflow:hidden}\n.xr-tbl{width:100%;border-collapse:collapse;font-size:11.5px;table-layout:fixed}\n.xr-th{height:24px;padding:0 6px;background:var(--fill-2);border-right:1px solid var(--line);border-bottom:1px solid var(--line);font-size:10px;font-weight:600;color:var(--ink-3);text-align:center;user-select:none}\n.xr-corner{width:28px;background:var(--fill-2);border-right:1px solid var(--line);border-bottom:1px solid var(--line)}\n.xr-idx{width:28px;height:25px;padding:0 4px;background:var(--fill-2);border-right:1px solid var(--line);border-bottom:1px solid var(--line);font-size:10px;font-weight:600;color:var(--ink-3);text-align:center;user-select:none;font-variant-numeric:tabular-nums}\n.xr-cell{height:25px;padding:0 7px;border-right:1px solid var(--line);border-bottom:1px solid var(--line);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11.5px;background:var(--fill-1)}\n.xr-cell:last-child{border-right:0}\n.xr-rw:last-child .xr-cell{border-bottom:0}\n.xr-rw:last-child .xr-idx{border-bottom:0}\n.xr-num{text-align:right;font-variant-numeric:tabular-nums;color:var(--ink-1)}\n.xr-txt{text-align:left;color:var(--ink-2)}\n.xr-blank{color:var(--ink-4);font-style:italic;font-size:11px}\n.xr-more{display:block;margin-top:6px;font-size:11px;color:var(--ink-4);text-align:right;font-style:italic}\n\n.xl-chart-box{margin-top:8px;padding:12px;border-radius:6px;border:1px solid var(--line);background:var(--fill-1);display:flex;align-items:center;justify-content:center}\n</style></head><body><div class=\"k-cwrap\">\n        <div class=\"xl\">\n          <div class=\"xl-hd\">\n            <span class=\"k-mk\" data-k-mk><img class=\"k-mk-i\" src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADAAAAAwCAIAAADYYG7QAAAAAXNSR0IArs4c6QAAATVJREFUWIXtlrFNxEAQRf9f9iREAuJMAzRAK2ScRDPUQkANlEAJFEBwwUUEnE7Y+wm8NieSEbMgOZgXWR6N/Tw7ux6+317DhSAAqz5tu8Pj5q0kQCAhAAB9DwWSN/G/CCGLELIIIYsQsgghixCyCCGLELJYnFBWnTl/zZgoSJDqnaOAd4b9uwo5v+snedU7neYhP/ckIIJCvWgY8vO2O7QI5SHtLj7rsmkO+eHDc0P29Hpx8mDVobdEuWdTGwkglKCxH6mjgAt2Ty9uGUJFp5f59e78/gTaCGuiCGBDD+2GG7cQIOhsIEVSuiLWrEVzk8kPtxChAmTuCYnoCwpQpu3mFGrIHRn3OAmBSIQEtixZU32/hTAfzkTTObS4f1kIWYSQRQhZhJBFCFmEkEUIWYSQxeKEvgDHM16kOfn8fAAAAABJRU5ErkJggg==\" alt=\"\"></span>\n            <div class=\"xl-meta\">\n              <span class=\"xl-title\">Worksheets</span>\n              <span class=\"xl-sub\">2 sheets</span>\n            </div>\n            <span class=\"xl-chip\">AF3F7AC4C1C3588…</span>\n          </div>\n          <div class=\"xl-list\">\n        <div class=\"xl-rw\">\n          <span class=\"xl-rw-idx\">#1</span>\n          <div class=\"xl-rw-m\"><span class=\"xl-rw-title\">Sheet1</span></div>\n          <span class=\"xl-pill good\">Visible</span>\n        </div>\n      \n        <div class=\"xl-rw\">\n          <span class=\"xl-rw-idx\">#2</span>\n          <div class=\"xl-rw-m\"><span class=\"xl-rw-title\">VoiceOS QA Verified</span></div>\n          <span class=\"xl-pill good\">Visible</span>\n        </div>\n      </div>\n        </div>\n      </div><div class=\"k-rim\" aria-hidden=\"true\"></div><script>(function(){\nvar send=function(m){try{parent.postMessage(m,'*')}catch(e){}};\n/* Result-widget actions. Only the parent can advertise access or return a result.\n   Confirmation is owned by VoiceOS, outside this document. Never retry a send. */\nvar pendingTools=new Map();\nvar voiceos=window.voiceos=window.voiceos||{};\nvoiceos.canInvokeTools=false;\nvoiceos.invokeTool=function(name,args,options){\n  var id=options&&options.requestId;\n  if(!id){var bytes=new Uint32Array(4);crypto.getRandomValues(bytes);id=Array.from(bytes,function(n){return n.toString(16)}).join('_')}\n  var failure=function(status,error){return {type:'voiceos:toolResult',requestId:id,status:status,error:error}};\n  if(typeof id!=='string'||!/^[a-zA-Z0-9_-]{1,128}$/.test(id))return Promise.resolve(failure('failed','Invalid requestId.'));\n  if(!voiceos.canInvokeTools)return Promise.resolve(failure('failed','Tool actions are unavailable in this card.'));\n  var signature;try{signature=JSON.stringify([name,args])}catch(e){return Promise.resolve(failure('failed','Arguments must be JSON.'))}\n  var prior=pendingTools.get(id);\n  if(prior)return prior.signature===signature?prior.promise:Promise.resolve(failure('failed','This requestId already has different arguments.'));\n  if(pendingTools.size>=64)return Promise.resolve(failure('failed','Too many pending actions.'));\n  var resolve;var promise=new Promise(function(done){resolve=done});\n  var timer=setTimeout(function(){pendingTools.delete(id);resolve(failure('unknown','No final response. Check the app before trying again.'))},135000);\n  pendingTools.set(id,{resolve:resolve,promise:promise,timer:timer,signature:signature});\n  send({type:'voiceos:invokeTool',name:name,args:args,requestId:id});\n  return promise;\n};\nvar last=0;\nvar report=function(){\n  /* Never report a collapsed measurement. A frame that is display:none, zero\n     width, or in a hidden tab measures ~0, and since the host CLAMPS to 60 and\n     we'd then consider that our last known height, one bad sample pins a\n     277px card at 60px forever. Staying silent leaves the declared estimate\n     in place, which is close to right by construction. */\n  if(document.hidden)return;\n  var el=document.documentElement;\n  if(!el.offsetWidth)return;\n  var h=Math.ceil(el.getBoundingClientRect().height);\n  if(h<8)return;\n  if(Math.abs(h-last)>1){last=h;send({type:'voiceos:resize',height:h})}\n};\n/* data-voiceos-key is the alias custom markup uses; data-k-key is what the\n   kit's own vField emits. Same contract either way. */\nvar argKey=function(el){\n  if(!el||!el.getAttribute)return null;\n  return el.getAttribute('data-k-key')||el.getAttribute('data-voiceos-key');\n};\naddEventListener('message',function(e){\n  if(e.source!==parent)return;\n  var m=e.data;if(!m)return;\n  if(m.type==='voiceos:toolResult'){\n    var pending=pendingTools.get(m.requestId);\n    if(pending&&['completed','failed','cancelled','unknown'].indexOf(m.status)!==-1){clearTimeout(pending.timer);pendingTools.delete(m.requestId);pending.resolve(m)}\n    return;\n  }\n  if(m.type!=='voiceos:init')return;\n  voiceos.canInvokeTools=!!(m.capabilities&&m.capabilities.invokeTool);\n  if(m.theme&&m.theme.mode)document.documentElement.setAttribute('data-k-theme',m.theme.mode);\n  /* The corner the HOST will actually cut this card at. Same shape as the\n     theme leg: the document ships with a correct default and the surface\n     corrects it, so a card is never briefly drawn at the wrong radius and\n     never depends on the host to send anything. Clamped because the value\n     lands in CSS. */\n  if(typeof m.radius==='number'&&isFinite(m.radius))document.documentElement.style.setProperty('--k-radius',Math.max(0,Math.min(48,m.radius))+'px');\n  var args=m.args||{};\n  var fields=document.querySelectorAll('[data-k-key],[data-voiceos-key]');\n  for(var i=0;i<fields.length;i++){\n    var key=argKey(fields[i]);\n    if(Object.prototype.hasOwnProperty.call(args,key)&&args[key]!=null)fields[i].value=String(args[key]);\n  }\n  report();\n});\ndocument.addEventListener('input',function(e){\n  var key=argKey(e.target);\n  if(key)send({type:'voiceos:updateInput',key:key,value:e.target.value});\n});\ndocument.addEventListener('click',function(e){\n  /* Routes BOTH the kit's data-k-link rows and plain <a href=\"https://…\">\n     anchors in custom markup out through the host. The sandbox blocks\n     navigation anyway, so an unrouted anchor is a click that does nothing. */\n  var el=e.target;\n  while(el&&el!==document.body){\n    if(el.getAttribute&&(el.hasAttribute('data-k-link')||(el.tagName==='A'&&el.hasAttribute('href')))){\n      e.preventDefault();\n      var href=el.getAttribute('href')||'';\n      if(/^https:\\/\\//i.test(href))send({type:'voiceos:openUrl',url:href});\n      return;\n    }\n    el=el.parentNode;\n  }\n});\nif(window.ResizeObserver){new ResizeObserver(report).observe(document.documentElement)}\naddEventListener('load',report);setTimeout(report,0);setTimeout(report,120);\n})()</script></body></html>",
+              "height": 128
+            }
+          ]
+        }
+      },
+      {
+        "tool": "excel_create_worksheet",
+        "sampleArgs": {
+          "name": "Q3 Forecast",
+          "workbook_id": "AF3F7AC4C1C35888!sd7d606b969da41cba957662263ee8d07"
+        },
+        "stressCases": [
+          {
+            "state": "long-text",
+            "sampleArgs": {
+              "name": "Q3_Consolidated_Variance_Analysis_And_Forecast_By_Regional_Business_Unit_Enterprise_Division_Department_Final_Approved_v2"
+            },
+            "sampleData": {
+              "status": "created",
+              "name": "Q3_Consolidated_Variance_Analysis_And_Forecast_By_Regional_Business_Unit_Enterprise_Division_Department_Final_Approved_v2"
+            },
+            "expected": "Truncates sheet title in result card"
+          }
+        ]
+      },
+      {
+        "tool": "excel_rename_worksheet",
+        "sampleArgs": {
+          "current_name": "Sheet1",
+          "new_name": "Revenue Summary",
+          "workbook_id": "AF3F7AC4C1C35888!sd7d606b969da41cba957662263ee8d07"
+        },
+        "stressCases": [
+          {
+            "state": "long-text",
+            "sampleArgs": {
+              "current_name": "Sheet1",
+              "new_name": "FY2025_Q4_Audited_Financial_Statement_Consolidated_Review_Sheet_For_Executive_Board_Committee_Approval_Final_Version_v3"
+            },
+            "sampleData": {
+              "status": "renamed",
+              "current_name": "Sheet1",
+              "new_name": "FY2025_Q4_Audited_Financial_Statement_Consolidated_Review_Sheet_For_Executive_Board_Committee_Approval_Final_Version_v3"
+            },
+            "expected": "Truncates long sheet names safely"
+          }
+        ]
+      },
+      {
+        "tool": "excel_delete_worksheet",
+        "sampleArgs": {
+          "worksheet_name": "Old Draft",
+          "workbook_id": "AF3F7AC4C1C35888!sd7d606b969da41cba957662263ee8d07"
+        },
+        "stressCases": [
+          {
+            "state": "long-text",
+            "sampleArgs": {
+              "worksheet_name": "Temporary_Draft_Worksheet_Containing_Unverified_Experimental_Calculations_That_Must_Be_Permanently_Deleted_v1"
+            },
+            "sampleData": {
+              "status": "deleted",
+              "worksheet_name": "Temporary_Draft_Worksheet_Containing_Unverified_Experimental_Calculations_That_Must_Be_Permanently_Deleted_v1"
+            },
+            "expected": "Displays deleted badge and sheet name"
+          }
+        ]
+      },
+      {
+        "tool": "excel_update_range",
+        "sampleArgs": {
+          "range": "'VoiceOS QA'!A1:B2",
+          "values": [
+            [
+              "Category",
+              "Amount"
+            ],
+            [
+              "Software",
+              12000
+            ]
+          ],
+          "workbook_id": "AF3F7AC4C1C35888!sd7d606b969da41cba957662263ee8d07"
+        },
+        "stressCases": [
+          {
+            "state": "long-text",
+            "sampleArgs": {
+              "range": "A1",
+              "values": "This quarterly financial projection note contains comprehensive audit commentary exceeding one hundred characters to verify multi-line layout formatting."
+            },
+            "sampleData": {
+              "status": "updated",
+              "range": "A1",
+              "rows_written": 1,
+              "raw_data": {
+                "details": "This quarterly financial projection note contains comprehensive audit commentary exceeding one hundred characters to verify multi-line layout formatting."
+              }
+            },
+            "expected": "Displays updated range status and cell update metrics"
+          }
+        ]
+      },
+      {
+        "tool": "excel_add_table_rows",
+        "sampleArgs": {
+          "table_id": "ReleaseQATable",
+          "table_name": "ReleaseQATable",
+          "rows": [
+            [
+              "2025-06-01",
+              "Cloud Hosting",
+              "$3,400",
+              "Approved"
+            ]
+          ],
+          "worksheet_name": "Release QA Verified",
+          "workbook_id": "AF3F7AC4C1C35888!sd7d606b969da41cba957662263ee8d07"
+        },
+        "stressCases": [
+          {
+            "state": "long-text",
+            "sampleArgs": {
+              "table_id": "ReleaseQATable",
+              "rows": [
+                [
+                  "2025-06-15",
+                  "System automated data synchronization record capturing consolidated ledger line items across all regional operating entities"
+                ]
+              ]
+            },
+            "sampleData": {
+              "status": "rows_added",
+              "table_id": "ReleaseQATable",
+              "table_name": "ReleaseQATable",
+              "rows_count": 1,
+              "raw_data": {
+                "details": "System automated data synchronization record capturing consolidated ledger line items across all regional operating entities and audit tracking checkpoints."
+              }
+            },
+            "expected": "Displays appended status and rows added count"
+          }
+        ]
+      },
+      {
+        "tool": "excel_create_chart",
+        "sampleArgs": {
+          "range": "Sheet1!A1:C5",
+          "chart_type": "ColumnClustered",
+          "series_by": "Columns",
+          "title": "Quarterly Revenue",
+          "workbook_id": "AF3F7AC4C1C35888!sd7d606b969da41cba957662263ee8d07"
+        },
+        "stressCases": [
+          {
+            "state": "long-text",
+            "sampleArgs": {
+              "range": "A1:C5",
+              "chart_type": "ColumnClustered",
+              "series_by": "Columns",
+              "title": "Comprehensive Fiscal Year 2025 Multi-Department Operational Expense and Revenue Performance Comparison Chart"
+            },
+            "sampleData": {
+              "status": "chart_created",
+              "title": "Comprehensive Fiscal Year 2025 Multi-Department Operational Expense and Revenue Performance Comparison Chart",
+              "chart_type": "ColumnClustered",
+              "series_by": "Columns",
+              "range": "A1:C5"
+            },
+            "expected": "Renders chart inserted card with mini visualization preview"
+          }
+        ]
+      }
+    ]
+  },
+  "updatedAt": "2026-11-01T05:33:39.819Z"
+}
