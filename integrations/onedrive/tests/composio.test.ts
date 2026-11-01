@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import "./no-connect.ts";
-import { composio, downloadBytes, resetAccountCache, resolveItem } from "../server.ts";
+import { composio, downloadBytes, resetAccountCache, resolveItem, runWithBudget } from "../server.ts";
 
 type Call = { url: string; body: any };
 let calls: Call[] = [];
@@ -214,5 +214,27 @@ describe("downloadBytes() response shapes", () => {
   test("reports the response shape, not its values, when there is no link", async () => {
     mockComposio({ ONE_DRIVE_DOWNLOAD_FILE: () => ({ json: { successful: true, data: { status: "ok", meta: { size: 4 } } } }) });
     await expect(downloadBytes({ id: "x", name: "a.txt" })).rejects.toThrow("Response shape: {status: string, meta: {size: number}}");
+  });
+});
+
+describe("time budget", () => {
+  /** A Composio that never answers, so only the abort signal can end the request. */
+  function hangingComposio() {
+    globalThis.fetch = ((input: any, init?: any) => {
+      if (String(input).includes("/connected_accounts")) return Promise.resolve(Response.json({ items: [] }));
+      return new Promise((_, reject) => init?.signal?.addEventListener("abort", () => reject(init.signal.reason)));
+    }) as typeof fetch;
+  }
+
+  test("caps a hanging request at the time left in the tool's budget", async () => {
+    hangingComposio();
+    const started = Date.now();
+    await expect(runWithBudget(1_500, () => composio("ONE_DRIVE_GET_ROOT", {}))).rejects.toThrow(/Couldn't reach Composio/);
+    expect(Date.now() - started).toBeLessThan(2_500);
+  });
+
+  test("refuses to start a request once the budget is spent", async () => {
+    hangingComposio();
+    await expect(runWithBudget(500, () => composio("ONE_DRIVE_GET_ROOT", {}))).rejects.toThrow(/taking too long/);
   });
 });

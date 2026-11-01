@@ -5,7 +5,7 @@ import path from "node:path";
 const root = path.join(import.meta.dir, "..");
 const manifest = JSON.parse(fs.readFileSync(path.join(root, "voiceos.integration.json"), "utf8"));
 const serverSrc = fs.readFileSync(path.join(root, "server.ts"), "utf8");
-const registered = [...serverSrc.matchAll(/server\.registerTool\(\s*"([^"]+)"/g)].map((m) => m[1]).sort();
+const registered = [...serverSrc.matchAll(/^registerTool\(\s*"([^"]+)"/gm)].map((m) => m[1]).sort();
 
 const READ_TOOLS = ["list_files", "search_files", "download_file", "read_file"];
 const ACT_TOOLS = ["upload_file", "create_folder", "create_share_link", "delete_file"];
@@ -59,5 +59,22 @@ describe("CARD_THEME preference", () => {
     expect(pref.type).toBe("select");
     expect(pref.default).toBe("auto");
     expect(pref.options.map((o: any) => o.value).sort()).toEqual(["auto", "dark", "light"]);
+  });
+});
+
+describe("integration mark", () => {
+  test("result cards, confirmation cards and icon.png show the same logo", () => {
+    const kit = fs.readFileSync(path.join(root, "widgetKit.ts"), "utf8");
+    const kitMark = kit.match(/^let INTEGRATION_MARK = "(data:image\/png;base64,[^"]+)";/m)?.[1];
+    expect(kitMark).toBeTruthy();
+    for (const t of manifest.tools.filter((t: any) => t.confirmation)) {
+      const marks = [...t.confirmation.root.html.matchAll(/data:image\/png;base64,[A-Za-z0-9+\/=]+/g)].map((m) => m[0]);
+      expect(marks.length).toBeGreaterThan(0);
+      for (const mark of marks) expect(mark).toBe(kitMark);
+    }
+    // Both are RGBA PNGs (byte 25 is the colour type; 6 = RGBA). The old mark was opaque RGB.
+    const png = (b64: string) => Buffer.from(b64.split(",")[1], "base64");
+    expect(png(kitMark!)[25]).toBe(6);
+    expect(fs.readFileSync(path.join(root, "icon.png"))[25]).toBe(6);
   });
 });

@@ -431,7 +431,7 @@ export async function inlineImages(
  * Empty means "no logo yet": the header falls back to the accent dot, which is
  * what every card looked like before this existed.
  */
-let INTEGRATION_MARK = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADAAAAAwCAIAAADYYG7QAAAAAXNSR0IArs4c6QAAARpJREFUWIXt1zFOAzEURdH7BkdCNAgSNsAG2AodEathLRSsgSWwBXqKFFQUoIiJH0UkQoH0JdtFin+7Kfx1xvJoZvRxe01TxsBinjar7eP6rU7IoLZhh6beAaNLUFSCohIUlaCoBEUlKCpBUQmKOjpQ2X+JNrRfaGzcOOK/Ru7QEFZZzI2m34/8MktQB91c2ay2PaCym94vvm3kMVukh+cBU6pAMOI3qMwasNMTFSOQe1VaPb20rrVw9elleb07vz/Ba7MUO1CHqbzvbppBYHy2kywJX5ll9/Eu0mczSLhC0Zdsi1lUU4XcsUMda/cJhCQMTMJG6gB1PxiHA6M/181Dj+5dlqCoBEUlKCpBUQmKSlBUgqISFHV0oB+tNVOmzgUqJwAAAABJRU5ErkJggg==";
+let INTEGRATION_MARK = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADAAAAAwCAYAAABXAvmHAAABFklEQVR42u3YPU7DQBCG4XdWm9hxQcEFEDSBo6TjANyFy3AAOgQXIWnIDSgo4p/EOxRBSehHCkLf1+0UYz9a26O1fd3fOIFxpzTZUjv66uL54xbg8Y1lrphve4pBirxeaLNzRAABBBBAAAEEEEAAAQQQQIBzJbtTgnsW9/3Z+FAxCvt18WhAky3F3j1pko129OZ40qeZ1CSHZBYMaEdfBQPcDMNYHzeA921PtxtwA0P5RzGePpehHR2nqs2Gbu0PlwsAf+WFiuvS4yn4EcpMZ/NYQIHpDPq2PqneUXGVnPA3IDO04Z9RzBJmm5Paho7CQImePRkseJg5Pz3Tr4Fph7X+jQoggAACCCCAAAIIIIAAAgjwF/INR6JTHP8YY1wAAAAASUVORK5CYII=";
 
 /** Point the kit at an integration's logo. Invalid or oversized values clear it. */
 export function setIntegrationMark(dataUri: string | null | undefined): void {
