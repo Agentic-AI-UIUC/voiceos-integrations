@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import "./no-connect.ts";
 import { strToU8, zipSync } from "fflate";
-import { decodeXml, ooxmlText, pdfText, plainText, readStrategy, truncateText } from "../server.ts";
+import { decodeXml, ooxmlText, pdfText, plainText, previewText, readStrategy, truncateText } from "../server.ts";
 
 const zip = (files: Record<string, string>) =>
   zipSync(Object.fromEntries(Object.entries(files).map(([k, v]) => [k, strToU8(v)])));
@@ -112,5 +112,13 @@ describe("decodeXml / truncateText", () => {
     const text = `${"a".repeat(90)}\n${"b".repeat(50)}`;
     expect(truncateText(text, 200)).toEqual({ text, truncated: false });
     expect(truncateText(text, 100)).toEqual({ text: "a".repeat(90), truncated: true });
+  });
+});
+
+describe("previewText", () => {
+  test("hides section markers in the one-line card preview", () => {
+    expect(previewText("--- Page 1 ---\nGet started\n\n--- Page 2 ---\nwith OneDrive")).toBe("Get started with OneDrive");
+    expect(previewText("--- Sheet: Budget ---\nItem\tCost")).toBe("Item Cost");
+    expect(previewText("--- Slide 3 ---\nRoadmap")).toBe("Roadmap");
   });
 });

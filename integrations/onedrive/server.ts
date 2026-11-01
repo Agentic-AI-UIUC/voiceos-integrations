@@ -473,6 +473,11 @@ export function plainText(bytes: Uint8Array): string {
   return new TextDecoder("utf-8").decode(bytes).replace(/^﻿/, "");
 }
 
+/** One-line card preview: drops the "--- Page 2 ---" style section markers and collapses whitespace. */
+export function previewText(text: string): string {
+  return text.replace(/^--- (?:Page|Slide|Sheet:) [^\n]* ---$/gm, " ").replace(/\s+/g, " ").trim();
+}
+
 /** Cuts at a paragraph or line boundary near the limit so the model never sees half a sentence. */
 export function truncateText(text: string, maxChars: number): { text: string; truncated: boolean } {
   if (text.length <= maxChars) return { text, truncated: false };
@@ -487,7 +492,7 @@ export function truncateText(text: string, maxChars: number): { text: string; tr
 const CARD_ROWS = 6;
 const READ_MAX_BYTES = 25 * 1024 * 1024;
 
-const server = new McpServer({ name: "microsoft-onedrive", version: "1.2.3" });
+const server = new McpServer({ name: "microsoft-onedrive", version: "1.2.4" });
 const ACCENT = "#0078d4"; // Microsoft OneDrive signature Fluent blue
 
 // Fluent icons in matching Microsoft 365 brand colors
@@ -857,7 +862,7 @@ server.registerTool(
           </div>
         </div>
         <div class="od-callout">
-          <div class="od-local-path">${esc(clip(text.replace(/\s+/g, " "), 120))}</div>
+          <div class="od-local-path">${esc(clip(previewText(text), 120))}</div>
         </div>
       </div>
     `;
