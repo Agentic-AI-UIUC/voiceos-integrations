@@ -9,7 +9,7 @@ import { renderCustom, markHtml, esc, clip } from "./widgetKit.ts";
 const server = new McpServer({ name: "microsoft-excel", version: "1.0.0" });
 const ACCENT = "#107c41"; // Microsoft Excel brand green
 const COMPOSIO_BASE_URL = "https://backend.composio.dev";
-const BUILD_ID = "excel-manual-account-restored-v1";
+const BUILD_ID = "excel-review-fixed-v2";
 
 export const APPROVED_COMPOSIO_ACTIONS = {
   excel_get_workbook: "EXCEL_GET_WORKBOOK",
@@ -449,194 +449,19 @@ export function findActiveExcelAccount(
   return { selectedId: activeExcelAccounts[0].id, ownershipStatus: "MATCH" };
 }
 
-let cachedAccountId: string | null = null;
-let cachedAccountUserId: string | null = null;
-let cachedExplicitId: string | null = null;
-
-async function fetchSingleAccountDirectly(
-  composio: any,
-  apiKey: string,
-  accountId: string,
-): Promise<any | null> {
-  if (typeof composio?.connectedAccounts?.get === "function") {
-    try {
-      const res = await composio.connectedAccounts.get(accountId);
-      const acc = res?.data ?? res?.item ?? res;
-      if (acc && (acc.id || acc.connectedAccountId)) {
-        return { ...acc, id: acc.id || acc.connectedAccountId };
-      }
-    } catch {
-      try {
-        const res = await composio.connectedAccounts.get({ id: accountId });
-        const acc = res?.data ?? res?.item ?? res;
-        if (acc && (acc.id || acc.connectedAccountId)) {
-          return { ...acc, id: acc.id || acc.connectedAccountId };
-        }
-      } catch {
-        // Fall back to REST API
-      }
-    }
+// SDK 0.27.0 raw account retrieval preserves user_id, unlike normalized responses.
+export async function resolveConnectedAccountId(composio: any, _apiKey: string, userId: string): Promise<string> {
+  const accountId = process.env.COMPOSIO_CONNECTED_ACCOUNT_ID?.trim();
+  if (!accountId) throw new Error("COMPOSIO_CONNECTED_ACCOUNT_ID is required for v1 QA.");
+  const account = await composio.client.connectedAccounts.retrieve(accountId, { signal: AbortSignal.timeout(8000) });
+  if (account.id !== accountId) throw new Error("Connected account response does not match the configured account ID.");
+  if (typeof account.user_id !== "string" || !account.user_id.trim()) {
+    throw new Error("Cannot verify connected account ownership: Composio omitted user_id. No tool was executed.");
   }
-
-  try {
-    const resp = await fetch(`${COMPOSIO_BASE_URL}/api/v1/connectedAccounts/${encodeURIComponent(accountId)}`, {
-      method: "GET",
-      headers: {
-        "x-api-key": apiKey,
-        "Content-Type": "application/json",
-      },
-      signal: AbortSignal.timeout(8000),
-    });
-    if (resp.ok) {
-      const data = await resp.json();
-      const acc = data?.data ?? data?.item ?? data;
-      if (acc && (acc.id || acc.connectedAccountId)) {
-        return { ...acc, id: acc.id || acc.connectedAccountId };
-      }
-    }
-  } catch {
-    // Ignore direct fetch error
-  }
-
-  return null;
-}
-
-export async function resolveConnectedAccountId(composio: any, apiKey: string, userId: string): Promise<string> {
-  const explicitId = process.env.COMPOSIO_CONNECTED_ACCOUNT_ID?.trim();
-  if (cachedAccountId && cachedAccountUserId === userId && cachedExplicitId === (explicitId || "")) {
-    return cachedAccountId;
-  }
-
-  // 1. Manual Connected Account ID execution path
-  // When an explicit account ID is configured, validate it directly and DO NOT require account-list discovery.
-  if (explicitId) {
-    console.error(`[microsoft-excel] Using configured manual COMPOSIO_CONNECTED_ACCOUNT_ID: '${explicitId}'.`);
-
-    const directRecord = await fetchSingleAccountDirectly(composio, apiKey, explicitId);
-    if (directRecord) {
-      const ownership = checkAccountOwnership(directRecord, userId);
-
-      // Strict validation: NEVER bypass a verified ownership mismatch
-      if (ownership.status === "MISMATCH") {
-        throw new Error(
-          `Connected account '${explicitId}' belongs to Composio user '${ownership.owner}', not '${userId}'. Please update COMPOSIO_USER_ID to '${ownership.owner}' in settings, or connect a Microsoft Excel account for '${userId}' at app.composio.dev/connected-accounts.`,
-        );
-      }
-
-      if (ownership.status === "UNKNOWN") {
-        console.error(`[microsoft-excel] Account '${explicitId}' ownership field is omitted from response (unknown ownership); accepting configured manual account for user '${userId}'.`);
-      } else {
-        console.error(`[microsoft-excel] Account '${explicitId}' ownership verified for user '${userId}'.`);
-      }
-
-      if (!isExcelApp(directRecord)) {
-        const appName = extractAppIdentifier(directRecord) || "unknown";
-        throw new Error(
-          `Connected account '${explicitId}' is associated with app '${appName}', not Microsoft Excel. Please select an Excel account.`,
-        );
-      }
-
-      if (!isAccountActive(directRecord)) {
-        const status = extractAccountStatus(directRecord) || "INACTIVE";
-        throw new Error(
-          `Connected account '${explicitId}' for user '${userId}' is not active (status: ${status}). Please reconnect your Microsoft 365 / Excel account at app.composio.dev/connected-accounts.`,
-        );
-      }
-
-      cachedAccountId = explicitId;
-      cachedAccountUserId = userId;
-      cachedExplicitId = explicitId;
-      return explicitId;
-    }
-
-    // Direct fetch unavailable: proceed directly with manual ID without requiring account-list discovery
-    console.error(`[microsoft-excel] Proceeding directly with manual COMPOSIO_CONNECTED_ACCOUNT_ID '${explicitId}' without account-list discovery.`);
-    cachedAccountId = explicitId;
-    cachedAccountUserId = userId;
-    cachedExplicitId = explicitId;
-    return explicitId;
-  }
-
-  // 2. Automatic discovery path (ONLY when COMPOSIO_CONNECTED_ACCOUNT_ID is NOT configured)
-  console.error(`[microsoft-excel] No manual account ID configured; performing account-list discovery for user '${userId}'...`);
-  const collectedAccounts: any[] = [];
-  const seenIds = new Set<string>();
-
-  const ingestAccounts = (list: any) => {
-    const items = Array.isArray(list)
-      ? list
-      : Array.isArray(list?.items)
-        ? list.items
-        : Array.isArray(list?.data)
-          ? list.data
-          : Array.isArray(list?.connectedAccounts)
-            ? list.connectedAccounts
-            : [];
-    for (const item of items) {
-      const id = item?.id || item?.connectedAccountId;
-      if (id && !seenIds.has(id)) {
-        seenIds.add(id);
-        collectedAccounts.push({ ...item, id });
-      }
-    }
-  };
-
-  if (typeof composio?.connectedAccounts?.list === "function") {
-    try {
-      const sdkRes = await composio.connectedAccounts.list({ clientUniqueUserId: userId });
-      ingestAccounts(sdkRes);
-    } catch {
-      // Ignore
-    }
-    try {
-      const sdkRes = await composio.connectedAccounts.list({ userUuid: userId });
-      ingestAccounts(sdkRes);
-    } catch {
-      // Ignore
-    }
-    try {
-      const sdkRes = await composio.connectedAccounts.list();
-      ingestAccounts(sdkRes);
-    } catch {
-      // Ignore
-    }
-  }
-
-  for (let page = 1; page <= 5; page++) {
-    try {
-      const resp = await fetch(`${COMPOSIO_BASE_URL}/api/v1/connectedAccounts?page=${page}&limit=50`, {
-        method: "GET",
-        headers: {
-          "x-api-key": apiKey,
-          "Content-Type": "application/json",
-        },
-        signal: AbortSignal.timeout(8000),
-      });
-      if (resp.ok) {
-        const data = await resp.json();
-        const prevCount = collectedAccounts.length;
-        ingestAccounts(data);
-        const newItemsAdded = collectedAccounts.length - prevCount;
-        if (newItemsAdded === 0 || newItemsAdded < 50) {
-          break;
-        }
-      } else {
-        break;
-      }
-    } catch {
-      break;
-    }
-  }
-
-  const result = findActiveExcelAccount(collectedAccounts, userId);
-  if (result.error) {
-    throw new Error(result.error);
-  }
-
-  cachedAccountId = result.selectedId!;
-  cachedAccountUserId = userId;
-  cachedExplicitId = "";
-  return result.selectedId!;
+  if (account.user_id !== userId) throw new Error("Connected account belongs to a different Composio user. Check COMPOSIO_USER_ID.");
+  if (account.toolkit?.slug !== "excel") throw new Error("Configured connected account is not an Excel account.");
+  if (account.status !== "ACTIVE") throw new Error("Excel account is not active. Reconnect in the Composio dashboard.");
+  return accountId;
 }
 
 export function prepareRangeActionArgs(
@@ -714,27 +539,6 @@ export function prepareWorksheetActionArgs(
     mapped.drive_id = String(inputArgs.drive_id).trim();
   }
 
-  if (schemaProperties && Object.keys(schemaProperties).length > 0) {
-    const targetNameProp = ["name", "worksheet_name", "worksheet", "sheet_name", "sheetName", "title"]
-      .find((p) => p in schemaProperties);
-    if (targetNameProp) {
-      mapped[targetNameProp] = cleanName;
-    }
-
-    const targetItemProp = ["item_id", "workbook_id", "file_id", "workbookId"]
-      .find((p) => p in schemaProperties);
-    if (targetItemProp) {
-      mapped[targetItemProp] = workbookId;
-    }
-
-    const allowed = new Set([...Object.keys(schemaProperties), "drive_id", "item_id", "workbook_id", "name", "worksheet_name"]);
-    for (const k of Object.keys(mapped)) {
-      if (!allowed.has(k)) {
-        delete mapped[k];
-      }
-    }
-  }
-
   return mapped;
 }
 
@@ -771,28 +575,6 @@ export function prepareUpdateWorksheetArgs(
 
   if (inputArgs?.drive_id) {
     mapped.drive_id = String(inputArgs.drive_id).trim();
-  }
-
-  if (schemaProperties && Object.keys(schemaProperties).length > 0) {
-    const targetItemProp = ["item_id", "workbook_id", "file_id", "workbookId"].find((p) => p in schemaProperties);
-    if (targetItemProp) {
-      mapped[targetItemProp] = workbookId;
-    }
-    const targetWorksheetProp = ["worksheet", "worksheet_id", "sheet_name", "current_name"].find((p) => p in schemaProperties);
-    if (targetWorksheetProp) {
-      mapped[targetWorksheetProp] = currentName;
-    }
-    const targetNameProp = ["name", "new_name", "title"].find((p) => p in schemaProperties);
-    if (targetNameProp) {
-      mapped[targetNameProp] = cleanNewName;
-    }
-
-    const allowed = new Set([...Object.keys(schemaProperties), "drive_id", "item_id", "workbook_id", "worksheet", "name"]);
-    for (const k of Object.keys(mapped)) {
-      if (!allowed.has(k)) {
-        delete mapped[k];
-      }
-    }
   }
 
   return mapped;
@@ -848,43 +630,6 @@ export function prepareDeleteWorksheetArgs(
 
   if (inputArgs?.drive_id) {
     mapped.drive_id = String(inputArgs.drive_id).trim();
-  }
-
-  if (schemaProperties && Object.keys(schemaProperties).length > 0) {
-    const targetSheetIdProp = ["worksheet_id", "workbookWorksheet_id", "worksheetId", "id"]
-      .find((p) => p in schemaProperties);
-    if (targetSheetIdProp) {
-      mapped[targetSheetIdProp] = targetId;
-    }
-
-    const targetSheetNameProp = ["worksheet_name", "worksheet", "name", "sheet_name", "sheetName", "title"]
-      .find((p) => p in schemaProperties);
-    if (targetSheetNameProp) {
-      mapped[targetSheetNameProp] = targetName;
-    }
-
-    const targetItemProp = ["item_id", "workbook_id", "file_id", "workbookId"]
-      .find((p) => p in schemaProperties);
-    if (targetItemProp) {
-      mapped[targetItemProp] = workbookId;
-    }
-
-    const allowed = new Set([
-      ...Object.keys(schemaProperties),
-      "drive_id",
-      "item_id",
-      "workbook_id",
-      "worksheet_id",
-      "worksheet_name",
-      "name",
-      "worksheet",
-      "id",
-    ]);
-    for (const k of Object.keys(mapped)) {
-      if (!allowed.has(k)) {
-        delete mapped[k];
-      }
-    }
   }
 
   return mapped;
@@ -1183,16 +928,6 @@ export function runRegressionTests(): { passed: boolean; details: string; result
   };
 }
 
-const regTest = runRegressionTests();
-if (!regTest.passed) {
-  console.error(`[microsoft-excel] REGRESSION TEST FAILED:`, regTest.details);
-  for (const [name, passed] of Object.entries(regTest.results)) {
-    if (!passed) console.error(`  FAIL: ${name}`);
-  }
-} else {
-  console.error(`[microsoft-excel] Verification checks: ALL ${Object.keys(regTest.results).length} unit checks passed.`);
-}
-
 function isAuthFailure(errorMessage: string, errorCode?: string): boolean {
   const code = (errorCode || "").toUpperCase();
   if (
@@ -1233,7 +968,48 @@ function isAuthFailure(errorMessage: string, errorCode?: string): boolean {
   return authPhrases.some((phrase) => msg.includes(phrase));
 }
 
-async function executeComposioAction(actionName: string, inputArgs: Record<string, any>): Promise<any> {
+export const WRITE_ACTIONS = new Set(["EXCEL_ADD_WORKSHEET", "EXCEL_UPDATE_WORKSHEET", "EXCEL_DELETE_WORKSHEET", "EXCEL_UPDATE_RANGE", "EXCEL_ADD_TABLE_ROW", "EXCEL_ADD_CHART"]);
+export function timeoutMessage(action: string): string {
+  return WRITE_ACTIONS.has(action)
+    ? `Composio request timed out while executing ${action}. Outcome unknown: the change may already have completed. Check the workbook before retrying; do not repeat the write automatically.`
+    : `Composio request timed out while executing ${action}. Please try again.`;
+}
+
+export function mapPinnedAction(action: string, input: Record<string, any>): Record<string, any> {
+  const item_id = input.workbook_id || input.item_id || process.env.DEFAULT_WORKBOOK_ID?.trim();
+  let args: Record<string, any> = { item_id };
+  switch (action) {
+    case "EXCEL_GET_WORKBOOK": case "EXCEL_LIST_WORKSHEETS": break;
+    case "EXCEL_GET_WORKSHEET": args.worksheet = input.worksheet_name || input.worksheet; break;
+    case "EXCEL_ADD_WORKSHEET": args.name = prepareWorksheetActionArgs(action, input).name; break;
+    case "EXCEL_UPDATE_WORKSHEET": {
+      const mapped = prepareUpdateWorksheetArgs(input);
+      args.worksheet = mapped.worksheet; args.name = mapped.name; break;
+    }
+    case "EXCEL_DELETE_WORKSHEET": args.worksheet_id = input.resolved_id || input.worksheet_id || prepareDeleteWorksheetArgs(action, input).worksheet_id; break;
+    case "EXCEL_GET_RANGE": case "EXCEL_UPDATE_RANGE": {
+      const mapped = prepareRangeActionArgs(action, input);
+      args.worksheet_id = mapped.worksheet_id; args.address = mapped.address;
+      if (action === "EXCEL_UPDATE_RANGE") args.values = mapped.values;
+      break;
+    }
+    case "EXCEL_ADD_TABLE_ROW": {
+      const mapped = prepareTableActionArgs(action, input);
+      args.table_id = mapped.table_id; args.values = mapped.values; break;
+    }
+    case "EXCEL_ADD_CHART": {
+      const mapped = prepareChartActionArgs(input);
+      args.worksheet_id = mapped.worksheet_id; args.type = mapped.type;
+      args.sourcedata = mapped.sourcedata; args.seriesby = mapped.seriesby; break;
+    }
+    default: throw new Error("Unsupported Excel action.");
+  }
+  const drive = input.drive_id || process.env.DEFAULT_DRIVE_ID?.trim() || /^([0-9a-f]{16})!/i.exec(String(item_id || ""))?.[1];
+  if (drive) args.drive_id = drive;
+  return Object.fromEntries(Object.entries(args).filter(([,value]) => value !== undefined));
+}
+
+export async function executeComposioAction(actionName: string, inputArgs: Record<string, any>, clientForTest?: any): Promise<any> {
   if (!APPROVED_SLUG_SET.has(actionName)) {
     throw new Error(`Unapproved action slug '${actionName}'. Only audited, approved Composio slugs may be executed.`);
   }
@@ -1250,7 +1026,7 @@ async function executeComposioAction(actionName: string, inputArgs: Record<strin
 
   let composio: any;
   try {
-    composio = new Composio({ apiKey, baseUrl: COMPOSIO_BASE_URL });
+    composio = clientForTest ?? new Composio({ apiKey, baseUrl: COMPOSIO_BASE_URL });
   } catch (initErr: any) {
     throw new Error(`Failed to initialize Composio client: ${initErr.message || String(initErr)}`);
   }
@@ -1265,134 +1041,20 @@ async function executeComposioAction(actionName: string, inputArgs: Record<strin
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 19000);
   try {
-    let properties: Record<string, any> = {};
-    let requiredFields: string[] = [];
-    if (typeof composio?.tools?.getRawComposioToolBySlug === "function") {
-      try {
-        const tool = await composio.tools.getRawComposioToolBySlug(actionName, { version }, { signal: controller.signal });
-        properties = tool?.inputParameters?.properties || {};
-        requiredFields = tool?.inputParameters?.required || [];
-      } catch {
-        // Schema lookup optional
-      }
+    const tool = await composio.tools.getRawComposioToolBySlug(actionName, { version }, { signal: controller.signal });
+    const properties = tool.inputParameters?.properties;
+    if (!properties) throw new Error("Missing pinned tool input schema; no execution attempted.");
+    const mappedArgs = mapPinnedAction(actionName, inputArgs);
+    // Optional drive scoping is only applicable when the action declares it.
+    if (!("drive_id" in properties)) delete mappedArgs.drive_id;
+    for (const key of Object.keys(mappedArgs)) {
+      if (!(key in properties)) throw new Error(`${actionName}: pinned mapping field ${key} is absent from the catalog. No execution attempted.`);
     }
-
-    let mappedArgs: Record<string, any>;
-
-    if (actionName === "EXCEL_GET_RANGE" || actionName === "EXCEL_UPDATE_RANGE") {
-      mappedArgs = prepareRangeActionArgs(actionName, inputArgs);
-    } else if (actionName === "EXCEL_ADD_CHART") {
-      mappedArgs = prepareChartActionArgs(inputArgs, properties);
-    } else if (actionName === "EXCEL_ADD_TABLE_ROW") {
-      mappedArgs = prepareTableActionArgs(actionName, inputArgs, properties);
-    } else if (actionName === "EXCEL_ADD_WORKSHEET") {
-      mappedArgs = prepareWorksheetActionArgs(actionName, inputArgs, properties);
-    } else if (actionName === "EXCEL_UPDATE_WORKSHEET") {
-      mappedArgs = prepareUpdateWorksheetArgs(inputArgs, properties);
-    } else if (actionName === "EXCEL_DELETE_WORKSHEET") {
-      mappedArgs = prepareDeleteWorksheetArgs(
-        actionName,
-        inputArgs,
-        properties,
-        inputArgs?.resolved_id,
-        inputArgs?.resolved_name,
-      );
-    } else {
-      mappedArgs = { ...inputArgs };
-      if (mappedArgs.workbook_id && !mappedArgs.item_id) {
-        mappedArgs.item_id = mappedArgs.workbook_id;
-      }
-      if (actionName === "EXCEL_GET_WORKSHEET") {
-        if (mappedArgs.worksheet_name && !mappedArgs.worksheet) {
-          mappedArgs.worksheet = mappedArgs.worksheet_name;
-        }
-      }
-    }
-
-    if (Object.keys(properties).length > 0) {
-      for (const [source, targets] of Object.entries({
-        workbook_id: ["item_id", "file_id", "workbookId"],
-        range: ["address", "source_data", "sourcedata", "range"],
-        worksheet_name: ["worksheet", "worksheet_id", "sheet_name", "worksheetName"],
-        name: ["worksheet_name", "name", "title"],
-        current_name: ["worksheet", "current_name", "name"],
-        new_name: ["name", "new_name"],
-        chart_type: ["type", "chart_type", "chartType"],
-        series_by: ["seriesby", "series_by"],
-        table_id: ["table_name", "table", "tableName", "tableId"],
-        table_name: ["table_id", "table", "tableName", "tableId"],
-        rows: ["values", "row_data", "data"],
-        values: ["rows", "row_data", "data"],
-      })) {
-        if (source in mappedArgs && !(source in properties)) {
-          const target = targets.find((key) => key in properties);
-          if (target) {
-            mappedArgs[target] = mappedArgs[source];
-          }
-        }
-      }
-    }
-
-    if ("drive_id" in properties || Object.keys(properties).length === 0) {
-      mappedArgs.drive_id ||= process.env.DEFAULT_DRIVE_ID?.trim();
-      if (!mappedArgs.drive_id) {
-        const personalDrive = /^([0-9a-f]{16})![^!]+$/i.exec(String(mappedArgs.item_id || mappedArgs.workbook_id || ""));
-        if (personalDrive) {
-          mappedArgs.drive_id = personalDrive[1];
-        }
-      }
-    } else {
-      delete mappedArgs.drive_id;
-    }
-
-    if (!mappedArgs.drive_id) {
-      delete mappedArgs.drive_id;
-    }
-
-    if (requiredFields.length > 0) {
-      const missing = requiredFields.filter((key: string) => mappedArgs[key] === undefined || mappedArgs[key] === "");
-      if (missing.length) {
-        throw new Error(`${actionName} (${version}) requires: ${missing.join(", ")}.`);
-      }
-    }
-
-    let res: any;
-    if (typeof composio?.tools?.execute === "function") {
-      res = await composio.tools.execute(
-        actionName,
-        {
-          userId,
-          connectedAccountId,
-          arguments: mappedArgs,
-          version,
-        },
-        { signal: controller.signal },
-      );
-    } else if (typeof composio?.actions?.execute === "function") {
-      res = await composio.actions.execute({
-        action: actionName,
-        params: mappedArgs,
-        connectedAccountId,
-        entityId: userId,
-      });
-    } else {
-      const payload = {
-        connectedAccountId,
-        arguments: mappedArgs,
-        userId,
-        version,
-      };
-      const resp = await fetch(`${COMPOSIO_BASE_URL}/api/v1/actions/${actionName}/execute`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": apiKey,
-        },
-        body: JSON.stringify(payload),
-        signal: controller.signal,
-      });
-      res = await resp.json();
-    }
+    const missing = (tool.inputParameters.required || []).filter((key: string) => mappedArgs[key] === undefined || mappedArgs[key] === "");
+    if (missing.length) throw new Error(`${actionName} (${version}) requires: ${missing.join(", ")}. No execution attempted.`);
+    const res = await composio.tools.execute(actionName, {
+      userId, connectedAccountId, arguments: mappedArgs, version,
+    }, { signal: controller.signal, maxRetries: 0 });
 
     if (
       res &&
@@ -1430,7 +1092,7 @@ async function executeComposioAction(actionName: string, inputArgs: Record<strin
     return data;
   } catch (err: any) {
     if (controller.signal.aborted) {
-      throw new Error(`Composio request timed out while executing ${actionName}. Please try again.`);
+      throw new Error(timeoutMessage(actionName));
     }
     let currentErr = err;
     const seen = new Set();
@@ -1975,45 +1637,7 @@ server.registerTool(
         drive_id: args?.drive_id?.trim() || undefined,
       });
     } catch (firstErr: any) {
-      const msg = String(firstErr?.message || "").toLowerCase();
-      const isCollision =
-        msg.includes("already exists") ||
-        msg.includes("itemalreadyexists") ||
-        msg.includes("already in use") ||
-        msg.includes("name is already used");
-
-      if (isCollision) {
-        let succeeded = false;
-        for (let attempt = 2; attempt <= 5; attempt++) {
-          const suffix = ` (${attempt})`;
-          const candidateName = `${cleanName.slice(0, 31 - suffix.length)}${suffix}`;
-          try {
-            data = await executeComposioAction(APPROVED_COMPOSIO_ACTIONS.excel_create_worksheet, {
-              workbook_id: workbookId,
-              item_id: workbookId,
-              name: candidateName,
-              worksheet_name: candidateName,
-              drive_id: args?.drive_id?.trim() || undefined,
-            });
-            finalName = candidateName;
-            collisionResolved = true;
-            succeeded = true;
-            break;
-          } catch (retryErr: any) {
-            const retryMsg = String(retryErr?.message || "").toLowerCase();
-            if (!retryMsg.includes("already exists") && !retryMsg.includes("itemalreadyexists")) {
-              throw retryErr;
-            }
-          }
-        }
-        if (!succeeded) {
-          throw new Error(
-            `Worksheet '${cleanName}' already exists in workbook (${clip(workbookId, 16)}). Please specify a unique sheet name or use excel_get_worksheet to view it.`,
-          );
-        }
-      } else {
-        throw firstErr;
-      }
+      throw firstErr; // Never change the approved name or retry a write automatically.
     }
 
     const createdName = data?.name || finalName;
@@ -2219,9 +1843,7 @@ server.registerTool(
         }
       }
 
-      let data: any;
-      try {
-        data = await executeComposioAction(APPROVED_COMPOSIO_ACTIONS.excel_delete_worksheet, {
+      const data = await executeComposioAction(APPROVED_COMPOSIO_ACTIONS.excel_delete_worksheet, {
           workbook_id: workbookId,
           item_id: workbookId,
           worksheet_name: resolvedName,
@@ -2235,32 +1857,6 @@ server.registerTool(
           resolved_name: resolvedName,
           drive_id: args?.drive_id?.trim() || undefined,
         });
-      } catch (primaryErr: any) {
-        if (isAuthFailure(primaryErr?.message)) throw primaryErr;
-
-        if (resolvedId && resolvedId !== resolvedName) {
-          try {
-            data = await executeComposioAction(APPROVED_COMPOSIO_ACTIONS.excel_delete_worksheet, {
-              workbook_id: workbookId,
-              item_id: workbookId,
-              worksheet_name: resolvedName,
-              worksheet: resolvedName,
-              name: resolvedName,
-              sheet_name: resolvedName,
-              worksheet_id: resolvedName,
-              id: resolvedName,
-              workbookWorksheet_id: resolvedName,
-              resolved_id: resolvedName,
-              resolved_name: resolvedName,
-              drive_id: args?.drive_id?.trim() || undefined,
-            });
-          } catch {
-            throw primaryErr;
-          }
-        } else {
-          throw primaryErr;
-        }
-      }
 
       const body = `
         <div class="xl">

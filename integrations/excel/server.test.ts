@@ -57,3 +57,69 @@ test("chart maps source, chart type and explicit column grouping", () => {
 test("chart rejects unsupported grouping before execution", () => {
   expect(() => prepareChartActionArgs({workbook_id: "qa_workbook", series_by: "Invalid"})).toThrow("Unsupported series_by");
 });
+
+// These injected-client tests exercise the execution boundary without network calls.
+import { resolveConnectedAccountId, executeComposioAction, mapPinnedAction, timeoutMessage, WRITE_ACTIONS } from "./server.ts";
+import { afterEach, beforeEach } from "bun:test";
+const savedEnv = { ...process.env };
+beforeEach(() => {
+  process.env.COMPOSIO_API_KEY = "test_key_not_real";
+  process.env.COMPOSIO_USER_ID = "qa_user";
+  process.env.COMPOSIO_CONNECTED_ACCOUNT_ID = "ca_test";
+});
+afterEach(() => {
+  for (const key of ["COMPOSIO_API_KEY", "COMPOSIO_USER_ID", "COMPOSIO_CONNECTED_ACCOUNT_ID"]) {
+    if (savedEnv[key] === undefined) delete process.env[key]; else process.env[key] = savedEnv[key];
+  }
+});
+const validAccount = {id: "ca_test", user_id: "qa_user", status: "ACTIVE", toolkit: {slug: "excel"}};
+const accountClient = (account: any) => ({client: {connectedAccounts: {retrieve: async () => account}}});
+test("raw account owner verifies before execution", async () => {
+  expect(await resolveConnectedAccountId(accountClient(validAccount), "unused", "qa_user")).toBe("ca_test");
+});
+for (const [label, change] of Object.entries({
+  "unknown owner": {user_id: undefined}, "foreign owner": {user_id: "other_user"},
+  "wrong toolkit": {toolkit: {slug: "asana"}}, "expired account": {status: "EXPIRED"},
+  "wrong account": {id: "ca_other"},
+})) {
+  test("rejects " + label, async () => {
+    await expect(resolveConnectedAccountId(accountClient({...validAccount,...change}), "unused", "qa_user")).rejects.toThrow();
+  });
+}
+test("account retrieval failure does not fall through", async () => {
+  const client = {client: {connectedAccounts: {retrieve: async () => {throw Error("lookup unavailable");}}}};
+  await expect(resolveConnectedAccountId(client, "unused", "qa_user")).rejects.toThrow("lookup unavailable");
+});
+for (const action of WRITE_ACTIONS) test(action + ": timeout warns outcome is unknown", () => {
+  expect(timeoutMessage(action)).toContain("Outcome unknown");
+  expect(timeoutMessage(action)).toContain("Check the workbook before retrying");
+  expect(timeoutMessage(action)).not.toContain("Please try again");
+});
+test("fixed rename mapping does not send aliases or overwrite the target", () => {
+  expect(mapPinnedAction("EXCEL_UPDATE_WORKSHEET", {workbook_id: "qa_wb", current_name: "Before", new_name: "After"})).toEqual({item_id: "qa_wb", worksheet: "Before", name: "After"});
+});
+test("schema drift stops a write instead of choosing another field", async () => {
+  let calls = 0;
+  const client = {...accountClient(validAccount), tools: {
+    getRawComposioToolBySlug: async () => ({inputParameters: {properties: {file_id: {type: "string"}, title: {type: "string"}},required: ["file_id","title"]}}),
+    execute: async () => {calls++;return {data:{}};},
+  }};
+  await expect(executeComposioAction("EXCEL_ADD_WORKSHEET", {workbook_id:"qa_wb",name:"Approved"},client)).rejects.toThrow("pinned mapping field");
+  expect(calls).toBe(0);
+});
+test("SDK write is called once with approved mapped values and retries disabled", async () => {
+  const calls:any[]=[];
+  const client={...accountClient(validAccount),tools:{
+    getRawComposioToolBySlug: async () => ({inputParameters:{properties:{item_id:{type:"string"},name:{type:"string"}},required:["item_id","name"]}}),
+    execute:async (...args:any[]) => {calls.push(args);return {successful:true,data:{id:"fixture_sheet"}};},
+  }};
+  expect(await executeComposioAction("EXCEL_ADD_WORKSHEET",{workbook_id:"qa_wb",name:"Approved"},client)).toEqual({id:"fixture_sheet"});
+  expect(calls).toHaveLength(1);
+  expect(calls[0][1].arguments).toEqual({item_id:"qa_wb",name:"Approved"});
+  expect(calls[0][2].maxRetries).toBe(0);
+});
+test("no deprecated API or startup regression invocation remains", () => {
+  expect(source).not.toContain("/api/v1/");
+  expect(source).not.toContain("const regTest = runRegressionTests()");
+  expect(source).not.toContain("candidateName");
+});

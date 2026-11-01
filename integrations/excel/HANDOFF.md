@@ -1,14 +1,14 @@
 # Microsoft Excel: handoff
 
-## Verified version
+## Previously live-tested version
 
 - Build marker: `excel-manual-account-restored-v1`.
 - Original live-tested folder: `microsoft-excel-461badac`; current setup-corrected export: `microsoft-excel-8d2ea718` (same runtime code).
 - Composio Excel toolkit version: `20261029_00`.
 - Ten exposed actions have successful live responses against a real workbook.
-- Shared startup logs report 32 embedded verification checks passed. These are separate from live execution evidence.
+- The previous build ran 32 embedded verification checks at startup. The current build runs those checks only under bun test.
 
-The runtime and manifest in this repository come from that folder, not the older `microsoft-excel-d96d8761` development copy. Do not attribute the older copy's 65-test suite to this release.
+The original runtime and manifest came from that folder. Review fixes now change the execution boundary and require a fresh live run. Do not treat previous live results as proof of the current build. Do not use the older `microsoft-excel-d96d8761` development copy. Do not attribute the older copy's 65-test suite to this release.
 
 ## What is implemented
 
@@ -63,4 +63,16 @@ Do not commit credentials, private execution logs, `.env`, or `node_modules`. Re
 
 ## CI regression tests
 
-Run `bun install --frozen-lockfile` and `bun test` from `integrations/excel`. `server.test.ts` runs 49 offline tests, including the 32 embedded checks, tool/manifest consistency, confirmation declarations, and range/chart mappings. These checks do not execute Composio actions or replace the previously reported live VoiceOS QA. Importing `server.ts` does not open the MCP transport; direct launcher execution still does.
+Run `bun install --frozen-lockfile` and `bun test` from `integrations/excel`. `server.test.ts` runs 66 offline tests, including the 32 embedded checks, tool/manifest consistency, confirmation declarations, and range/chart mappings. These checks do not execute Composio actions or replace the previously reported live VoiceOS QA. Importing `server.ts` does not open the MCP transport; direct launcher execution still does.
+
+## Review fixes: excel-review-fixed-v2
+
+- Pin @composio/core to 0.27.0 and use its current raw connected-account retrieval and tools.execute APIs. Deprecated v1 HTTP and alternate SDK execution paths were removed.
+- Require the configured account's raw user_id to match COMPOSIO_USER_ID, with matching account ID, Excel toolkit and ACTIVE status. Missing owner data or failed retrieval blocks execution; no ownership bypass or cached approval.
+- Use explicit per-action mappings. The pinned provider schema validates fields and required inputs; it does not choose aliases. A contract mismatch blocks the call.
+- Write timeouts report an unknown outcome and tell users to inspect Excel before retrying. No automatic create-name suffixing or delete retry.
+- Run regression checks only via bun test. Current automated result: 66 offline tests passed. Account and execution-boundary tests use injected fake clients, not live Composio results.
+- Studio fixtures use dummy workbook/drive identifiers. Historical commits may still contain the former identifiers.
+- Manual QA setup remains intentional; native OAuth changes should be coordinated with the VoiceOS team rather than introduced during this fix.
+
+Fresh live validation is REQUIRED before merge: create a disposable sheet; write and read back a small range; rename it; append one uniquely marked row to a real test table; create and visually inspect a chart; delete the disposable sheet after confirmation. Record build marker, action, arguments, result, visible workbook change, and confirmation/cancellation behavior. No fresh live results have been recorded for this revision yet.

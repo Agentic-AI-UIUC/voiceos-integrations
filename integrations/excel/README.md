@@ -66,4 +66,6 @@ Publish through VoiceOS separately from uploading this source to GitHub. Verify 
 
 ## CI regression tests
 
-Run `bun install --frozen-lockfile` and `bun test` from `integrations/excel`. `server.test.ts` runs 49 offline tests, including the 32 embedded checks, tool/manifest consistency, confirmation declarations, and range/chart mappings. These checks do not execute Composio actions or replace the previously reported live VoiceOS QA. Importing `server.ts` does not open the MCP transport; direct launcher execution still does.
+Run `bun install --frozen-lockfile` and `bun test` from `integrations/excel`. `server.test.ts` runs 66 offline tests, including the 32 embedded checks, tool/manifest consistency, confirmation declarations, and range/chart mappings. These checks do not execute Composio actions or replace the previously reported live VoiceOS QA. Importing `server.ts` does not open the MCP transport; direct launcher execution still does.
+
+Current review build: `excel-review-fixed-v2`. Composio SDK is pinned to `0.27.0`. Ownership verification now fails closed and action mappings are explicit. Fresh live verification of this revision remains pending; prior live results apply to the earlier build.
