@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "com.voiceos.generated.microsoft-onedrive",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "name": "OneDrive",
   "summary": "Manage your Microsoft OneDrive files with voice: list, search, read, download, upload, and share.",
   "description": "Connect your Microsoft account through Composio OAuth2 to browse folders, search documents, read and summarize Word, Excel, PowerPoint, PDF and text files, download files to your Mac Downloads folder, upload notes, create directories, share links, and manage OneDrive items.",
@@ -96,7 +96,7 @@
           },
           "limit": {
             "type": "number",
-            "description": "Maximum number of items to return (1-20, default 8)"
+            "description": "Maximum number of items to return (1-50, default 20)"
           }
         }
       }
@@ -114,7 +114,7 @@
           },
           "limit": {
             "type": "number",
-            "description": "Maximum results to return (1-20, default 5)"
+            "description": "Maximum results to return (1-25, default 10)"
           }
         },
         "required": [
@@ -125,13 +125,13 @@
     {
       "name": "download_file",
       "title": "Download file",
-      "description": "Download a file from Microsoft OneDrive into the Mac's ~/Downloads folder (never overwrites; adds ' (1)' if the name is taken). Use when the user asks to download, save locally, or fetch a OneDrive file. Pass a path or id from list_files/search_files; a bare file name also works if it's unique.",
+      "description": "Download a file from Microsoft OneDrive into the Mac's ~/Downloads folder (never overwrites; adds ' (1)' if the name is taken). Use when the user asks to download, save locally, or fetch a OneDrive file. Call it directly with the name the user said (with or without extension, optionally with its folder); don't search first. If several files match, the error lists them.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "item_path": {
             "type": "string",
-            "description": "OneDrive path relative to the root (e.g. 'Documents/Report.pdf'), item id, or unique file name"
+            "description": "File name as the user said it, path (e.g. 'Documents/Report.pdf'), or item id"
           },
           "file_name": {
             "type": "string",
@@ -146,13 +146,13 @@
     {
       "name": "read_file",
       "title": "Read file contents",
-      "description": "Read the text of a Microsoft OneDrive file so you can summarize it, answer questions about it, or quote from it. Works with Word, Excel, PowerPoint, PDF, and plain-text files (txt, md, csv, json, code); not images or scanned PDFs. Use when the user asks what a OneDrive file says, wants it summarized, or asks a question about its contents; then answer from the returned document_text (the card is only a preview). Pass a path or id from list_files/search_files; a bare file name also works if it's unique.",
+      "description": "Read the text of a Microsoft OneDrive file so you can summarize it, answer questions about it, or quote from it. Works with Word, Excel, PowerPoint, PDF, and plain-text files (txt, md, csv, json, code); not images or scanned PDFs. Use when the user asks what a OneDrive file says, wants it summarized, or asks a question about its contents; then answer from the returned document_text (the card is only a preview). Call it directly with the name the user said (with or without extension, optionally with its folder); don't search first. If several files match, the error lists them.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "item_path": {
             "type": "string",
-            "description": "OneDrive path relative to the root (e.g. 'Documents/Q3 Report.docx'), item id, or unique file name"
+            "description": "File name as the user said it, path (e.g. 'Documents/Q3 Report.docx'), or item id"
           },
           "max_chars": {
             "type": "number",
@@ -232,13 +232,13 @@
     {
       "name": "create_share_link",
       "title": "Create share link",
-      "description": "Create a sharing link for a Microsoft OneDrive file or folder and copy it to the Mac clipboard. Use when the user asks to share a file, get a link to it, or let someone view or edit it. Who can open the link follows the account's default sharing settings. Pass a path or id from list_files/search_files; a bare file name also works if it's unique.",
+      "description": "Create a sharing link for a Microsoft OneDrive file or folder and copy it to the Mac clipboard. Use when the user asks to share a file, get a link to it, or let someone view or edit it. Who can open the link follows the account's default sharing settings. Call it directly with the name the user said (with or without extension, optionally with its folder); don't search first. If several files match, the error lists them.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "item_path": {
             "type": "string",
-            "description": "OneDrive path relative to the root (e.g. 'Documents/Report.docx'), item id, or unique file name"
+            "description": "File or folder name as the user said it, path (e.g. 'Documents/Report.docx'), or item id"
           },
           "scope": {
             "type": "string",

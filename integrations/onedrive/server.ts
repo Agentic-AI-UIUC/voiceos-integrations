@@ -194,11 +194,44 @@ export function summarizeItem(item: any) {
   };
 }
 
+// Words people say after a file name ("the budget PDF") that aren't part of it.
+const SPOKEN_TYPE_WORDS = /\s+(pdf|docx?|word|xlsx?|excel|spreadsheet|pptx?|powerpoint|slides|deck|txt|text|md|markdown|csv|file|document|doc)$/;
+
+/** A file name as someone would say it: no extension, separators as spaces, lowercase. */
+export function spokenName(name: string): string {
+  let s = String(name || "").toLowerCase().replace(/\.[a-z0-9]{1,5}$/, "").replace(/[_\-.]+/g, " ").replace(/\s+/g, " ").trim();
+  while (SPOKEN_TYPE_WORDS.test(s)) s = s.replace(SPOKEN_TYPE_WORDS, "");
+  return s;
+}
+
 /**
- * Turns what the user said — an item ID, a path, or (when allowNameSearch) a bare
- * file name — into a Graph driveItem. Never guesses between several matches.
+ * Picks the one search hit the user meant, trying stricter matches first:
+ * exact name, then the same name ignoring extension and spoken type words
+ * ("Getting started with OneDrive PDF"), then a unique name prefix. Returns
+ * every hit at the first tier that matches anything, so the caller can refuse
+ * to guess between several.
  */
-export async function resolveItem(ref: string, allowNameSearch: boolean): Promise<any> {
+export function matchByName(hits: any[], query: string): any[] {
+  const q = query.toLowerCase();
+  const spoken = spokenName(query);
+  const tiers: Array<(name: string) => boolean> = [
+    (name) => name.toLowerCase() === q,
+    (name) => spoken.length > 0 && spokenName(name) === spoken,
+    (name) => spoken.length >= 3 && spokenName(name).startsWith(spoken),
+  ];
+  for (const matches of tiers) {
+    const found = hits.filter((h) => matches(String(h?.name || "")));
+    if (found.length) return found;
+  }
+  return [];
+}
+
+/**
+ * Turns what the user said — an item ID, a path, or (when loose) a spoken name,
+ * optionally under a folder — into a Graph driveItem. Never guesses between
+ * several matches; strict mode (delete) accepts only an exact ID or path.
+ */
+export async function resolveItem(ref: string, loose: boolean): Promise<any> {
   const raw = String(ref || "").trim();
   if (!raw) throw new Error("No OneDrive file or folder was given.");
   if (looksLikeItemId(raw)) return composio("ONE_DRIVE_GET_ITEM", { item_id: raw });
@@ -210,16 +243,21 @@ export async function resolveItem(ref: string, allowNameSearch: boolean): Promis
     if (item?.id) return item;
     throw new Error(`OneDrive returned no item for "${p}".`);
   } catch (err) {
-    if (!allowNameSearch || p.includes("/") || !NOT_FOUND_RE.test(extractErrorMessage(err))) throw err;
+    if (!loose || !NOT_FOUND_RE.test(extractErrorMessage(err))) throw err;
   }
 
-  // A bare name that isn't in the root: look for an exact-name match anywhere.
-  const hits = listOf(await composio("ONE_DRIVE_SEARCH_ITEMS", { q: p, top: 25 }))
-    .filter((i: any) => String(i?.name || "").toLowerCase() === p.toLowerCase());
-  if (hits.length === 1) return hits[0];
-  if (hits.length === 0) throw new Error(`No OneDrive item named "${p}". Use search_files to find its exact path.`);
-  const where = hits.slice(0, 5).map((h: any) => (h?.parentReference?.path ? itemPathOf(h) : h?.id)).join(", ");
-  throw new Error(`${hits.length} OneDrive items are named "${p}" (${where}). Ask the user which one, then pass its full path.`);
+  // Not at that exact path: search by the spoken name, keeping hits inside the
+  // folder the user named, if any.
+  const slash = p.lastIndexOf("/");
+  const folder = slash >= 0 ? p.slice(0, slash).toLowerCase() : "";
+  const name = slash >= 0 ? p.slice(slash + 1) : p;
+  const hits = listOf(await composio("ONE_DRIVE_SEARCH_ITEMS", { q: spokenName(name) || name, top: 25 }))
+    .filter((h: any) => !folder || path.posix.dirname(itemPathOf(h)).toLowerCase() === folder);
+  const found = matchByName(hits, name);
+  if (found.length === 1) return found[0];
+  if (found.length === 0) throw new Error(`No OneDrive item matches "${p}". Use search_files to find it.`);
+  const where = found.slice(0, 5).map((h: any) => (h?.parentReference?.path ? itemPathOf(h) : h?.name)).join(", ");
+  throw new Error(`${found.length} OneDrive items match "${p}" (${where}). Ask the user which one, then pass its full path.`);
 }
 
 const DOWNLOAD_URL_KEY_RE = /s3url|download|file_?url|^url$/i;
@@ -492,7 +530,7 @@ const NEUTRAL_ACCENT = "#8e8e93"; // grey, so the kit's accent wash adds no hue
 const ROW_HEIGHT = 44;
 const READ_MAX_BYTES = 25 * 1024 * 1024;
 
-const server = new McpServer({ name: "microsoft-onedrive", version: "1.4.0" });
+const server = new McpServer({ name: "microsoft-onedrive", version: "1.5.0" });
 
 const svg = (paths: string) =>
   `<svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`;
@@ -776,9 +814,9 @@ server.registerTool(
   "download_file",
   {
     title: "Download file",
-    description: "Download a file from Microsoft OneDrive into the Mac's ~/Downloads folder (never overwrites; adds ' (1)' if the name is taken). Use when the user asks to download, save locally, or fetch a OneDrive file. Pass a path or id from list_files/search_files; a bare file name also works if it's unique.",
+    description: "Download a file from Microsoft OneDrive into the Mac's ~/Downloads folder (never overwrites; adds ' (1)' if the name is taken). Use when the user asks to download, save locally, or fetch a OneDrive file. Call it directly with the name the user said (with or without extension, optionally with its folder); don't search first. If several files match, the error lists them.",
     inputSchema: {
-      item_path: z.string().describe("OneDrive path relative to the root (e.g. 'Documents/Report.pdf'), item id, or unique file name"),
+      item_path: z.string().describe("File name as the user said it, path (e.g. 'Documents/Report.pdf'), or item id"),
       file_name: z.string().optional().describe("Optional file name to save as inside ~/Downloads"),
     },
   },
@@ -818,9 +856,9 @@ server.registerTool(
   "read_file",
   {
     title: "Read file contents",
-    description: "Read the text of a Microsoft OneDrive file so you can summarize it, answer questions about it, or quote from it. Works with Word, Excel, PowerPoint, PDF, and plain-text files (txt, md, csv, json, code); not images or scanned PDFs. Use when the user asks what a OneDrive file says, wants it summarized, or asks a question about its contents; then answer from the returned document_text (the card is only a preview). Pass a path or id from list_files/search_files; a bare file name also works if it's unique.",
+    description: "Read the text of a Microsoft OneDrive file so you can summarize it, answer questions about it, or quote from it. Works with Word, Excel, PowerPoint, PDF, and plain-text files (txt, md, csv, json, code); not images or scanned PDFs. Use when the user asks what a OneDrive file says, wants it summarized, or asks a question about its contents; then answer from the returned document_text (the card is only a preview). Call it directly with the name the user said (with or without extension, optionally with its folder); don't search first. If several files match, the error lists them.",
     inputSchema: {
-      item_path: z.string().describe("OneDrive path relative to the root (e.g. 'Documents/Q3 Report.docx'), item id, or unique file name"),
+      item_path: z.string().describe("File name as the user said it, path (e.g. 'Documents/Q3 Report.docx'), or item id"),
       max_chars: z.number().min(1000).max(60000).optional().describe("Maximum characters of text to return (default 20000)"),
     },
   },
@@ -992,9 +1030,9 @@ server.registerTool(
   "create_share_link",
   {
     title: "Create share link",
-    description: "Create a sharing link for a Microsoft OneDrive file or folder and copy it to the Mac clipboard. Use when the user asks to share a file, get a link to it, or let someone view or edit it. Who can open the link follows the account's default sharing settings. Pass a path or id from list_files/search_files; a bare file name also works if it's unique.",
+    description: "Create a sharing link for a Microsoft OneDrive file or folder and copy it to the Mac clipboard. Use when the user asks to share a file, get a link to it, or let someone view or edit it. Who can open the link follows the account's default sharing settings. Call it directly with the name the user said (with or without extension, optionally with its folder); don't search first. If several files match, the error lists them.",
     inputSchema: {
-      item_path: z.string().describe("OneDrive path relative to the root (e.g. 'Documents/Report.docx'), item id, or unique file name"),
+      item_path: z.string().describe("File or folder name as the user said it, path (e.g. 'Documents/Report.docx'), or item id"),
       scope: z.enum(["view", "edit"]).or(z.literal("")).optional().describe("Link permission: 'view' for read-only or 'edit' to allow editing (default: 'view')"),
     },
   },
