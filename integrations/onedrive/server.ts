@@ -494,7 +494,7 @@ const NEUTRAL_ACCENT = "#8e8e93"; // grey, so the kit's accent wash adds no hue
 const ROW_HEIGHT = 44;
 const READ_MAX_BYTES = 25 * 1024 * 1024;
 
-const server = new McpServer({ name: "microsoft-onedrive", version: "1.3.0" });
+const server = new McpServer({ name: "microsoft-onedrive", version: "1.4.0" });
 
 const svg = (paths: string) =>
   `<svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`;
@@ -630,9 +630,40 @@ function emptyState(icon: string, title: string, hint: string): string {
   return `<div class="empty"><div class="ic">${icon}</div><div class="t">${esc(title)}</div><div class="s">${esc(hint)}</div></div>`;
 }
 
+export type CardTheme = "auto" | "dark" | "light";
+
+/** The user's Card theme setting (manifest preference CARD_THEME); anything unrecognised means auto. */
+export function cardTheme(raw = process.env.CARD_THEME): CardTheme {
+  const v = String(raw ?? "").trim().toLowerCase();
+  return v === "dark" || v === "light" ? v : "auto";
+}
+
+/**
+ * Pins a user-chosen theme. VoiceOS's init message sets the theme it wants, so
+ * a watcher puts the chosen one back; and because cards are otherwise
+ * transparent over the host surface, a pinned theme paints its own background
+ * so it stays readable whatever the host draws behind it.
+ */
+export function themePin(theme: CardTheme): { css: string; js: string } {
+  if (theme === "auto") return { css: "", js: "" };
+  return {
+    // On the root: the kit styles body with a more specific accent-wash rule.
+    css: `html{background:${theme === "light" ? "#fff" : "#000"}}`,
+    js: `<script>(function(){var h=document.documentElement,t='${theme}';function pin(){if(h.getAttribute('data-k-theme')!==t)h.setAttribute('data-k-theme',t)}pin();new MutationObserver(pin).observe(h,{attributes:true,attributeFilter:['data-k-theme']})})()</script>`,
+  };
+}
+
 function card(body: string, height: number) {
   const scrolls = body.includes('class="ls more"');
-  return renderCustom({ accent: NEUTRAL_ACCENT, css: CARD_CSS, body: `<div class="c">${body}</div>${scrolls ? SCROLL_JS : ""}`, height });
+  const theme = cardTheme();
+  const pin = themePin(theme);
+  return renderCustom({
+    accent: NEUTRAL_ACCENT,
+    css: CARD_CSS + pin.css,
+    body: `<div class="c">${body}</div>${scrolls ? SCROLL_JS : ""}${pin.js}`,
+    height,
+    theme: theme === "auto" ? undefined : theme,
+  });
 }
 
 const listCardHeight = (rows: number) => 50 + Math.min(rows, VISIBLE_ROWS) * ROW_HEIGHT;

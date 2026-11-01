@@ -52,3 +52,12 @@ describe("voiceos.integration.json", () => {
     }
   });
 });
+
+describe("CARD_THEME preference", () => {
+  test("is a select whose values the server understands", () => {
+    const pref = manifest.preferences.find((p: any) => p.name === "CARD_THEME");
+    expect(pref.type).toBe("select");
+    expect(pref.default).toBe("auto");
+    expect(pref.options.map((o: any) => o.value).sort()).toEqual(["auto", "dark", "light"]);
+  });
+});

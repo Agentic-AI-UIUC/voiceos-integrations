@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
+  cardTheme,
   describeShape,
   findDownloadUrl,
   itemKind,
@@ -13,6 +14,7 @@ import {
   normPath,
   safeLocalName,
   summarizeItem,
+  themePin,
   unwrap,
   uploadableText,
   writeUnique,
@@ -140,5 +142,24 @@ describe("uploadableText", () => {
     expect(uploadableText("")).toEqual({ content: "\n", padded: true });
     expect(uploadableText("hello")).toEqual({ content: "hello", padded: false });
     expect(uploadableText(" ")).toEqual({ content: " ", padded: false });
+  });
+});
+
+describe("card theme", () => {
+  test("reads the CARD_THEME preference, defaulting to auto", () => {
+    expect(cardTheme("dark")).toBe("dark");
+    expect(cardTheme(" Light ")).toBe("light");
+    expect(cardTheme("auto")).toBe("auto");
+    expect(cardTheme(undefined)).toBe("auto");
+    expect(cardTheme("purple")).toBe("auto");
+  });
+  test("auto leaves the theme to VoiceOS", () => {
+    expect(themePin("auto")).toEqual({ css: "", js: "" });
+  });
+  test("a chosen theme paints its own surface and survives VoiceOS's init", () => {
+    expect(themePin("light").css).toBe("html{background:#fff}");
+    expect(themePin("dark").css).toBe("html{background:#000}");
+    expect(themePin("light").js).toContain("MutationObserver");
+    expect(themePin("light").js).toContain("t='light'");
   });
 });
