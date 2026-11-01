@@ -21,5 +21,3 @@ integrations/
 ## Testing
 
 Every integration must be thoroughly tested. Include a link to your integration on VoiceOS in your PR.
-
-Never commit API keys. Put them in `.env` (ignored) and document them in `.env.example`.
