@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "id": "com.voiceos.generated.microsoft-onedrive",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "name": "OneDrive",
-  "summary": "Manage your Microsoft OneDrive files with voice: list, search, download, upload, and share.",
-  "description": "Connect your Microsoft account through Composio OAuth2 to browse folders, search documents, download files to your Mac Downloads folder, upload notes, create directories, share links, and manage OneDrive items.",
+  "summary": "Manage your Microsoft OneDrive files with voice: list, search, read, download, upload, and share.",
+  "description": "Connect your Microsoft account through Composio OAuth2 to browse folders, search documents, read and summarize Word, Excel, PowerPoint, PDF and text files, download files to your Mac Downloads folder, upload notes, create directories, share links, and manage OneDrive items.",
   "icon": "icon.png",
   "supportedPlatforms": [
     "darwin"
@@ -115,6 +115,27 @@
           "file_name": {
             "type": "string",
             "description": "Optional file name to save as inside ~/Downloads"
+          }
+        },
+        "required": [
+          "item_path"
+        ]
+      }
+    },
+    {
+      "name": "read_file",
+      "title": "Read file contents",
+      "description": "Read the text of a Microsoft OneDrive file so you can summarize it, answer questions about it, or quote from it. Works with Word, Excel, PowerPoint, PDF, and plain-text files (txt, md, csv, json, code); not images or scanned PDFs. Use when the user asks what a OneDrive file says, wants it summarized, or asks a question about its contents. Pass a path or id from list_files/search_files; a bare file name also works if it's unique.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "item_path": {
+            "type": "string",
+            "description": "OneDrive path relative to the root (e.g. 'Documents/Q3 Report.docx'), item id, or unique file name"
+          },
+          "max_chars": {
+            "type": "number",
+            "description": "Maximum characters of text to return (default 20000)"
           }
         },
         "required": [

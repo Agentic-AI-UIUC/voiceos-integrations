@@ -13,13 +13,15 @@ import {
   itemPathOf,
   summarizeItem,
   resolveItem,
-  findDownloadUrl,
+  downloadBytes,
   safeLocalName,
   writeUnique,
-  extractErrorMessage,
 } from "./onedrive.ts";
+import { extensionOf, ooxmlText, pdfText, plainText, readStrategy, truncateText } from "./extract.ts";
 
-const server = new McpServer({ name: "microsoft-onedrive", version: "1.1.0" });
+const READ_MAX_BYTES = 25 * 1024 * 1024;
+
+const server = new McpServer({ name: "microsoft-onedrive", version: "1.2.0" });
 const ACCENT = "#0078d4"; // Microsoft OneDrive signature Fluent blue
 
 // Fluent icons in matching Microsoft 365 brand colors
@@ -295,21 +297,7 @@ server.registerTool(
     if (item?.folder) throw new Error(`"${item.name}" is a folder; only files can be downloaded.`);
 
     const itemName = String(item?.name || "download");
-    const data = await composio("ONE_DRIVE_DOWNLOAD_FILE", { item_id: item.id, file_name: itemName }, 15000);
-    const url = findDownloadUrl(data);
-    if (!url) {
-      const fields = data && typeof data === "object" ? Object.keys(data).join(", ") : typeof data;
-      throw new Error(`Composio didn't return a download link for "${itemName}" (got: ${fields || "nothing"}).`);
-    }
-
-    let buffer: Buffer;
-    try {
-      const fileRes = await fetch(url, { signal: AbortSignal.timeout(15000) });
-      if (!fileRes.ok) throw new Error(`HTTP ${fileRes.status}`);
-      buffer = Buffer.from(await fileRes.arrayBuffer());
-    } catch (err) {
-      throw new Error(`Couldn't fetch "${itemName}" from ${new URL(url).host}: ${extractErrorMessage(err)}`);
-    }
+    const buffer = await downloadBytes(item);
 
     const downloadDir = path.join(os.homedir(), "Downloads");
     await fs.promises.mkdir(downloadDir, { recursive: true });
@@ -343,6 +331,82 @@ server.registerTool(
       local_path: localTarget,
       bytes: buffer.length,
       file_size: fileSizeStr,
+    }, card);
+  }
+);
+
+// TOOL 3b: read_file (READ)
+server.registerTool(
+  "read_file",
+  {
+    title: "Read file contents",
+    description: "Read the text of a Microsoft OneDrive file so you can summarize it, answer questions about it, or quote from it. Works with Word, Excel, PowerPoint, PDF, and plain-text files (txt, md, csv, json, code); not images or scanned PDFs. Use when the user asks what a OneDrive file says, wants it summarized, or asks a question about its contents. Pass a path or id from list_files/search_files; a bare file name also works if it's unique.",
+    inputSchema: {
+      item_path: z.string().describe("OneDrive path relative to the root (e.g. 'Documents/Q3 Report.docx'), item id, or unique file name"),
+      max_chars: z.number().min(1000).max(60000).optional().describe("Maximum characters of text to return (default 20000)"),
+    } as any,
+  },
+  async (args: any) => {
+    const maxChars = Math.min(Math.max(Math.round(args?.max_chars ?? 20000), 1000), 60000);
+    const item = await resolveItem(args?.item_path, true);
+    if (item?.folder) throw new Error(`"${item.name}" is a folder. Use list_files to see what's inside.`);
+
+    const itemName = String(item?.name || "file");
+    const strategy = readStrategy(itemName);
+    if (strategy === "unsupported") {
+      const ext = extensionOf(itemName) || "no extension";
+      throw new Error(`Can't read text from "${itemName}" (${ext}). Supported: Word, Excel, PowerPoint, PDF, and plain-text files.`);
+    }
+    if (typeof item?.size === "number" && item.size > READ_MAX_BYTES) {
+      throw new Error(`"${itemName}" is ${formatSize(item.size)}, too large to read here (limit ${formatSize(READ_MAX_BYTES)}). Use download_file instead.`);
+    }
+
+    let text: string;
+    let pages: number | undefined;
+    if (strategy === "text") {
+      text = plainText(await downloadBytes(item));
+    } else if (strategy === "ooxml") {
+      text = ooxmlText(itemName, await downloadBytes(item));
+    } else {
+      ({ text, pages } = await pdfText(await downloadBytes(item, { asPdf: strategy === "convert" })));
+    }
+    if (!text.trim()) {
+      throw new Error(`"${itemName}" has no extractable text${strategy === "pdf" ? " (it may be a scanned PDF)" : ""}.`);
+    }
+
+    const { text: returned, truncated } = truncateText(text, maxChars);
+    const words = text.split(/\s+/).filter(Boolean).length;
+    const kind = strategy === "text" ? "Text" : strategy === "pdf" || strategy === "convert" ? "PDF" : extensionOf(itemName).toUpperCase();
+    const detail = [`${words.toLocaleString("en-US")} words`, pages ? `${pages} page${pages === 1 ? "" : "s"}` : "", truncated ? "partial" : ""]
+      .filter(Boolean)
+      .join(" · ");
+
+    const body = `
+      <div class="od-card">
+        <div class="od-hd">${markHtml()}<b>Microsoft OneDrive</b><span class="od-pill">Read</span></div>
+        <div class="od-receipt-hero">
+          <div class="od-hero-ico">${getFileIcon(itemName, false)}</div>
+          <div class="od-hero-m">
+            <div class="od-hero-name">${esc(clip(itemName, 34))}</div>
+            <div class="od-sub">${esc(detail)}</div>
+          </div>
+        </div>
+        <div class="od-callout">
+          <div class="od-local-path">${esc(clip(text.replace(/\s+/g, " "), 120))}</div>
+        </div>
+      </div>
+    `;
+    const card = renderCustom({ accent: ACCENT, css: FLUENT_CSS, body, height: 170 });
+    return widgetResult({
+      file_name: itemName,
+      path: item?.parentReference?.path ? itemPathOf(item) : undefined,
+      format: kind,
+      pages,
+      word_count: words,
+      truncated,
+      returned_chars: returned.length,
+      total_chars: text.length,
+      content: returned,
     }, card);
   }
 );

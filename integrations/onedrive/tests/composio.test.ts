@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { composio, resetAccountCache, resolveItem } from "../onedrive.ts";
+import { composio, downloadBytes, resetAccountCache, resolveItem } from "../onedrive.ts";
 
 type Call = { url: string; body: any };
 let calls: Call[] = [];
@@ -11,6 +11,9 @@ function mockComposio(routes: Record<string, (args: any) => { status?: number; j
     const url = String(input);
     const body = init?.body ? JSON.parse(init.body) : undefined;
     calls.push({ url, body });
+    if (url.startsWith("https://files.example/")) {
+      return url.endsWith("/missing") ? new Response("gone", { status: 403 }) : new Response(`bytes of ${url}`);
+    }
     if (url.includes("/connected_accounts")) {
       return Response.json({ items: [{ id: "ca_test", user_id: "u1", status: "ACTIVE", toolkit: { slug: "one_drive" } }] });
     }
@@ -125,5 +128,34 @@ describe("resolveItem()", () => {
   test("rejects the root folder", async () => {
     mockComposio({});
     await expect(resolveItem("My files", true)).rejects.toThrow(/root folder/);
+  });
+});
+
+describe("downloadBytes()", () => {
+  const item = { id: "D4648F06C91D9D3D!1", name: "Q3 Report.doc" };
+
+  test("downloads the original file from Composio's staged URL", async () => {
+    mockComposio({
+      ONE_DRIVE_DOWNLOAD_FILE: (a) => ({ json: { successful: true, data: { file: { s3url: `https://files.example/${a.item_id}` } } } }),
+    });
+    expect((await downloadBytes(item)).toString()).toBe("bytes of https://files.example/D4648F06C91D9D3D!1");
+  });
+
+  test("asks OneDrive to convert to PDF when asPdf is set", async () => {
+    mockComposio({
+      ONE_DRIVE_DOWNLOAD_ITEM_AS_FORMAT: (a) => ({ json: { successful: true, data: { file: { s3url: `https://files.example/${a.format}/${a.file_name}` } } } }),
+    });
+    expect((await downloadBytes(item, { asPdf: true })).toString()).toBe("bytes of https://files.example/pdf/Q3 Report.pdf");
+    expect(executed()).toEqual(["ONE_DRIVE_DOWNLOAD_ITEM_AS_FORMAT"]);
+  });
+
+  test("fails loudly when no link comes back", async () => {
+    mockComposio({ ONE_DRIVE_DOWNLOAD_FILE: () => ({ json: { successful: true, data: { name: "x" } } }) });
+    await expect(downloadBytes(item)).rejects.toThrow(/didn't return a download link/);
+  });
+
+  test("names the storage host when the fetch fails", async () => {
+    mockComposio({ ONE_DRIVE_DOWNLOAD_FILE: () => ({ json: { successful: true, data: { s3url: "https://files.example/missing" } } }) });
+    await expect(downloadBytes(item)).rejects.toThrow(/files\.example: HTTP 403/);
   });
 });
