@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import "./no-connect.ts";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -12,7 +13,7 @@ import {
   summarizeItem,
   unwrap,
   writeUnique,
-} from "../onedrive.ts";
+} from "../server.ts";
 
 describe("normPath", () => {
   test.each([

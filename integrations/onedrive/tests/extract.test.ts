@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import "./no-connect.ts";
 import { strToU8, zipSync } from "fflate";
-import { decodeXml, ooxmlText, pdfText, plainText, readStrategy, truncateText } from "../extract.ts";
+import { decodeXml, ooxmlText, pdfText, plainText, readStrategy, truncateText } from "../server.ts";
 
 const zip = (files: Record<string, string>) =>
   zipSync(Object.fromEntries(Object.entries(files).map(([k, v]) => [k, strToU8(v)])));
