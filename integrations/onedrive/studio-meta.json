@@ -1,0 +1,263 @@
+{
+  "originalPrompt": "Build a Microsoft OneDrive app using Composio with OAuth2, where each user connects their own Microsoft account. Expose only these tools: \nList files and folder contents\nSearch and download files\nUpload and create text files\nCreate folders and sharing links\n Reads run without prompts. Ask for confirmation before any write. Always confirm before delete, naming the file. Show success or error toasts and clear errors if the token expires. Read the Composio API key from config, never hardcoded",
+  "preview": {
+    "utterances": [
+      "What files are in my OneDrive?",
+      "Search OneDrive for budget spreadsheet",
+      "Download Q4_Budget.xlsx from OneDrive",
+      "Create a folder called Planning in OneDrive"
+    ],
+    "toolPreviews": [
+      {
+        "tool": "list_files",
+        "sampleArgs": {
+          "folder_path": "Documents",
+          "limit": 5
+        },
+        "stressCases": [
+          {
+            "state": "empty",
+            "sampleArgs": {
+              "folder_path": "Archive/2021"
+            },
+            "sampleData": {
+              "folder": "Archive/2021",
+              "item_count": 0,
+              "items": []
+            },
+            "expected": "Shows empty folder state with OneDrive folder icon and 'This folder is empty' message"
+          },
+          {
+            "state": "single",
+            "sampleArgs": {
+              "folder_path": "Projects/VoiceOS"
+            },
+            "sampleData": {
+              "folder": "Projects/VoiceOS",
+              "item_count": 1,
+              "items": [
+                {
+                  "id": "f1",
+                  "name": "Architecture.docx",
+                  "is_folder": false,
+                  "size": 2450000,
+                  "last_modified": "2025-02-14T10:30:00Z"
+                }
+              ]
+            },
+            "expected": "Renders a single file row with Word icon and full metadata without placeholder dividers"
+          },
+          {
+            "state": "long-text",
+            "sampleArgs": {
+              "folder_path": "Documents"
+            },
+            "sampleData": {
+              "folder": "Documents",
+              "item_count": 1,
+              "items": [
+                {
+                  "id": "f2",
+                  "name": "Fiscal_Year_2025_Enterprise_Global_Operating_Budget_Forecast_Revised_Draft_Final_Review_Approved_Distribution_Version.xlsx",
+                  "is_folder": false,
+                  "size": 18200000,
+                  "last_modified": "2025-02-14T14:10:00Z"
+                }
+              ]
+            },
+            "expected": "Truncates long filename with ellipsis preserving column layout and file size alignment"
+          }
+        ]
+      },
+      {
+        "tool": "search_files",
+        "sampleArgs": {
+          "query": "budget",
+          "limit": 5
+        },
+        "stressCases": [
+          {
+            "state": "empty",
+            "sampleArgs": {
+              "query": "xyznonexistent99"
+            },
+            "sampleData": {
+              "query": "xyznonexistent99",
+              "total_matches": 0,
+              "results": []
+            },
+            "expected": "Shows 'No files match' state with search query badge and hint to browse My files"
+          },
+          {
+            "state": "single",
+            "sampleArgs": {
+              "query": "roadmap"
+            },
+            "sampleData": {
+              "query": "roadmap",
+              "total_matches": 1,
+              "results": [
+                {
+                  "id": "s1",
+                  "name": "Product_Roadmap_2025.pptx",
+                  "parent_path": "/Planning",
+                  "is_folder": false,
+                  "size": 4200000,
+                  "last_modified": "2025-02-13T09:15:00Z"
+                }
+              ]
+            },
+            "expected": "Displays single search result with PowerPoint glyph and parent folder breadcrumb"
+          },
+          {
+            "state": "long-text",
+            "sampleArgs": {
+              "query": "enterprise_strategic_initiatives_and_quarterly_milestones_consolidated_documentation_draft_version_final_approved_distribution"
+            },
+            "sampleData": {
+              "query": "enterprise_strategic_initiatives_and_quarterly_milestones_consolidated_documentation_draft_version_final_approved_distribution",
+              "total_matches": 1,
+              "results": [
+                {
+                  "id": "s2",
+                  "name": "Comprehensive_Enterprise_Strategic_Initiatives_Quarterly_Milestones_And_Operational_Performance_Evaluation_Annual_Report_2025.docx",
+                  "parent_path": "/Strategy/Global/Corporate_Records/Confidential_Internal_Review_Directories",
+                  "is_folder": false,
+                  "size": 1200000,
+                  "last_modified": "2025-02-12T16:00:00Z"
+                }
+              ]
+            },
+            "expected": "Truncates long query string pill cleanly without overflowing card header"
+          }
+        ]
+      },
+      {
+        "tool": "download_file",
+        "sampleArgs": {
+          "item_path": "Documents/Q4_Budget.xlsx",
+          "file_name": "Q4_Budget.xlsx"
+        },
+        "stressCases": [
+          {
+            "state": "error",
+            "sampleArgs": {
+              "item_path": "Missing_File.pdf"
+            },
+            "sampleData": {
+              "error": "This item might not exist or is no longer available in Microsoft OneDrive",
+              "item": "Missing_File.pdf"
+            },
+            "expected": "Renders exact OneDrive 404 missing item card with blue header and deletion note"
+          },
+          {
+            "state": "long-text",
+            "sampleArgs": {
+              "item_path": "Documents/Extremely_Long_Detailed_Annual_Executive_Summary_Report_Final_Approved_Distribution_Version_For_Enterprise_Review_2025.pdf"
+            },
+            "sampleData": {
+              "status": "downloaded",
+              "file_name": "Extremely_Long_Detailed_Annual_Executive_Summary_Report_Final_Approved_Distribution_Version_For_Enterprise_Review_2025.pdf",
+              "local_path": "/Users/user/Downloads/Extremely_Long_Detailed_Annual_Executive_Summary_Report_Final_Approved_Distribution_Version_For_Enterprise_Review_2025.pdf",
+              "file_size": "3.4 MB"
+            },
+            "expected": "Truncates long file stem with ellipsis while keeping file extension legible"
+          }
+        ]
+      },
+      {
+        "tool": "upload_file",
+        "sampleArgs": {
+          "file_name": "Standup_Notes.md",
+          "content": "# Standup Notes\n- Completed OneDrive MCP server integration\n- Verified card rendering and OAuth flow",
+          "folder_path": "Documents"
+        },
+        "stressCases": [
+          {
+            "state": "long-text",
+            "sampleArgs": {
+              "file_name": "Enterprise_Strategic_Initiatives_Consolidated_Documentation_Draft_Version_Final_Approved_Distribution_2025.md",
+              "content": "This is a comprehensive overview of enterprise strategic initiatives, quarterly milestones, cross-team performance metrics, architectural standards, and customer feedback loops synthesized across all business units worldwide.",
+              "folder_path": "Documents/Planning/2025"
+            },
+            "sampleData": {
+              "status": "uploaded",
+              "file_name": "Enterprise_Strategic_Initiatives_Consolidated_Documentation_Draft_Version_Final_Approved_Distribution_2025.md",
+              "folder": "Documents/Planning/2025",
+              "size": "216 B"
+            },
+            "expected": "Truncates long staged file name and wraps preview text inside monospace container"
+          }
+        ]
+      },
+      {
+        "tool": "create_folder",
+        "sampleArgs": {
+          "folder_name": "Projects 2025",
+          "parent_path": "Documents"
+        },
+        "stressCases": [
+          {
+            "state": "long-text",
+            "sampleArgs": {
+              "folder_name": "Enterprise_Global_Cross_Functional_Operations_And_Strategic_Resource_Planning_Consolidated_Working_Group_Archive_Directory_2025",
+              "parent_path": "Corporate_Records/Confidential_Internal_Review_Directories_And_Compliance_Documentation_Archive_Vault_Records"
+            },
+            "sampleData": {
+              "status": "folder_created",
+              "folder_name": "Enterprise_Global_Cross_Functional_Operations_And_Strategic_Resource_Planning_Consolidated_Working_Group_Archive_Directory_2025",
+              "parent_folder": "Corporate_Records/Confidential_Internal_Review_Directories_And_Compliance_Documentation_Archive_Vault_Records"
+            },
+            "expected": "Truncates lengthy folder name cleanly inside hero box"
+          }
+        ]
+      },
+      {
+        "tool": "create_share_link",
+        "sampleArgs": {
+          "item_path": "Documents/Q4_Budget.xlsx",
+          "scope": "view"
+        },
+        "stressCases": [
+          {
+            "state": "long-text",
+            "sampleArgs": {
+              "item_path": "Shared_Documents/Annual_Comprehensive_Financial_Audit_Report_And_Executive_Accountability_Review_Version_Final_Distribution_Copy_2025.pdf",
+              "scope": "view"
+            },
+            "sampleData": {
+              "status": "link_created",
+              "item": "Shared_Documents/Annual_Comprehensive_Financial_Audit_Report_And_Executive_Accountability_Review_Version_Final_Distribution_Copy_2025.pdf",
+              "url": "https://1drv.ms/u/s!Al7zK2xQY8a-gZ4X9c1_Enterprise_Global_Strategic_Review_Audit_Documentation_Shareable_Link_For_Review_Copy_Secure_Access_Token",
+              "scope": "Can view",
+              "copied_to_clipboard": true
+            },
+            "expected": "Truncates item name gracefully and shows clickable OneDrive sharing link pill"
+          }
+        ]
+      },
+      {
+        "tool": "delete_file",
+        "sampleArgs": {
+          "item_path": "Documents/Old_Draft.docx"
+        },
+        "stressCases": [
+          {
+            "state": "long-text",
+            "sampleArgs": {
+              "item_path": "Documents/Archive/Preliminary_Draft_Exploration_Notes_Deprecated_Do_Not_Use_Ever_Again_Backup_Copy_Archived_For_Historical_Compliance_Purposes.docx"
+            },
+            "sampleData": {
+              "status": "deleted",
+              "item": "Documents/Archive/Preliminary_Draft_Exploration_Notes_Deprecated_Do_Not_Use_Ever_Again_Backup_Copy_Archived_For_Historical_Compliance_Purposes.docx",
+              "destination": "Recycle Bin",
+              "restorable_days": 30
+            },
+            "expected": "Names long file in quotation marks inside high-friction red alert callout box"
+          }
+        ]
+      }
+    ]
+  },
+  "updatedAt": "2026-11-01T21:07:30.563Z"
+}
