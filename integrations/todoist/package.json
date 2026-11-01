@@ -1,0 +1,13 @@
+{
+  "name": "composio-todoist",
+  "version": "1.0.7",
+  "private": true,
+  "description": "Manage Todoist tasks, projects, sections, and labels through Composio OAuth.",
+  "type": "module",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.28.0",
+    "zod": "^3.24.0",
+    "tsx": "^4.20.2",
+    "@composio/core": "0.27.0"
+  }
+}
