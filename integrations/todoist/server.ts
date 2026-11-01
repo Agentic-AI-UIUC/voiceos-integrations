@@ -1052,6 +1052,19 @@ class TodoistError extends Error {
   constructor(public code: string, message: string, public reconnectRequired = false) { super(message); }
 }
 
+function isTimeout(error: unknown): boolean {
+  // Composio wraps transport failures; preserve timeout guidance through causes.
+  const seen = new Set<unknown>();
+  while (error && typeof error === "object" && !seen.has(error) && seen.size < 8) {
+    seen.add(error);
+    const current = error as { name?: string; message?: string; cause?: unknown };
+    if (current.name === "AbortError" || current.name === "TimeoutError"
+      || /timed?\s*out|aborted/i.test(current.message ?? "")) return true;
+    error = current.cause;
+  }
+  return false;
+}
+
 function failure(error: unknown) {
   let message = error instanceof Error ? error.message : "Composio request failed.";
   const key = process.env.COMPOSIO_API_KEY?.trim();
@@ -1422,7 +1435,7 @@ for (const tool of catalog.tools) {
           arguments: args, version: catalog.version,
         }, { signal: AbortSignal.timeout(20000) });
       } catch (error: any) {
-        if (error.name === "AbortError" || error.name === "TimeoutError" || /timed?\s*out|aborted/i.test(error.message ?? "")) {
+        if (isTimeout(error)) {
           throw new TodoistError("OUTCOME_UNKNOWN", tool.readOnly || (tool.name === "manage_labels" && action === "list")
             ? "Todoist took too long to respond. Try the read request again."
             : "Todoist did not return a final response in time. The change may have completed; check Todoist before retrying to avoid a duplicate.");
