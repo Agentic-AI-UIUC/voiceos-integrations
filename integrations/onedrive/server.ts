@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import fs from "node:fs";
 import { spawnSync } from "node:child_process";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { renderCustom, markHtml, esc, clip } from "./widgetKit.ts";
 import { unzipSync, strFromU8 } from "fflate";
 import { extractText as extractPdfText } from "unpdf";
@@ -18,6 +19,29 @@ const COMPOSIO_BASE_URL = "https://backend.composio.dev/api/v3.1";
 const RECONNECT_HINT = "Reconnect OneDrive at https://app.composio.dev.";
 const AUTH_ERROR_RE = /token|expire|oauth|reconnect|credentials|unauthori[sz]ed|invalid_grant|no connected account|no active account|access denied/i;
 const NOT_FOUND_RE = /not ?found|itemNotFound|does not exist|404/i;
+
+// VoiceOS timing limits: a sync tool must answer well within the turn, using
+// ~8 s timeouts on its own requests, and anything over ~20 s has to run as a
+// background tool. One tool call can make several requests (look up, search,
+// convert, download), so each call gets a single budget and every request's
+// timeout is capped by what remains of it.
+const REQUEST_TIMEOUT_MS = 8_000;
+const TOOL_BUDGET_MS = 18_000;
+const toolDeadline = new AsyncLocalStorage<number>();
+
+/** Runs fn under a time budget that every request inside it shares. */
+export function runWithBudget<T>(budgetMs: number, fn: () => Promise<T>): Promise<T> {
+  return toolDeadline.run(Date.now() + budgetMs, fn);
+}
+
+/** Timeout for the next request: at most `cap`, and never past the current tool's budget. */
+function timeLeft(cap = REQUEST_TIMEOUT_MS): number {
+  const end = toolDeadline.getStore();
+  if (end === undefined) return cap;
+  const left = end - Date.now();
+  if (left < 1_000) throw new Error("OneDrive is taking too long to respond. Try again in a moment.");
+  return Math.min(cap, left);
+}
 
 function getApiKey(): string {
   const envKey = process.env.COMPOSIO_API_KEY?.trim();
@@ -59,7 +83,7 @@ async function resolveConnectedAccount(apiKey: string): Promise<{ accountId?: st
   // would happily pick an Outlook or Teams connection and fail confusingly.
   const url = `${COMPOSIO_BASE_URL}/connected_accounts?toolkit_slugs=one_drive&statuses=ACTIVE`;
   try {
-    const res = await fetch(url, { headers: { "x-api-key": apiKey }, signal: AbortSignal.timeout(5000) });
+    const res = await fetch(url, { headers: { "x-api-key": apiKey }, signal: AbortSignal.timeout(timeLeft(5_000)) });
     if (res.ok) {
       const json: any = await res.json().catch(() => null);
       const items: any[] = Array.isArray(json?.items) ? json.items : Array.isArray(json?.data?.items) ? json.data.items : [];
@@ -115,13 +139,14 @@ export function listOf(d: any): any[] {
 }
 
 /** Executes one Composio OneDrive tool. Throws with a user-readable message on any failure. */
-export async function composio(slug: string, args: Record<string, unknown>, timeoutMs = 9000): Promise<any> {
+export async function composio(slug: string, args: Record<string, unknown>): Promise<any> {
   const apiKey = getApiKey();
   const { accountId, userId } = await resolveConnectedAccount(apiKey);
   const payload: Record<string, unknown> = { user_id: userId, version: "latest", arguments: args };
   if (accountId) payload.connected_account_id = accountId;
 
   console.error(`Composio ${slug} (user: ${userId}, account: ${accountId || "auto"})`);
+  const timeoutMs = timeLeft();
   let res: Response;
   try {
     res = await fetch(`${COMPOSIO_BASE_URL}/tools/execute/${slug}`, {
@@ -302,8 +327,8 @@ export async function downloadBytes(item: any, opts: { asPdf?: boolean } = {}): 
         item_id: item.id,
         format: "pdf",
         file_name: `${itemName.replace(/\.[^.]+$/, "")}.pdf`,
-      }, 20000)
-    : await composio("ONE_DRIVE_DOWNLOAD_FILE", { item_id: item.id, file_name: itemName }, 15000);
+      })
+    : await composio("ONE_DRIVE_DOWNLOAD_FILE", { item_id: item.id, file_name: itemName });
   // Graph's own item metadata carries a short-lived pre-authenticated link to
   // the original bytes; it's the fallback when Composio's response has none.
   const url = findDownloadUrl(data) ?? (opts.asPdf ? undefined : httpsUrl(item?.["@microsoft.graph.downloadUrl"]));
@@ -312,8 +337,9 @@ export async function downloadBytes(item: any, opts: { asPdf?: boolean } = {}): 
     console.error(`No download URL in Composio response for "${itemName}": ${shape}`);
     throw new Error(`Composio didn't return a download link for "${itemName}". Response shape: ${shape}`);
   }
+  const timeoutMs = timeLeft(TOOL_BUDGET_MS);
   try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+    const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return Buffer.from(await res.arrayBuffer());
   } catch (err) {
@@ -530,7 +556,11 @@ const NEUTRAL_ACCENT = "#8e8e93"; // grey, so the kit's accent wash adds no hue
 const ROW_HEIGHT = 44;
 const READ_MAX_BYTES = 25 * 1024 * 1024;
 
-const server = new McpServer({ name: "microsoft-onedrive", version: "1.5.0" });
+const server = new McpServer({ name: "microsoft-onedrive", version: "1.6.0" });
+
+// Every tool handler runs under TOOL_BUDGET_MS (see timeLeft).
+const registerTool = ((name: string, config: any, handler: (...a: any[]) => any) =>
+  server.registerTool(name, config, (...a: any[]) => runWithBudget(TOOL_BUDGET_MS, () => handler(...a)))) as typeof server.registerTool;
 
 const svg = (paths: string) =>
   `<svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`;
@@ -726,7 +756,7 @@ function widgetResult(data: Record<string, unknown>, rendered: { html: string; h
 }
 
 // TOOL 1: list_files (READ)
-server.registerTool(
+registerTool(
   "list_files",
   {
     title: "List files and folder contents",
@@ -770,7 +800,7 @@ server.registerTool(
 );
 
 // TOOL 2: search_files (READ)
-server.registerTool(
+registerTool(
   "search_files",
   {
     title: "Search files",
@@ -810,7 +840,7 @@ server.registerTool(
 );
 
 // TOOL 3: download_file (READ)
-server.registerTool(
+registerTool(
   "download_file",
   {
     title: "Download file",
@@ -852,7 +882,7 @@ server.registerTool(
 );
 
 // TOOL 3b: read_file (READ)
-server.registerTool(
+registerTool(
   "read_file",
   {
     title: "Read file contents",
@@ -922,7 +952,7 @@ server.registerTool(
 );
 
 // TOOL 4: upload_file (ACT)
-server.registerTool(
+registerTool(
   "upload_file",
   {
     title: "Upload file",
@@ -980,7 +1010,7 @@ server.registerTool(
 );
 
 // TOOL 5: create_folder (ACT)
-server.registerTool(
+registerTool(
   "create_folder",
   {
     title: "Create folder",
@@ -1026,7 +1056,7 @@ const LINK_SCOPE_LABELS: Record<string, string> = {
 };
 
 // TOOL 6: create_share_link (ACT)
-server.registerTool(
+registerTool(
   "create_share_link",
   {
     title: "Create share link",
@@ -1067,7 +1097,7 @@ server.registerTool(
 );
 
 // TOOL 7: delete_file (ACT)
-server.registerTool(
+registerTool(
   "delete_file",
   {
     title: "Delete file",
