@@ -211,6 +211,33 @@ export function findDownloadUrl(d: any): string | undefined {
   return candidates.find((u) => typeof u === "string" && u.startsWith("https://"));
 }
 
+/**
+ * Fetches a file's bytes through Composio. With asPdf, OneDrive converts the
+ * file to PDF server-side first (Office and OpenDocument formats).
+ */
+export async function downloadBytes(item: any, opts: { asPdf?: boolean } = {}): Promise<Buffer> {
+  const itemName = String(item?.name || "download");
+  const data = opts.asPdf
+    ? await composio("ONE_DRIVE_DOWNLOAD_ITEM_AS_FORMAT", {
+        item_id: item.id,
+        format: "pdf",
+        file_name: `${itemName.replace(/\.[^.]+$/, "")}.pdf`,
+      }, 20000)
+    : await composio("ONE_DRIVE_DOWNLOAD_FILE", { item_id: item.id, file_name: itemName }, 15000);
+  const url = findDownloadUrl(data);
+  if (!url) {
+    const fields = data && typeof data === "object" ? Object.keys(data).join(", ") : typeof data;
+    throw new Error(`Composio didn't return a download link for "${itemName}" (got: ${fields || "nothing"}).`);
+  }
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return Buffer.from(await res.arrayBuffer());
+  } catch (err) {
+    throw new Error(`Couldn't fetch "${itemName}" from ${new URL(url).host}: ${extractErrorMessage(err)}`);
+  }
+}
+
 /** A name that can only ever land directly inside ~/Downloads. */
 export function safeLocalName(requested: string | undefined, itemName: string): string {
   let name = String(requested || "").trim() || itemName;
