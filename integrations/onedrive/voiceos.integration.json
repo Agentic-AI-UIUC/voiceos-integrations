@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "com.voiceos.generated.microsoft-onedrive",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "name": "OneDrive",
   "summary": "Manage your Microsoft OneDrive files with voice: list, search, read, download, upload, and share.",
   "description": "Connect your Microsoft account through Composio OAuth2 to browse folders, search documents, read and summarize Word, Excel, PowerPoint, PDF and text files, download files to your Mac Downloads folder, upload notes, create directories, share links, and manage OneDrive items.",
@@ -49,6 +49,27 @@
       "description": "Optional Composio connected account ID (starts with ca_). Leave blank to auto-detect your active OneDrive connection.",
       "type": "text",
       "default": ""
+    },
+    {
+      "name": "CARD_THEME",
+      "title": "Card theme",
+      "description": "How OneDrive result cards look. Auto follows VoiceOS; Black and White always use that colour.",
+      "type": "select",
+      "default": "auto",
+      "options": [
+        {
+          "label": "Auto (follow VoiceOS)",
+          "value": "auto"
+        },
+        {
+          "label": "Black",
+          "value": "dark"
+        },
+        {
+          "label": "White",
+          "value": "light"
+        }
+      ]
     }
   ],
   "setupGuide": {
