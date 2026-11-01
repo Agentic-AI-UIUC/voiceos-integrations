@@ -4,9 +4,9 @@
 
 ## Published integration
 
-<!-- Link to the integration as published on VoiceOS, e.g. https://api.voiceos.com/integration-share/yqRLVoI6-KcD/page -->
+<!-- Replace <slug> with your integration's share slug from VoiceOS. -->
 
-Published link:
+Published link: https://api.voiceos.com/integration-share/<slug>
 
 ## What it does
 
