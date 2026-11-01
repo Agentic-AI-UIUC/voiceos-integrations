@@ -38,8 +38,14 @@ describe("voiceos.integration.json", () => {
     expect(key.default).toBeUndefined();
   });
 
+  test("server.ts imports no local module VoiceOS wouldn't publish", () => {
+    // Publishing ships server.ts + widgetKit.ts only; any other local import breaks installs.
+    const local = [...serverSrc.matchAll(/from "(\.\.?\/[^"]+)"/g)].map((m) => m[1]);
+    expect(local).toEqual(["./widgetKit.ts"]);
+  });
+
   test("no secrets or account IDs are committed", () => {
-    for (const file of ["voiceos.integration.json", "server.ts", "onedrive.ts", "extract.ts", "studio-meta.json"]) {
+    for (const file of ["voiceos.integration.json", "server.ts", "studio-meta.json"]) {
       const text = fs.readFileSync(path.join(root, file), "utf8");
       expect(text).not.toMatch(/\bak_[A-Za-z0-9_-]{8,}/);
       expect(text).not.toMatch(/\bca_[A-Za-z0-9_-]{8,}/);

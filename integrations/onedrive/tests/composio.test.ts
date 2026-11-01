@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { composio, downloadBytes, resetAccountCache, resolveItem } from "../onedrive.ts";
+import "./no-connect.ts";
+import { composio, downloadBytes, resetAccountCache, resolveItem } from "../server.ts";
 
 type Call = { url: string; body: any };
 let calls: Call[] = [];
