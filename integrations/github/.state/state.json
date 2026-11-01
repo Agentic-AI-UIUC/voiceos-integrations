@@ -1,0 +1,495 @@
+{
+  "version": 1,
+  "identities": {
+    "internal": {
+      "userId": "voiceos-github-internal-79ffaa431f890ea8215b",
+      "createdAt": "2026-10-25T17:26:01.316Z"
+    }
+  },
+  "accounts": {
+    "internal:c14eb63dc786:voiceos-github-internal-79ffaa431f890ea8215b": {
+      "generation": 1,
+      "authConfigId": "ac_6psYiLn-zhWM",
+      "bound": {
+        "accountId": "ca_ydMQoMjixAXY",
+        "boundAt": "2026-10-25T17:26:19.794Z",
+        "status": "active",
+        "scopes": [
+          "repo"
+        ],
+        "replaced": false
+      },
+      "lastAccountId": "ca_ydMQoMjixAXY",
+      "session": {
+        "id": "trs_aofpJCB2bM8h",
+        "configDigest": "203709f17af098bd",
+        "createdAt": "2026-11-01T03:17:11.125Z"
+      }
+    }
+  },
+  "operations": {
+    "op_15017bf6eb46995f427dd6c64d153163": {
+      "id": "op_15017bf6eb46995f427dd6c64d153163",
+      "tool": "create_issue",
+      "target": "rishabhcli/QAgent",
+      "argsDigest": "8da9c4a8d2625b3e9db99780",
+      "generation": 1,
+      "status": "succeeded",
+      "startedAt": "2026-10-26T22:00:27.064Z",
+      "summary": "Created rishabhcli/QAgent#56.",
+      "resource": {
+        "number": 56,
+        "url": "https://github.com/rishabhcli/QAgent/issues/56",
+        "state": "open"
+      },
+      "settledAt": "2026-10-26T22:00:28.949Z"
+    },
+    "op_7f4e7dc683a7e8e62107719b223e2359": {
+      "id": "op_7f4e7dc683a7e8e62107719b223e2359",
+      "tool": "create_issue_comment",
+      "target": "rishabhcli/voiceos-github-live-check#1",
+      "argsDigest": "5503c110560fb6f92d139c8a",
+      "generation": 1,
+      "status": "succeeded",
+      "startedAt": "2026-10-28T17:48:32.993Z",
+      "summary": "Comment posted on rishabhcli/voiceos-github-live-check#1.",
+      "resource": {
+        "id": 6476403792,
+        "url": "https://github.com/rishabhcli/voiceos-github-live-check/issues/1#issuecomment-6476403792",
+        "number": 1
+      },
+      "settledAt": "2026-10-28T17:48:34.259Z"
+    },
+    "op_887b4be3990d6d125660429fba8b4b19": {
+      "id": "op_887b4be3990d6d125660429fba8b4b19",
+      "tool": "create_issue_comment",
+      "target": "rishabhcli/voiceos-github-live-check#1",
+      "argsDigest": "0b8147a222eba79ba3fe2ca3",
+      "generation": 1,
+      "status": "succeeded",
+      "startedAt": "2026-10-28T18:09:58.377Z",
+      "summary": "Comment posted on rishabhcli/voiceos-github-live-check#1.",
+      "resource": {
+        "id": 6476858910,
+        "url": "https://github.com/rishabhcli/voiceos-github-live-check/issues/1#issuecomment-6476858910",
+        "number": 1
+      },
+      "settledAt": "2026-10-28T18:09:59.682Z"
+    },
+    "op_85e2b8d36dd08d202c1b1175d2ae2c78": {
+      "id": "op_85e2b8d36dd08d202c1b1175d2ae2c78",
+      "tool": "create_issue_comment",
+      "target": "rishabhcli/voiceos-github-live-check#1",
+      "argsDigest": "e87589249aee58582f2203c1",
+      "generation": 1,
+      "status": "succeeded",
+      "startedAt": "2026-10-28T18:37:36.761Z",
+      "summary": "Comment posted on rishabhcli/voiceos-github-live-check#1.",
+      "resource": {
+        "id": 6477439670,
+        "url": "https://github.com/rishabhcli/voiceos-github-live-check/issues/1#issuecomment-6477439670",
+        "number": 1
+      },
+      "settledAt": "2026-10-28T18:37:38.132Z"
+    },
+    "op_90597cd852929e61b998e96bea329ca9": {
+      "id": "op_90597cd852929e61b998e96bea329ca9",
+      "tool": "create_issue_comment",
+      "target": "rishabhcli/voiceos-github-live-check#1",
+      "argsDigest": "5eb8b05f78124b2dfba75ed9",
+      "generation": 1,
+      "status": "succeeded",
+      "startedAt": "2026-10-28T18:43:51.630Z",
+      "summary": "Comment posted on rishabhcli/voiceos-github-live-check#1.",
+      "resource": {
+        "id": 6477576168,
+        "url": "https://github.com/rishabhcli/voiceos-github-live-check/issues/1#issuecomment-6477576168",
+        "number": 1
+      },
+      "settledAt": "2026-10-28T18:43:52.809Z"
+    },
+    "op_4bdc6fae0893cb5ef54254479d5597ec": {
+      "id": "op_4bdc6fae0893cb5ef54254479d5597ec",
+      "tool": "create_issue_comment",
+      "target": "rishabhcli/voiceos-github-live-check#1",
+      "argsDigest": "563383d1d738859ac0591470",
+      "generation": 1,
+      "status": "succeeded",
+      "startedAt": "2026-10-28T22:05:36.918Z",
+      "summary": "Comment posted on rishabhcli/voiceos-github-live-check#1.",
+      "resource": {
+        "id": 6481854304,
+        "url": "https://github.com/rishabhcli/voiceos-github-live-check/issues/1#issuecomment-6481854304",
+        "number": 1
+      },
+      "settledAt": "2026-10-28T22:05:37.959Z"
+    },
+    "op_dccb1ba5824865bb55a16fa09e977bdc": {
+      "id": "op_dccb1ba5824865bb55a16fa09e977bdc",
+      "tool": "create_issue_comment",
+      "target": "rishabhcli/voiceos-github-live-check#1",
+      "argsDigest": "a720dd412f7e291129f71ab1",
+      "generation": 1,
+      "status": "succeeded",
+      "startedAt": "2026-10-28T22:06:31.978Z",
+      "summary": "Comment posted on rishabhcli/voiceos-github-live-check#1.",
+      "resource": {
+        "id": 6481873540,
+        "url": "https://github.com/rishabhcli/voiceos-github-live-check/issues/1#issuecomment-6481873540",
+        "number": 1
+      },
+      "settledAt": "2026-10-28T22:06:33.046Z"
+    },
+    "op_2e83ffdbdf2f69955c76fc4cead9b37a": {
+      "id": "op_2e83ffdbdf2f69955c76fc4cead9b37a",
+      "tool": "create_issue",
+      "target": "rishabhcli/voiceos-github-live-check",
+      "argsDigest": "183bc337eb9a161942309535",
+      "generation": 1,
+      "status": "succeeded",
+      "startedAt": "2026-10-28T22:06:58.788Z",
+      "summary": "Created rishabhcli/voiceos-github-live-check#12.",
+      "resource": {
+        "number": 12,
+        "url": "https://github.com/rishabhcli/voiceos-github-live-check/issues/12",
+        "state": "open"
+      },
+      "settledAt": "2026-10-28T22:07:00.142Z"
+    },
+    "op_c71635dacd22d8367699389e3a06450e": {
+      "id": "op_c71635dacd22d8367699389e3a06450e",
+      "tool": "update_issue",
+      "target": "rishabhcli/voiceos-github-live-check#12",
+      "argsDigest": "958f9caf89f468f168ec317e",
+      "generation": 1,
+      "status": "succeeded",
+      "startedAt": "2026-10-28T22:07:28.454Z",
+      "summary": "Closed rishabhcli/voiceos-github-live-check#12.",
+      "resource": {
+        "number": 12,
+        "url": "https://github.com/rishabhcli/voiceos-github-live-check/issues/12",
+        "state": "closed"
+      },
+      "settledAt": "2026-10-28T22:07:30.339Z"
+    },
+    "op_cb35bab1af36e4f66693841de381a0c4": {
+      "id": "op_cb35bab1af36e4f66693841de381a0c4",
+      "tool": "update_issue",
+      "target": "rishabhcli/voiceos-github-live-check#1",
+      "argsDigest": "d27c1566a8a6e40fc2a9046a",
+      "generation": 1,
+      "status": "succeeded",
+      "startedAt": "2026-10-28T22:07:49.622Z",
+      "summary": "Updated rishabhcli/voiceos-github-live-check#1.",
+      "resource": {
+        "number": 1,
+        "url": "https://github.com/rishabhcli/voiceos-github-live-check/issues/1",
+        "state": "open"
+      },
+      "settledAt": "2026-10-28T22:07:51.020Z"
+    },
+    "op_6e82a693509a9d51d2b701824b9ac397": {
+      "id": "op_6e82a693509a9d51d2b701824b9ac397",
+      "tool": "update_issue",
+      "target": "rishabhcli/voiceos-github-live-check#1",
+      "argsDigest": "fc30556b144fc4fbdad8bd41",
+      "generation": 1,
+      "status": "succeeded",
+      "startedAt": "2026-10-28T22:08:14.487Z",
+      "summary": "Updated rishabhcli/voiceos-github-live-check#1.",
+      "resource": {
+        "number": 1,
+        "url": "https://github.com/rishabhcli/voiceos-github-live-check/issues/1",
+        "state": "open"
+      },
+      "settledAt": "2026-10-28T22:08:15.778Z"
+    },
+    "op_d3a036d21269112597f21fa1bf34b510": {
+      "id": "op_d3a036d21269112597f21fa1bf34b510",
+      "tool": "create_pull_request_review",
+      "target": "rishabhcli/voiceos-github-live-check#2",
+      "argsDigest": "07346918c5df68c26349db58",
+      "generation": 1,
+      "status": "succeeded",
+      "startedAt": "2026-10-28T22:08:36.716Z",
+      "summary": "Review comment posted on PR #2.",
+      "resource": {
+        "id": 5690344928,
+        "url": "https://github.com/rishabhcli/voiceos-github-live-check/pull/2#pullrequestreview-5690344928",
+        "number": 2,
+        "state": "COMMENTED"
+      },
+      "settledAt": "2026-10-28T22:08:37.875Z"
+    },
+    "op_bec5896de1a0aaded629b172dafc9b83": {
+      "id": "op_bec5896de1a0aaded629b172dafc9b83",
+      "tool": "create_pull_request_review",
+      "target": "rishabhcli/voiceos-github-live-check#2",
+      "argsDigest": "c90a317b3cf33a3fac3e2bc4",
+      "generation": 1,
+      "status": "failed",
+      "startedAt": "2026-10-28T22:09:03.882Z",
+      "errorCategory": "self_review",
+      "summary": "GitHub doesn't allow approving or requesting changes on your own pull request. You can post a review comment instead.",
+      "settledAt": "2026-10-28T22:09:04.749Z"
+    },
+    "op_a1d5e1133e767c5deab70692b33fb353": {
+      "id": "op_a1d5e1133e767c5deab70692b33fb353",
+      "tool": "create_issue",
+      "target": "rishabhcli/voiceos-github-live-check",
+      "argsDigest": "4ceecccc9004c0bcf9149078",
+      "generation": 1,
+      "status": "succeeded",
+      "startedAt": "2026-10-28T22:09:24.060Z",
+      "summary": "Created rishabhcli/voiceos-github-live-check#13.",
+      "resource": {
+        "number": 13,
+        "url": "https://github.com/rishabhcli/voiceos-github-live-check/issues/13",
+        "state": "open"
+      },
+      "settledAt": "2026-10-28T22:09:25.550Z"
+    },
+    "op_31167d15928a4d10b3a73e2ed426e8d5": {
+      "id": "op_31167d15928a4d10b3a73e2ed426e8d5",
+      "tool": "update_issue",
+      "target": "rishabhcli/voiceos-github-live-check#1",
+      "argsDigest": "5b621e215dc8a78adfaa7fb0",
+      "generation": 1,
+      "status": "succeeded",
+      "startedAt": "2026-10-28T22:15:39.902Z",
+      "summary": "Updated rishabhcli/voiceos-github-live-check#1.",
+      "resource": {
+        "number": 1,
+        "url": "https://github.com/rishabhcli/voiceos-github-live-check/issues/1",
+        "state": "open"
+      },
+      "settledAt": "2026-10-28T22:15:42.572Z"
+    },
+    "op_f2a4ae3b028763fc5d80cc5a39466fdf": {
+      "id": "op_f2a4ae3b028763fc5d80cc5a39466fdf",
+      "tool": "update_issue",
+      "target": "rishabhcli/voiceos-github-live-check#1",
+      "argsDigest": "906582793a6b525700021e1f",
+      "generation": 1,
+      "status": "succeeded",
+      "startedAt": "2026-10-28T22:16:15.487Z",
+      "summary": "Closed rishabhcli/voiceos-github-live-check#1.",
+      "resource": {
+        "number": 1,
+        "url": "https://github.com/rishabhcli/voiceos-github-live-check/issues/1",
+        "state": "closed"
+      },
+      "settledAt": "2026-10-28T22:16:16.771Z"
+    },
+    "op_465418f12357952010b21ce75a032ced": {
+      "id": "op_465418f12357952010b21ce75a032ced",
+      "tool": "update_issue",
+      "target": "rishabhcli/voiceos-github-live-check#1",
+      "argsDigest": "411e5ceeda35e0f12510b95a",
+      "generation": 1,
+      "status": "succeeded",
+      "startedAt": "2026-10-28T22:16:48.917Z",
+      "summary": "Reopened rishabhcli/voiceos-github-live-check#1.",
+      "resource": {
+        "number": 1,
+        "url": "https://github.com/rishabhcli/voiceos-github-live-check/issues/1",
+        "state": "open"
+      },
+      "settledAt": "2026-10-28T22:16:50.381Z"
+    },
+    "op_a0d991c07a37533e1d6b3a3de80da757": {
+      "id": "op_a0d991c07a37533e1d6b3a3de80da757",
+      "tool": "create_issue_comment",
+      "target": "rishabhcli/voiceos-github-live-check#2",
+      "argsDigest": "05000b5aeaba03d9002cee90",
+      "generation": 1,
+      "status": "succeeded",
+      "startedAt": "2026-10-28T22:17:13.374Z",
+      "summary": "Comment posted on rishabhcli/voiceos-github-live-check#2.",
+      "resource": {
+        "id": 6482078699,
+        "url": "https://github.com/rishabhcli/voiceos-github-live-check/pull/2#issuecomment-6482078699",
+        "number": 2
+      },
+      "settledAt": "2026-10-28T22:17:14.605Z"
+    },
+    "op_4caef7465264029bc5b30cd79bdfedd5": {
+      "id": "op_4caef7465264029bc5b30cd79bdfedd5",
+      "tool": "create_pull_request_review",
+      "target": "rishabhcli/voiceos-github-live-check#2",
+      "argsDigest": "30caed452b7ace7713a1bcf0",
+      "generation": 1,
+      "status": "failed",
+      "startedAt": "2026-10-28T22:17:39.385Z",
+      "errorCategory": "self_review",
+      "summary": "GitHub doesn't allow approving or requesting changes on your own pull request. You can post a review comment instead.",
+      "settledAt": "2026-10-28T22:17:40.108Z"
+    },
+    "op_052c355ee61df60d671e89e07b152836": {
+      "id": "op_052c355ee61df60d671e89e07b152836",
+      "tool": "update_issue",
+      "target": "rishabhcli/voiceos-github-live-check#1",
+      "argsDigest": "e717f23cd1cd836c41b8dd00",
+      "generation": 1,
+      "status": "succeeded",
+      "startedAt": "2026-10-28T22:18:49.782Z",
+      "summary": "Updated rishabhcli/voiceos-github-live-check#1.",
+      "resource": {
+        "number": 1,
+        "url": "https://github.com/rishabhcli/voiceos-github-live-check/issues/1",
+        "state": "open"
+      },
+      "settledAt": "2026-10-28T22:18:51.073Z"
+    },
+    "op_5b802b32b2f0e5af08aa388dbbe4f2f9": {
+      "id": "op_5b802b32b2f0e5af08aa388dbbe4f2f9",
+      "tool": "create_issue",
+      "target": "rishabhcli/voiceos-github-live-check",
+      "argsDigest": "4d1098a19c0192ef57e46da1",
+      "generation": 1,
+      "status": "succeeded",
+      "startedAt": "2026-10-28T22:27:01.141Z",
+      "summary": "Created rishabhcli/voiceos-github-live-check#15.",
+      "resource": {
+        "number": 15,
+        "url": "https://github.com/rishabhcli/voiceos-github-live-check/issues/15",
+        "state": "open"
+      },
+      "settledAt": "2026-10-28T22:27:02.662Z"
+    },
+    "op_2405247144dbc073dd36ef11e988119a": {
+      "id": "op_2405247144dbc073dd36ef11e988119a",
+      "tool": "update_issue",
+      "target": "rishabhcli/voiceos-github-live-check#15",
+      "argsDigest": "1dec6928c42a0954224be15d",
+      "generation": 1,
+      "status": "succeeded",
+      "startedAt": "2026-10-28T22:29:49.064Z",
+      "summary": "Closed rishabhcli/voiceos-github-live-check#15.",
+      "resource": {
+        "number": 15,
+        "url": "https://github.com/rishabhcli/voiceos-github-live-check/issues/15",
+        "state": "closed"
+      },
+      "settledAt": "2026-10-28T22:29:50.976Z"
+    },
+    "op_c74de4403ef65e4d6416a6662f1f3180": {
+      "id": "op_c74de4403ef65e4d6416a6662f1f3180",
+      "tool": "update_issue",
+      "target": "rishabhcli/voiceos-github-live-check#1",
+      "argsDigest": "5b621e215dc8a78adfaa7fb0",
+      "generation": 1,
+      "status": "succeeded",
+      "startedAt": "2026-10-28T22:30:18.949Z",
+      "summary": "Updated rishabhcli/voiceos-github-live-check#1.",
+      "resource": {
+        "number": 1,
+        "url": "https://github.com/rishabhcli/voiceos-github-live-check/issues/1",
+        "state": "open"
+      },
+      "settledAt": "2026-10-28T22:30:21.296Z"
+    },
+    "op_681a808c7955a071c4bf646f6720c23f": {
+      "id": "op_681a808c7955a071c4bf646f6720c23f",
+      "tool": "update_issue",
+      "target": "rishabhcli/voiceos-github-live-check#1",
+      "argsDigest": "e717f23cd1cd836c41b8dd00",
+      "generation": 1,
+      "status": "succeeded",
+      "startedAt": "2026-10-28T22:30:41.490Z",
+      "summary": "Updated rishabhcli/voiceos-github-live-check#1.",
+      "resource": {
+        "number": 1,
+        "url": "https://github.com/rishabhcli/voiceos-github-live-check/issues/1",
+        "state": "open"
+      },
+      "settledAt": "2026-10-28T22:30:44.291Z"
+    },
+    "op_1f3e770a56bea843f3cbf72c0b05775c": {
+      "id": "op_1f3e770a56bea843f3cbf72c0b05775c",
+      "tool": "create_issue_comment",
+      "target": "rishabhcli/voiceos-github-live-check#2",
+      "argsDigest": "280c32eb4f99c69d778e5197",
+      "generation": 1,
+      "status": "succeeded",
+      "startedAt": "2026-10-28T22:35:02.367Z",
+      "summary": "Comment posted on rishabhcli/voiceos-github-live-check#2.",
+      "resource": {
+        "id": 6482429471,
+        "url": "https://github.com/rishabhcli/voiceos-github-live-check/pull/2#issuecomment-6482429471",
+        "number": 2
+      },
+      "settledAt": "2026-10-28T22:35:04.167Z"
+    },
+    "op_52c2d6ab87a34ea53627b1ea812b1eb1": {
+      "id": "op_52c2d6ab87a34ea53627b1ea812b1eb1",
+      "tool": "create_issue_comment",
+      "target": "rishabhcli/voiceos-github-live-check#1",
+      "argsDigest": "933408510eff62d58eaa8dc7",
+      "generation": 1,
+      "status": "succeeded",
+      "startedAt": "2026-10-28T23:02:57.169Z",
+      "summary": "Comment posted on rishabhcli/voiceos-github-live-check#1.",
+      "resource": {
+        "id": 6482953516,
+        "url": "https://github.com/rishabhcli/voiceos-github-live-check/issues/1#issuecomment-6482953516",
+        "number": 1
+      },
+      "settledAt": "2026-10-28T23:02:58.210Z"
+    },
+    "op_c7cff7fb8efadd25cbc674287ad3193c": {
+      "id": "op_c7cff7fb8efadd25cbc674287ad3193c",
+      "tool": "create_issue_comment",
+      "target": "rishabhcli/voiceos-github-live-check#1",
+      "argsDigest": "fc51a4bfbcaa827b9bf874bb",
+      "generation": 1,
+      "status": "succeeded",
+      "startedAt": "2026-10-28T23:05:34.347Z",
+      "summary": "Comment posted on rishabhcli/voiceos-github-live-check#1.",
+      "resource": {
+        "id": 6483001323,
+        "url": "https://github.com/rishabhcli/voiceos-github-live-check/issues/1#issuecomment-6483001323",
+        "number": 1
+      },
+      "settledAt": "2026-10-28T23:05:35.497Z"
+    },
+    "op_281205560d4e3b32bef0230daab016a4": {
+      "id": "op_281205560d4e3b32bef0230daab016a4",
+      "tool": "create_issue",
+      "target": "rishabhcli/voiceos-github-live-check",
+      "argsDigest": "97f447c6a0c9f794a2dcf7c8",
+      "generation": 1,
+      "status": "succeeded",
+      "startedAt": "2026-10-28T23:05:51.837Z",
+      "summary": "Created rishabhcli/voiceos-github-live-check#18.",
+      "resource": {
+        "number": 18,
+        "url": "https://github.com/rishabhcli/voiceos-github-live-check/issues/18",
+        "state": "open"
+      },
+      "settledAt": "2026-10-28T23:05:52.993Z"
+    },
+    "op_470a5f3d820fbef0269a1f9c38ffdb10": {
+      "id": "op_470a5f3d820fbef0269a1f9c38ffdb10",
+      "tool": "update_issue",
+      "target": "rishabhcli/voiceos-github-live-check#18",
+      "argsDigest": "c5924a8da5af8f3afe1ecf6a",
+      "generation": 1,
+      "status": "succeeded",
+      "startedAt": "2026-10-28T23:06:07.561Z",
+      "summary": "Closed rishabhcli/voiceos-github-live-check#18.",
+      "resource": {
+        "number": 18,
+        "url": "https://github.com/rishabhcli/voiceos-github-live-check/issues/18",
+        "state": "closed"
+      },
+      "settledAt": "2026-10-28T23:06:09.048Z"
+    }
+  },
+  "usedReceipts": {
+    "52c2d6ab87a34ea53627b1ea812b1eb1": 1793229173603,
+    "c7cff7fb8efadd25cbc674287ad3193c": 1793229205791,
+    "281205560d4e3b32bef0230daab016a4": 1793229349193,
+    "470a5f3d820fbef0269a1f9c38ffdb10": 1793229363989
+  }
+}

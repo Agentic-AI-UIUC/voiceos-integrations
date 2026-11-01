@@ -1,0 +1,9 @@
+{
+ "content": [
+  {
+   "type": "text",
+   "text": "{\"successful\":false,\"data\":{\"error\":\"No active connection found for toolkit(s) 'github' in this session.\"},\"error\":\"No active connection found for toolkit(s) 'github' in this session.\"}"
+  }
+ ],
+ "isError": true
+}
