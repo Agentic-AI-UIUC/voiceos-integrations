@@ -9,7 +9,7 @@ import { renderCustom, markHtml, esc, clip } from "./widgetKit.ts";
 const server = new McpServer({ name: "microsoft-excel", version: "1.0.0" });
 const ACCENT = "#107c41"; // Microsoft Excel brand green
 const COMPOSIO_BASE_URL = "https://backend.composio.dev";
-const BUILD_ID = "excel-review-fixed-v2";
+const BUILD_ID = "excel-review-fixed-v5-collections";
 
 export const APPROVED_COMPOSIO_ACTIONS = {
   excel_get_workbook: "EXCEL_GET_WORKBOOK",
@@ -968,6 +968,68 @@ function isAuthFailure(errorMessage: string, errorCode?: string): boolean {
   return authPhrases.some((phrase) => msg.includes(phrase));
 }
 
+// Normalize collection responses once for both cards and write preflights.
+// Unknown/malformed responses must never be treated as an empty collection.
+export function readExcelCollection(data: any, kind: "worksheets" | "tables"): any[] {
+  const label = kind === "worksheets" ? "worksheet list" : "table list";
+  const fail = (reason: string): never => { throw new Error("Cannot confirm the complete " + label + ": " + reason + ". No write attempted."); };
+  let current = data;
+  for (let depth = 0; depth < 5; depth++) {
+    if (!current || typeof current !== "object") return fail("unexpected response type");
+    if (current.error || current.successful === false || current.success === false) return fail("provider reported an error");
+    if (current["@odata.nextLink"] || current.odata_next_link || current.next_link || current.nextLink || current.has_more || current.next_cursor || current.pagination?.next_link || current.pagination?.has_more) return fail("additional pages were returned");
+    const keys = kind === "worksheets" ? ["value", "worksheets", "sheets"] : ["value", "tables"];
+    const collections = Array.isArray(current) ? [current] : keys.filter(key => key in current).map(key => current[key]);
+    if (collections.length) {
+      if (collections.some(value => !Array.isArray(value))) return fail("collection is not an array");
+      if (collections.some(value => JSON.stringify(value) !== JSON.stringify(collections[0]))) return fail("conflicting collection fields");
+      return collections[0].map((item: any) => {
+        if (kind === "worksheets" && typeof item === "string" && item.trim()) return {name: item};
+        if (!item || typeof item !== "object" || typeof item.name !== "string" || !item.name.trim()) return fail("item has no name");
+        return item;
+      });
+    }
+    if (current.response_data !== undefined) current = current.response_data;
+    else if (current.data !== undefined) current = current.data;
+    else return fail("unrecognized fields: " + Object.keys(current).join(", "));
+  }
+  return fail("response nesting exceeds limit");
+}
+
+// Internal read-only lookup; this does not add another exposed MCP tool.
+export async function resolveWriteTarget(action: string, input: Record<string, any>, read: (action: string, args: any) => Promise<any>): Promise<Record<string, any>> {
+  const context = {workbook_id: input.workbook_id, drive_id: input.drive_id};
+  const sheetsData = await read("EXCEL_LIST_WORKSHEETS", context);
+  const sheets = readExcelCollection(sheetsData, "worksheets");
+  let requested = input.worksheet_name;
+  if (action === "EXCEL_ADD_CHART") requested = parseSheetAndAddress(String(input.range), input.worksheet_name).sheet;
+  const selected = requested ? sheets.filter((sheet: any) => typeof sheet.name === "string" && (sheet.name.toLowerCase() === String(requested).toLowerCase() || sheet.id === requested)) : sheets;
+  if (requested && selected.length !== 1) throw new Error("Worksheet '" + requested + "' was not found in this workbook. Available worksheets: " + sheets.map((sheet: any) => sheet.name).join(", ") + ". No write attempted. Choose an existing sheet; no automatic substitution.");
+  if (action === "EXCEL_DELETE_WORKSHEET") {
+    if (!requested) throw new Error("Specify the exact worksheet to delete. No write attempted.");
+    if (sheets.length <= 1 || (selected[0].visibility === "Visible" && !sheets.some((sheet: any) => sheet !== selected[0] && sheet.visibility === "Visible"))) throw new Error("Cannot delete the last visible worksheet. No write attempted.");
+    return {...input, worksheet_name: selected[0].name};
+  }
+  if (action === "EXCEL_ADD_CHART") {
+    if (!requested) throw new Error("Specify worksheet_name or a sheet-qualified chart range. No write attempted.");
+    return {...input, worksheet_name: selected[0].name};
+  }
+  const identifier = String(input.table_id || input.table_name || "").trim();
+  if (!identifier) throw new Error("Specify a table name or ID. No write attempted.");
+  const matches: any[] = [];
+  const available: string[] = [];
+  // Reads run concurrently; any failed or incomplete lookup blocks the write.
+  await Promise.all(selected.map(async (sheet: any) => {
+    const data = await read("EXCEL_LIST_TABLES", {...context, worksheet_name: sheet.name});
+    for (const table of readExcelCollection(data, "tables")) {
+      available.push(String(table.name || table.id));
+      if (table.id === identifier || (typeof table.name === "string" && table.name.toLowerCase() === identifier.toLowerCase())) matches.push({table, sheet});
+    }
+  }));
+  if (matches.length !== 1 || typeof matches[0].table.id !== "string" || !matches[0].table.id) throw new Error("Table '" + identifier + "' could not be uniquely resolved in this workbook. Available tables: " + (available.join(", ") || "none") + ". Confirm the table exists (not just a named range), the workbook is correct, and Excel has saved. No rows appended.");
+  return {...input, table_id: matches[0].table.id, worksheet_name: matches[0].sheet.name};
+}
+
 export const WRITE_ACTIONS = new Set(["EXCEL_ADD_WORKSHEET", "EXCEL_UPDATE_WORKSHEET", "EXCEL_DELETE_WORKSHEET", "EXCEL_UPDATE_RANGE", "EXCEL_ADD_TABLE_ROW", "EXCEL_ADD_CHART"]);
 export function timeoutMessage(action: string): string {
   return WRITE_ACTIONS.has(action)
@@ -980,13 +1042,13 @@ export function mapPinnedAction(action: string, input: Record<string, any>): Rec
   let args: Record<string, any> = { item_id };
   switch (action) {
     case "EXCEL_GET_WORKBOOK": case "EXCEL_LIST_WORKSHEETS": break;
-    case "EXCEL_GET_WORKSHEET": args.worksheet = input.worksheet_name || input.worksheet; break;
+    case "EXCEL_LIST_TABLES": case "EXCEL_GET_WORKSHEET": args.worksheet = input.worksheet_name || input.worksheet; break;
     case "EXCEL_ADD_WORKSHEET": args.name = prepareWorksheetActionArgs(action, input).name; break;
     case "EXCEL_UPDATE_WORKSHEET": {
       const mapped = prepareUpdateWorksheetArgs(input);
       args.worksheet = mapped.worksheet; args.name = mapped.name; break;
     }
-    case "EXCEL_DELETE_WORKSHEET": args.worksheet_id = input.resolved_id || input.worksheet_id || prepareDeleteWorksheetArgs(action, input).worksheet_id; break;
+    case "EXCEL_DELETE_WORKSHEET": args.worksheet = input.worksheet_name || input.worksheet || input.resolved_name; break;
     case "EXCEL_GET_RANGE": case "EXCEL_UPDATE_RANGE": {
       const mapped = prepareRangeActionArgs(action, input);
       args.worksheet_id = mapped.worksheet_id; args.address = mapped.address;
@@ -999,7 +1061,7 @@ export function mapPinnedAction(action: string, input: Record<string, any>): Rec
     }
     case "EXCEL_ADD_CHART": {
       const mapped = prepareChartActionArgs(input);
-      args.worksheet_id = mapped.worksheet_id; args.type = mapped.type;
+      args.worksheet = mapped.worksheet; args.type = mapped.type;
       args.sourcedata = mapped.sourcedata; args.seriesby = mapped.seriesby; break;
     }
     default: throw new Error("Unsupported Excel action.");
@@ -1010,7 +1072,7 @@ export function mapPinnedAction(action: string, input: Record<string, any>): Rec
 }
 
 export async function executeComposioAction(actionName: string, inputArgs: Record<string, any>, clientForTest?: any): Promise<any> {
-  if (!APPROVED_SLUG_SET.has(actionName)) {
+  if (!APPROVED_SLUG_SET.has(actionName) && actionName !== "EXCEL_LIST_TABLES") {
     throw new Error(`Unapproved action slug '${actionName}'. Only audited, approved Composio slugs may be executed.`);
   }
 
@@ -1048,7 +1110,7 @@ export async function executeComposioAction(actionName: string, inputArgs: Recor
     // Optional drive scoping is only applicable when the action declares it.
     if (!("drive_id" in properties)) delete mappedArgs.drive_id;
     for (const key of Object.keys(mappedArgs)) {
-      if (!(key in properties)) throw new Error(`${actionName}: pinned mapping field ${key} is absent from the catalog. No execution attempted.`);
+      if (!(key in properties)) throw new Error(`${actionName} (${version}): pinned mapping field ${key} is absent from the catalog. Catalog fields: ${Object.keys(properties).join(", ")}. No execution attempted.`);
     }
     const missing = (tool.inputParameters.required || []).filter((key: string) => mappedArgs[key] === undefined || mappedArgs[key] === "");
     if (missing.length) throw new Error(`${actionName} (${version}) requires: ${missing.join(", ")}. No execution attempted.`);
@@ -1540,11 +1602,7 @@ server.registerTool(
         });
       }
 
-      let rawSheets: any[] = [];
-      if (Array.isArray(data?.worksheets)) rawSheets = data.worksheets;
-      else if (Array.isArray(data?.sheets)) rawSheets = data.sheets;
-      else if (Array.isArray(data?.value)) rawSheets = data.value;
-      else if (Array.isArray(data)) rawSheets = data;
+      const rawSheets = readExcelCollection(data, "worksheets");
 
       const worksheets = rawSheets.map((s: any, idx: number) => ({
         name: typeof s === "string" ? s : s.name || `Sheet${idx + 1}`,
@@ -1783,80 +1841,9 @@ server.registerTool(
         cleanedTarget = cleanedTarget.slice(1, -1).split("''").join("'");
       }
 
-      let resolvedId: string | undefined;
-      let resolvedName: string = cleanedTarget;
-
-      try {
-        let listData: any;
-        try {
-          listData = await executeComposioAction(APPROVED_COMPOSIO_ACTIONS.excel_list_worksheets, {
-            workbook_id: workbookId,
-            item_id: workbookId,
-            drive_id: args?.drive_id?.trim() || undefined,
-          });
-        } catch {
-          listData = await executeComposioAction(APPROVED_COMPOSIO_ACTIONS.excel_get_workbook, {
-            workbook_id: workbookId,
-            item_id: workbookId,
-            drive_id: args?.drive_id?.trim() || undefined,
-          });
-        }
-
-        let rawSheets: any[] = [];
-        if (Array.isArray(listData?.worksheets)) rawSheets = listData.worksheets;
-        else if (Array.isArray(listData?.sheets)) rawSheets = listData.sheets;
-        else if (Array.isArray(listData?.value)) rawSheets = listData.value;
-        else if (Array.isArray(listData)) rawSheets = listData;
-
-        if (rawSheets.length > 0) {
-          if (rawSheets.length === 1) {
-            const onlySheetName = typeof rawSheets[0] === "string" ? rawSheets[0] : rawSheets[0].name || cleanedTarget;
-            throw new Error(
-              `Cannot delete worksheet '${onlySheetName}'. An Excel workbook must contain at least one visible worksheet.`,
-            );
-          }
-
-          const match = rawSheets.find((s: any) => {
-            const sName = typeof s === "string" ? s : s.name;
-            const sId = typeof s === "object" ? s.id : undefined;
-            return (
-              (sName && sName.toLowerCase() === cleanedTarget.toLowerCase()) ||
-              (sId && sId.toLowerCase() === cleanedTarget.toLowerCase())
-            );
-          });
-
-          if (match) {
-            if (typeof match === "object") {
-              resolvedId = match.id;
-              resolvedName = match.name || cleanedTarget;
-            } else {
-              resolvedName = match;
-            }
-          }
-        }
-      } catch (listErr: any) {
-        if (listErr.message?.includes("must contain at least one visible worksheet")) {
-          throw listErr;
-        }
-        if (isAuthFailure(listErr.message)) {
-          throw listErr;
-        }
-      }
-
-      const data = await executeComposioAction(APPROVED_COMPOSIO_ACTIONS.excel_delete_worksheet, {
-          workbook_id: workbookId,
-          item_id: workbookId,
-          worksheet_name: resolvedName,
-          worksheet: resolvedName,
-          name: resolvedName,
-          sheet_name: resolvedName,
-          worksheet_id: resolvedId || resolvedName,
-          id: resolvedId || resolvedName,
-          workbookWorksheet_id: resolvedId || resolvedName,
-          resolved_id: resolvedId,
-          resolved_name: resolvedName,
-          drive_id: args?.drive_id?.trim() || undefined,
-        });
+      const target = await resolveWriteTarget("EXCEL_DELETE_WORKSHEET", {workbook_id: workbookId, worksheet_name: cleanedTarget, drive_id: args?.drive_id?.trim() || undefined}, executeComposioAction);
+      const resolvedName = target.worksheet_name;
+      const data = await executeComposioAction(APPROVED_COMPOSIO_ACTIONS.excel_delete_worksheet, target);
 
       const body = `
         <div class="xl">
@@ -2024,7 +2011,7 @@ server.registerTool(
     }
 
     try {
-      const data = await executeComposioAction(APPROVED_COMPOSIO_ACTIONS.excel_add_table_rows, {
+      const data = await executeComposioAction(APPROVED_COMPOSIO_ACTIONS.excel_add_table_rows, await resolveWriteTarget("EXCEL_ADD_TABLE_ROW", {
         workbook_id: workbookId,
         item_id: workbookId,
         table_id: tableIdentifier,
@@ -2036,7 +2023,7 @@ server.registerTool(
         worksheet_name: args?.worksheet_name?.trim() || undefined,
         worksheet: args?.worksheet_name?.trim() || undefined,
         drive_id: args?.drive_id?.trim() || undefined,
-      });
+      }, executeComposioAction));
 
       const worksheetName = args?.worksheet_name?.trim() || "";
       const body = `
@@ -2130,7 +2117,7 @@ server.registerTool(
         drive_id: args?.drive_id?.trim() || undefined,
       };
 
-      const data = await executeComposioAction(APPROVED_COMPOSIO_ACTIONS.excel_create_chart, actionInput);
+      const data = await executeComposioAction(APPROVED_COMPOSIO_ACTIONS.excel_create_chart, await resolveWriteTarget("EXCEL_ADD_CHART", actionInput, executeComposioAction));
 
       const resolvedSeries = actionInput.seriesby || actionInput.series_by || "Auto";
       const displayRange = sheet ? `${sheet}!${address}` : range;

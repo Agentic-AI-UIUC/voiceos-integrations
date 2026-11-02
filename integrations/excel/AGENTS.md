@@ -80,3 +80,6 @@ changes on its next turn — just talk to it.
 - Each tool description says when the model should call it.
 - Acting tools have confirmation cards; read tools don't.
 - Glance cards read in 2 seconds.
+
+## Working baseline
+Read IMPLEMENTATION-NOTES.md before changing this integration. It records the user-confirmed v5 fixes and regression workflow.

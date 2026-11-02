@@ -123,3 +123,75 @@ test("no deprecated API or startup regression invocation remains", () => {
   expect(source).not.toContain("const regTest = runRegressionTests()");
   expect(source).not.toContain("candidateName");
 });
+
+test("interactive previews use configured workbook and drive defaults", () => {
+  const meta = JSON.parse(readFileSync(new URL("./studio-meta.json", import.meta.url), "utf8"));
+  for (const preview of meta.preview.toolPreviews) {
+    expect(preview.sampleArgs?.workbook_id).toBeUndefined();
+    expect(preview.sampleArgs?.drive_id).toBeUndefined();
+  }
+});
+
+test("chart execution uses worksheet instead of range-action worksheet_id", async () => {
+  const calls:any[] = [];
+  const client = {...accountClient(validAccount), tools: {
+    getRawComposioToolBySlug: async () => ({inputParameters: {
+      properties: {item_id:{type:"string"}, worksheet:{type:"string"}, type:{type:"string"}, sourcedata:{type:"string"}, seriesby:{type:"string"}},
+      required: ["item_id","worksheet","type","sourcedata","seriesby"],
+    }}),
+    execute: async (...args:any[]) => {calls.push(args);return {successful:true,data:{id:"fixture_chart"}};},
+  }};
+  await executeComposioAction("EXCEL_ADD_CHART", {
+    workbook_id:"qa_wb", worksheet_name:"VoiceOS Review QA Verified",range:"A1:B4",chart_type:"ColumnClustered",series_by:"Columns",
+  },client);
+  expect(calls).toHaveLength(1);
+  expect(calls[0][1].arguments).toEqual({item_id:"qa_wb",worksheet:"VoiceOS Review QA Verified",type:"ColumnClustered",sourcedata:"'VoiceOS Review QA Verified'!A1:B4",seriesby:"Columns"});
+  expect(calls[0][1].arguments.worksheet_id).toBeUndefined();
+});
+
+import { resolveWriteTarget } from "./server.ts";
+test("chart missing worksheet reports actual names and performs no write", async () => {
+  const calls:string[]=[];
+  await expect(resolveWriteTarget("EXCEL_ADD_CHART", {range:"A1:B4",worksheet_name:"Renamed but absent"}, async action => {
+    calls.push(action);return {value:[{id:"sheet_1",name:"VoiceOS Review QA 01"}]};
+  })).rejects.toThrow("Available worksheets: VoiceOS Review QA 01");
+  expect(calls).toEqual(["EXCEL_LIST_WORKSHEETS"]);
+});
+test("table name resolves to the returned stable ID in its actual worksheet", async () => {
+  const calls:any[]=[];
+  const result=await resolveWriteTarget("EXCEL_ADD_TABLE_ROW",{workbook_id:"wb_fixture",table_name:"ReviewTable",rows:[["marker",7]]},async(action,args)=>{
+    calls.push([action,args]);
+    return action==="EXCEL_LIST_WORKSHEETS"?{value:[{name:"Real sheet"}]}:{value:[{id:"table_fixture_42",name:"ReviewTable"}]};
+  });
+  expect(result.table_id).toBe("table_fixture_42");
+  expect(result.worksheet_name).toBe("Real sheet");
+  expect(result.rows).toEqual([["marker",7]]);
+  expect(calls[1][1].worksheet_name).toBe("Real sheet");
+});
+test("missing table is not fabricated or replaced with another table",async()=>{
+  await expect(resolveWriteTarget("EXCEL_ADD_TABLE_ROW",{table_name:"Missing"},async action=>action==="EXCEL_LIST_WORKSHEETS"?{value:[{name:"Sheet1"}]}:{value:[{id:"other",name:"ActualTable"}]})).rejects.toThrow("Available tables: ActualTable");
+});
+test("table lookup failure is not swallowed",async()=>{
+  await expect(resolveWriteTarget("EXCEL_ADD_TABLE_ROW",{table_name:"T"},async action=>{
+    if(action==="EXCEL_LIST_WORKSHEETS")return {value:[{name:"Sheet1"}]};
+    throw Error("read failed");
+  })).rejects.toThrow("read failed");
+});
+test("incomplete worksheet enumeration blocks target resolution",async()=>{
+  await expect(resolveWriteTarget("EXCEL_ADD_CHART",{range:"Sheet1!A1:B4"},async()=>({value:[],"@odata.nextLink":"next"}))).rejects.toThrow("complete worksheet list");
+});
+test("chart uses a verified existing worksheet without changing approved range",async()=>{
+  const result=await resolveWriteTarget("EXCEL_ADD_CHART",{range:"'Actual Sheet'!A1:B4"},async()=>({value:[{name:"Actual Sheet",id:"sheet_fixture"}]}));
+  expect(result.worksheet_name).toBe("Actual Sheet");
+  expect(result.range).toBe("'Actual Sheet'!A1:B4");
+});
+
+test("Composio SDK remains pinned after Studio regeneration", () => {
+  const pkg = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8"));
+  expect(pkg.dependencies["@composio/core"]).toBe("0.27.0");
+});
+
+test("Studio fixtures contain no personal OneDrive IDs or truncated prefixes", () => {
+  const meta = readFileSync(new URL("./studio-meta.json", import.meta.url), "utf8");
+  expect(meta).not.toMatch(/\b[0-9A-F]{14,16}(?:!|[.\u2026])/i);
+});
