@@ -16,6 +16,10 @@ import { extractText as extractPdfText } from "unpdf";
 
 // --- Composio client --------------------------------------------------------
 const COMPOSIO_BASE_URL = "https://backend.composio.dev/api/v3.1";
+// Pinned so the argument names this file sends (folder, parent_folder,
+// conflict_behavior, use_me_drive, scope, …) can't change underneath it. Check
+// the tool schemas at the new version before bumping.
+export const COMPOSIO_TOOLKIT_VERSION = "20261101_00";
 const RECONNECT_HINT = "Reconnect OneDrive at https://app.composio.dev.";
 const AUTH_ERROR_RE = /token|expire|oauth|reconnect|credentials|unauthori[sz]ed|invalid_grant|no connected account|no active account|access denied/i;
 const NOT_FOUND_RE = /not ?found|itemNotFound|does not exist|404/i;
@@ -70,41 +74,90 @@ function extractErrorMessage(err: any): string {
   return String(err);
 }
 
-let cachedAccount: { accountId?: string; userId: string } | null = null;
+type Account = { accountId: string; userId: string };
+let cachedAccount: (Account & { key: string }) | null = null;
 
-async function resolveConnectedAccount(apiKey: string): Promise<{ accountId?: string; userId: string }> {
-  const explicitAccountId = process.env.COMPOSIO_CONNECTED_ACCOUNT_ID?.trim();
-  const configuredUserId = process.env.COMPOSIO_USER_ID?.trim() || "default";
+/**
+ * Only an active account on the OneDrive toolkit — a looser "microsoft" match
+ * would happily pick an Outlook or Teams connection and fail confusingly.
+ */
+function isActiveOneDrive(acc: any): boolean {
+  const slug = String(acc?.toolkit?.slug || acc?.toolkit_slug || "").toLowerCase();
+  return (slug === "one_drive" || slug === "onedrive") && String(acc?.status || "").toUpperCase() === "ACTIVE" && !acc?.is_disabled;
+}
 
-  if (explicitAccountId) return { accountId: explicitAccountId, userId: configuredUserId };
-  if (cachedAccount) return cachedAccount;
-
-  // Only accept accounts on the OneDrive toolkit — a looser "microsoft" match
-  // would happily pick an Outlook or Teams connection and fail confusingly.
-  const url = `${COMPOSIO_BASE_URL}/connected_accounts?toolkit_slugs=one_drive&statuses=ACTIVE`;
+/** GETs a connected-accounts endpoint. Returns null on 404; throws on any other failure. */
+async function fetchAccounts(apiKey: string, pathAndQuery: string): Promise<any> {
+  let res: Response;
   try {
-    const res = await fetch(url, { headers: { "x-api-key": apiKey }, signal: AbortSignal.timeout(timeLeft(5_000)) });
-    if (res.ok) {
-      const json: any = await res.json().catch(() => null);
-      const items: any[] = Array.isArray(json?.items) ? json.items : Array.isArray(json?.data?.items) ? json.data.items : [];
-      const matched = items.find((acc: any) => {
-        const slug = String(acc?.toolkit?.slug || acc?.toolkit_slug || "").toLowerCase();
-        return (slug === "one_drive" || slug === "onedrive") && String(acc?.status || "").toUpperCase() === "ACTIVE" && !acc?.is_disabled;
-      });
-      if (matched?.id) {
-        cachedAccount = { accountId: matched.id, userId: matched.user_id || configuredUserId };
-        console.error(`Resolved OneDrive account ${matched.id} for user ${cachedAccount.userId}`);
-        return cachedAccount;
-      }
-    } else {
-      console.error(`Connected account lookup failed: HTTP ${res.status}`);
-    }
+    res = await fetch(`${COMPOSIO_BASE_URL}${pathAndQuery}`, { headers: { "x-api-key": apiKey }, signal: AbortSignal.timeout(timeLeft(5_000)) });
   } catch (err) {
-    console.error("Connected account lookup failed:", err);
+    throw new Error(`Couldn't reach Composio to look up your OneDrive connection: ${extractErrorMessage(err)}`);
   }
+  if (res.status === 404) return null;
+  if (res.status === 401 || res.status === 403) {
+    throw new Error(`Composio rejected the connected-account lookup (HTTP ${res.status}). Check the API key in settings.`);
+  }
+  const json: any = await res.json().catch(() => null);
+  if (!res.ok || !json) throw new Error(`Composio's connected-account lookup failed (HTTP ${res.status}).`);
+  return json;
+}
 
-  // Not cached: a connection made after startup should be picked up next call.
-  return { userId: configuredUserId };
+/**
+ * The OneDrive account to act on, always one that belongs to COMPOSIO_USER_ID.
+ * A project API key can see every user's connections, so an account is never
+ * taken just because it exists in the project: a configured ID is checked
+ * against the user, and auto-detect refuses unless exactly one account matches.
+ */
+async function resolveConnectedAccount(apiKey: string): Promise<Account> {
+  const explicitAccountId = process.env.COMPOSIO_CONNECTED_ACCOUNT_ID?.trim();
+  const userId = process.env.COMPOSIO_USER_ID?.trim() || "default";
+  const key = `${userId}\n${explicitAccountId || ""}`;
+  if (cachedAccount?.key === key) return cachedAccount;
+
+  let account: Account;
+  if (explicitAccountId) {
+    const acc = await fetchAccounts(apiKey, `/connected_accounts/${encodeURIComponent(explicitAccountId)}`);
+    if (!acc) {
+      throw new Error(`Connected account ${explicitAccountId} isn't in this Composio project. Check Connected Account ID in settings, or clear it to auto-detect.`);
+    }
+    if (!isActiveOneDrive(acc)) {
+      throw new Error(`Connected account ${explicitAccountId} isn't an active OneDrive connection. Check Connected Account ID in settings. ${RECONNECT_HINT}`);
+    }
+    if (acc.user_id !== userId) {
+      throw new Error(`Connected account ${explicitAccountId} belongs to a different Composio user than "${userId}". Set Composio User ID to the account's user, or clear Connected Account ID.`);
+    }
+    account = { accountId: explicitAccountId, userId };
+  } else {
+    const query = new URLSearchParams({ toolkit_slugs: "one_drive", statuses: "ACTIVE", user_ids: userId });
+    const json = await fetchAccounts(apiKey, `/connected_accounts?${query}`);
+    const items: any[] = Array.isArray(json?.items) ? json.items : Array.isArray(json?.data?.items) ? json.data.items : [];
+    // Filtered again here so the user scoping never rests on the query alone.
+    const mine = items.filter((acc) => isActiveOneDrive(acc) && acc?.user_id === userId && acc?.id);
+    if (mine.length === 0) {
+      throw new Error(`No active OneDrive connection for Composio user "${userId}". Connect OneDrive for that user at https://app.composio.dev, or set Composio User ID in settings.`);
+    }
+    if (mine.length > 1) {
+      const ids = mine.slice(0, 5).map((acc) => acc.id).join(", ");
+      throw new Error(`Composio user "${userId}" has ${mine.length} active OneDrive connections (${ids}). Put the one to use in Connected Account ID in settings.`);
+    }
+    account = { accountId: mine[0].id, userId };
+  }
+  // Only a resolved account is cached, so a connection made after startup is picked up next call.
+  cachedAccount = { ...account, key };
+  console.error(`Using OneDrive account ${account.accountId} for user ${userId}`);
+  return account;
+}
+
+/**
+ * The error for a write whose request went out but whose answer never came
+ * back: it may have run. Write tools that pick a new name on conflict would
+ * create a duplicate on retry, so the user is told to look first.
+ */
+function unknownOutcome(action: string, cause: string): Error {
+  return new Error(
+    `Couldn't confirm whether OneDrive ${action}: the request was sent, but no answer came back (${cause}). It may have gone through. Check OneDrive before trying again.`,
+  );
 }
 
 function parseIfJson(value: any): any {
@@ -138,14 +191,17 @@ export function listOf(d: any): any[] {
   return [];
 }
 
-/** Executes one Composio OneDrive tool. Throws with a user-readable message on any failure. */
-export async function composio(slug: string, args: Record<string, unknown>): Promise<any> {
+/**
+ * Executes one Composio OneDrive tool. Throws with a user-readable message on any failure.
+ * `write` names what a mutating call does ("created the folder …"), so a lost
+ * answer is reported as an unknown outcome rather than a plain failure.
+ */
+export async function composio(slug: string, args: Record<string, unknown>, opts: { write?: string } = {}): Promise<any> {
   const apiKey = getApiKey();
   const { accountId, userId } = await resolveConnectedAccount(apiKey);
-  const payload: Record<string, unknown> = { user_id: userId, version: "latest", arguments: args };
-  if (accountId) payload.connected_account_id = accountId;
+  const payload = { user_id: userId, connected_account_id: accountId, version: COMPOSIO_TOOLKIT_VERSION, arguments: args };
 
-  console.error(`Composio ${slug} (user: ${userId}, account: ${accountId || "auto"})`);
+  console.error(`Composio ${slug} (user: ${userId}, account: ${accountId})`);
   const timeoutMs = timeLeft();
   let res: Response;
   try {
@@ -156,6 +212,7 @@ export async function composio(slug: string, args: Record<string, unknown>): Pro
       signal: AbortSignal.timeout(timeoutMs),
     });
   } catch (err) {
+    if (opts.write) throw unknownOutcome(opts.write, extractErrorMessage(err));
     throw new Error(`Couldn't reach Composio: ${extractErrorMessage(err)}`);
   }
 
@@ -163,10 +220,18 @@ export async function composio(slug: string, args: Record<string, unknown>): Pro
   if (res.status === 401 || res.status === 403) {
     throw new Error(`Composio rejected the request (HTTP ${res.status}). Check the API key in settings. ${RECONNECT_HINT}`);
   }
+  // A gateway error or an unreadable reply says nothing about whether the write ran.
+  if (opts.write && ([502, 503, 504].includes(res.status) || (res.ok && !json))) {
+    throw unknownOutcome(opts.write, `HTTP ${res.status}${json ? "" : ", unreadable reply"}`);
+  }
   if (!res.ok || !json || json.successful === false || json.success === false || json.error) {
     const msg = extractErrorMessage(json?.error ?? json?.message ?? json?.detail ?? `HTTP ${res.status} ${res.statusText}`);
     console.error(`Composio ${slug} failed [${res.status}]: ${msg}`);
-    throw new Error(AUTH_ERROR_RE.test(msg) ? `${msg} — ${RECONNECT_HINT}` : msg);
+    if (AUTH_ERROR_RE.test(msg)) {
+      cachedAccount = null; // the account may have been revoked or replaced; look it up again next call
+      throw new Error(`${msg} — ${RECONNECT_HINT}`);
+    }
+    throw new Error(msg);
   }
   return unwrap(json.data ?? json.result ?? json.response_data);
 }
@@ -183,7 +248,7 @@ export function normPath(raw?: string): string {
   return /^root$/i.test(p) ? "" : p;
 }
 
-// Personal IDs look like "D4648F06C91D9D3D!54927"; Business/SharePoint IDs like "01NKDM7HMOJTVYMDOSXFDK2QJDXCDI3WUK".
+// Personal IDs look like "0123456789ABCDEF!54927"; Business/SharePoint IDs like "01NKDM7HMOJTVYMDOSXFDK2QJDXCDI3WUK".
 export function looksLikeItemId(s: string): boolean {
   return /^[0-9a-f]{12,16}![\w.-]+$/i.test(s) || /^01[A-Z0-9]{30,}$/.test(s);
 }
@@ -970,18 +1035,20 @@ registerTool(
     const rawFolder = String(args?.folder_path ?? "").trim();
     const folder = rawFolder ? normPath(rawFolder) : "Documents";
 
+    const where = folder ? `/${folder}` : "/";
     let created: any;
     try {
-      created = await composio("ONE_DRIVE_ONEDRIVE_CREATE_TEXT_FILE", {
-        name: fileName,
-        content,
-        folder: folder ? `/${folder}` : "/",
-        conflict_behavior: "rename",
-      });
+      created = await composio(
+        "ONE_DRIVE_ONEDRIVE_CREATE_TEXT_FILE",
+        { name: fileName, content, folder: where, conflict_behavior: "rename" },
+        { write: `created "${fileName}" in ${where}` },
+      );
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (/content-range/i.test(msg)) {
-        throw new Error(`OneDrive rejected the upload of "${fileName}" (${msg}). Composio's upload step failed; try again, or check the destination folder "${folder || "/"}" exists.`);
+        // Fails partway through the upload session, so a file may exist anyway;
+        // a blind retry would add a renamed copy next to it.
+        throw new Error(`OneDrive rejected part of the upload of "${fileName}" (${msg}), so it may or may not have been created. Check ${where} in OneDrive (and that the folder exists) before trying again.`);
       }
       throw err;
     }
@@ -1025,11 +1092,12 @@ registerTool(
     if (!folderName) throw new Error("create_folder needs a folder name.");
     const parent = normPath(args?.parent_path);
 
-    const created = await composio("ONE_DRIVE_ONEDRIVE_CREATE_FOLDER", {
-      name: folderName,
-      parent_folder: parent ? `/${parent}` : "/",
-      conflict_behavior: "rename",
-    });
+    const where = parent ? `/${parent}` : "/";
+    const created = await composio(
+      "ONE_DRIVE_ONEDRIVE_CREATE_FOLDER",
+      { name: folderName, parent_folder: where, conflict_behavior: "rename" },
+      { write: `created the folder "${folderName}" in ${where}` },
+    );
     const finalName = String(created?.name || folderName);
     const renamed = finalName !== folderName;
 
@@ -1055,28 +1123,45 @@ const LINK_SCOPE_LABELS: Record<string, string> = {
   users: "Specific people",
 };
 
+/**
+ * The Graph link scope for what the user asked for. Always explicit: left
+ * unset, OneDrive falls back to the account's default, which on a personal
+ * account is a public link. Blank means anyone, as the confirmation card says.
+ */
+export function linkScope(audience: unknown): "anonymous" | "organization" {
+  const v = String(audience ?? "").trim().toLowerCase();
+  if (!v || v === "anyone" || v === "anonymous") return "anonymous";
+  if (v === "organization" || v === "organisation" || v === "org") return "organization";
+  throw new Error(`Unknown link audience "${audience}". Use "anyone" or "organization".`);
+}
+
 // TOOL 6: create_share_link (ACT)
 registerTool(
   "create_share_link",
   {
     title: "Create share link",
-    description: "Create a sharing link for a Microsoft OneDrive file or folder and copy it to the Mac clipboard. Use when the user asks to share a file, get a link to it, or let someone view or edit it. Who can open the link follows the account's default sharing settings. Call it directly with the name the user said (with or without extension, optionally with its folder); don't search first. If several files match, the error lists them.",
+    description: "Create a sharing link for a Microsoft OneDrive file or folder and copy it to the Mac clipboard. Use when the user asks to share a file, get a link to it, or let someone view or edit it. By default anyone who has the link can open it; pass audience 'organization' when the user wants only people in their work or school organization. Call it directly with the name the user said (with or without extension, optionally with its folder); don't search first. If several files match, the error lists them.",
     inputSchema: {
       item_path: z.string().describe("File or folder name as the user said it, path (e.g. 'Documents/Report.docx'), or item id"),
       scope: z.enum(["view", "edit"]).or(z.literal("")).optional().describe("Link permission: 'view' for read-only or 'edit' to allow editing (default: 'view')"),
+      audience: z.enum(["anyone", "organization"]).or(z.literal("")).optional().describe("Who can open the link: 'anyone' who has it (default) or 'organization' for people in the user's work or school organization only (not available on personal accounts)"),
     },
   },
   async (args) => {
     const type = String(args?.scope || "").trim().toLowerCase() === "edit" ? "edit" : "view";
+    const scope = linkScope(args?.audience);
     const item = await resolveItem(args?.item_path, true);
     const itemName = String(item?.name || args?.item_path);
+    if (scope === "organization" && item?.parentReference?.driveType === "personal") {
+      throw new Error(`Personal OneDrive accounts can't make organization-only links. Use audience "anyone" to share "${itemName}" with anyone who has the link.`);
+    }
 
-    const perm = await composio("ONE_DRIVE_CREATE_LINK", { item_id: item.id, type });
+    const perm = await composio("ONE_DRIVE_CREATE_LINK", { item_id: item.id, type, scope }, { write: `created a share link for "${itemName}"` });
     const shareUrl = httpsUrl(perm?.link?.webUrl || perm?.webUrl);
     if (!shareUrl) throw new Error(`OneDrive didn't return a sharing link for "${itemName}".`);
     const copied = copyToMacClipboard(shareUrl);
     const permLabel = (perm?.link?.type || type) === "edit" ? "Can edit" : "Can view";
-    const audience = LINK_SCOPE_LABELS[String(perm?.link?.scope || "")] || "Default sharing settings";
+    const audience = LINK_SCOPE_LABELS[String(perm?.link?.scope || scope)];
 
     const rendered = card(
       header("OneDrive", tag("Link created")) +
@@ -1112,7 +1197,7 @@ registerTool(
     const itemName = String(item?.name || args?.item_path);
     const isFolder = Boolean(item?.folder);
 
-    await composio("ONE_DRIVE_DELETE_ITEM", { item_id: item.id });
+    await composio("ONE_DRIVE_DELETE_ITEM", { item_id: item.id }, { write: `deleted "${itemName}"` });
 
     const rendered = card(
       header("OneDrive", tag("Deleted")) +

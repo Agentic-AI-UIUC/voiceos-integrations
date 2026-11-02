@@ -1,10 +1,28 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import "./no-connect.ts";
-import { composio, downloadBytes, resetAccountCache, resolveItem, runWithBudget } from "../server.ts";
+import { COMPOSIO_TOOLKIT_VERSION, composio, downloadBytes, linkScope, resetAccountCache, resolveItem, runWithBudget } from "../server.ts";
 
 type Call = { url: string; body: any };
 let calls: Call[] = [];
 const realFetch = globalThis.fetch;
+
+const oneDrive = (id: string, user_id: string, extra: Record<string, unknown> = {}) => ({
+  id, user_id, status: "ACTIVE", toolkit: { slug: "one_drive" }, ...extra,
+});
+/** Every connected account in the mocked Composio project, across all users. */
+let projectAccounts: any[] = [];
+
+/** Answers connected-account lookups the way Composio does: by ID, or filtered by `user_ids`. */
+function accountsReply(url: string): Response {
+  const u = new URL(url);
+  const byId = u.pathname.match(/\/connected_accounts\/([^/]+)$/);
+  if (byId) {
+    const acc = projectAccounts.find((a) => a.id === decodeURIComponent(byId[1]));
+    return acc ? Response.json(acc) : Response.json({ error: "not found" }, { status: 404 });
+  }
+  const users = u.searchParams.get("user_ids")?.split(",");
+  return Response.json({ items: projectAccounts.filter((a) => !users || users.includes(a.user_id)) });
+}
 
 /** Routes each Composio tool slug to a canned { status, json } reply. */
 function mockComposio(routes: Record<string, (args: any) => { status?: number; json: any }>) {
@@ -15,9 +33,7 @@ function mockComposio(routes: Record<string, (args: any) => { status?: number; j
     if (url.startsWith("https://files.example/")) {
       return url.endsWith("/missing") ? new Response("gone", { status: 403 }) : new Response(`bytes of ${url}`);
     }
-    if (url.includes("/connected_accounts")) {
-      return Response.json({ items: [{ id: "ca_test", user_id: "u1", status: "ACTIVE", toolkit: { slug: "one_drive" } }] });
-    }
+    if (url.includes("/connected_accounts")) return accountsReply(url);
     const slug = url.split("/tools/execute/")[1];
     const route = routes[slug];
     if (!route) return Response.json({ successful: false, error: `unexpected slug ${slug}` }, { status: 400 });
@@ -31,28 +47,25 @@ const executed = () => calls.filter((c) => c.url.includes("/tools/execute/")).ma
 beforeEach(() => {
   calls = [];
   resetAccountCache();
+  projectAccounts = [oneDrive("ca_mine", "u1"), oneDrive("ca_theirs", "u2")];
   process.env.COMPOSIO_API_KEY = "ak_test_key";
+  process.env.COMPOSIO_USER_ID = "u1";
   delete process.env.COMPOSIO_CONNECTED_ACCOUNT_ID;
-  delete process.env.COMPOSIO_USER_ID;
 });
 afterEach(() => {
   globalThis.fetch = realFetch;
 });
 
+const root = { ONE_DRIVE_GET_ROOT: () => ({ json: { successful: true, data: {} } }) };
+
 describe("composio()", () => {
-  test("sends the discovered account and returns unwrapped data", async () => {
+  test("sends the user's account and the pinned toolkit version, and returns unwrapped data", async () => {
     mockComposio({ ONE_DRIVE_GET_ROOT: () => ({ json: { successful: true, data: { response_data: { id: "root" } } } }) });
     expect(await composio("ONE_DRIVE_GET_ROOT", {})).toEqual({ id: "root" });
     const exec = calls.find((c) => c.url.includes("/tools/execute/"))!;
-    expect(exec.body).toMatchObject({ user_id: "u1", connected_account_id: "ca_test", arguments: {} });
-  });
-
-  test("uses an explicit connected account without looking one up", async () => {
-    process.env.COMPOSIO_CONNECTED_ACCOUNT_ID = "ca_explicit";
-    mockComposio({ ONE_DRIVE_GET_ROOT: () => ({ json: { successful: true, data: {} } }) });
-    await composio("ONE_DRIVE_GET_ROOT", {});
-    expect(calls.some((c) => c.url.includes("/connected_accounts"))).toBe(false);
-    expect(calls[0].body.connected_account_id).toBe("ca_explicit");
+    expect(exec.body).toMatchObject({ user_id: "u1", connected_account_id: "ca_mine", arguments: {} });
+    expect(exec.body.version).toBe(COMPOSIO_TOOLKIT_VERSION);
+    expect(COMPOSIO_TOOLKIT_VERSION).toMatch(/^\d{8}_\d{2}$/);
   });
 
   test("throws Composio's error instead of returning it", async () => {
@@ -78,12 +91,128 @@ describe("composio()", () => {
   });
 });
 
+describe("connected account", () => {
+  test("auto-detect only considers the configured user's accounts", async () => {
+    mockComposio(root);
+    await composio("ONE_DRIVE_GET_ROOT", {});
+    const lookup = new URL(calls.find((c) => c.url.includes("/connected_accounts"))!.url);
+    expect(lookup.searchParams.get("user_ids")).toBe("u1");
+    expect(calls.at(-1)!.body.connected_account_id).toBe("ca_mine");
+  });
+
+  test("ignores another user's account even if the lookup returns it", async () => {
+    mockComposio(root);
+    const mocked = globalThis.fetch;
+    globalThis.fetch = ((input: any, init?: any) =>
+      String(input).includes("/connected_accounts")
+        ? Promise.resolve(Response.json({ items: [oneDrive("ca_theirs", "u2")] }))
+        : mocked(input, init)) as typeof fetch;
+    await expect(composio("ONE_DRIVE_GET_ROOT", {})).rejects.toThrow(/No active OneDrive connection for Composio user "u1"/);
+    expect(executed()).toEqual([]);
+  });
+
+  test("refuses when the user has no OneDrive connection", async () => {
+    process.env.COMPOSIO_USER_ID = "nobody";
+    mockComposio(root);
+    await expect(composio("ONE_DRIVE_GET_ROOT", {})).rejects.toThrow(/No active OneDrive connection for Composio user "nobody"/);
+    expect(executed()).toEqual([]);
+  });
+
+  test("refuses to pick between several of the user's connections", async () => {
+    projectAccounts.push(oneDrive("ca_mine_2", "u1"));
+    mockComposio(root);
+    await expect(composio("ONE_DRIVE_GET_ROOT", {})).rejects.toThrow(/2 active OneDrive connections \(ca_mine, ca_mine_2\)/);
+    expect(executed()).toEqual([]);
+  });
+
+  test("skips inactive, disabled, and non-OneDrive accounts", async () => {
+    projectAccounts.push(
+      oneDrive("ca_expired", "u1", { status: "EXPIRED" }),
+      oneDrive("ca_off", "u1", { is_disabled: true }),
+      oneDrive("ca_outlook", "u1", { toolkit: { slug: "outlook" } }),
+    );
+    mockComposio(root);
+    await composio("ONE_DRIVE_GET_ROOT", {});
+    expect(calls.at(-1)!.body.connected_account_id).toBe("ca_mine");
+  });
+
+  test("uses a configured account after checking it belongs to the user", async () => {
+    process.env.COMPOSIO_CONNECTED_ACCOUNT_ID = "ca_mine";
+    mockComposio(root);
+    await composio("ONE_DRIVE_GET_ROOT", {});
+    expect(calls[0].url).toEndWith("/connected_accounts/ca_mine");
+    expect(calls.at(-1)!.body.connected_account_id).toBe("ca_mine");
+  });
+
+  test("refuses a configured account that belongs to another user", async () => {
+    process.env.COMPOSIO_CONNECTED_ACCOUNT_ID = "ca_theirs";
+    mockComposio(root);
+    await expect(composio("ONE_DRIVE_GET_ROOT", {})).rejects.toThrow(/belongs to a different Composio user than "u1"/);
+    expect(executed()).toEqual([]);
+  });
+
+  test("refuses a configured account that isn't OneDrive or doesn't exist", async () => {
+    projectAccounts.push(oneDrive("ca_outlook", "u1", { toolkit: { slug: "outlook" } }));
+    process.env.COMPOSIO_CONNECTED_ACCOUNT_ID = "ca_outlook";
+    mockComposio(root);
+    await expect(composio("ONE_DRIVE_GET_ROOT", {})).rejects.toThrow(/isn't an active OneDrive connection/);
+    resetAccountCache();
+    process.env.COMPOSIO_CONNECTED_ACCOUNT_ID = "ca_missing";
+    await expect(composio("ONE_DRIVE_GET_ROOT", {})).rejects.toThrow(/isn't in this Composio project/);
+    expect(executed()).toEqual([]);
+  });
+
+  test("refuses rather than guessing when the lookup fails", async () => {
+    globalThis.fetch = (async (input: any) => {
+      calls.push({ url: String(input), body: undefined });
+      return String(input).includes("/connected_accounts") ? new Response("down", { status: 500 }) : Response.json({ successful: true, data: {} });
+    }) as typeof fetch;
+    await expect(composio("ONE_DRIVE_GET_ROOT", {})).rejects.toThrow(/connected-account lookup failed \(HTTP 500\)/);
+    expect(executed()).toEqual([]);
+  });
+});
+
+describe("write outcome", () => {
+  const write = { write: 'created the folder "VoiceOS Test" in /' };
+
+  test("a write whose answer never arrives is reported as unknown, not failed", async () => {
+    globalThis.fetch = ((input: any, init?: any) => {
+      if (String(input).includes("/connected_accounts")) return Promise.resolve(accountsReply(String(input)));
+      return new Promise((_, reject) => init?.signal?.addEventListener("abort", () => reject(init.signal.reason)));
+    }) as typeof fetch;
+    const err = await runWithBudget(1_500, () => composio("ONE_DRIVE_ONEDRIVE_CREATE_FOLDER", {}, write)).catch((e) => e);
+    expect(err.message).toMatch(/Couldn't confirm whether OneDrive created the folder "VoiceOS Test" in \//);
+    expect(err.message).toMatch(/Check OneDrive before trying again/);
+    expect(err.message).not.toMatch(/Couldn't reach Composio/);
+  });
+
+  test("a gateway error on a write is unknown too", async () => {
+    mockComposio({ ONE_DRIVE_ONEDRIVE_CREATE_FOLDER: () => ({ status: 504, json: { error: "Gateway Timeout" } }) });
+    await expect(composio("ONE_DRIVE_ONEDRIVE_CREATE_FOLDER", {}, write)).rejects.toThrow(/may have gone through/);
+  });
+
+  test("a definite rejection on a write stays a plain error", async () => {
+    mockComposio({ ONE_DRIVE_ONEDRIVE_CREATE_FOLDER: () => ({ json: { successful: false, error: "nameAlreadyExists" } }) });
+    await expect(composio("ONE_DRIVE_ONEDRIVE_CREATE_FOLDER", {}, write)).rejects.toThrow(/^nameAlreadyExists$/);
+  });
+});
+
+describe("linkScope()", () => {
+  test("is always explicit, with blank meaning anyone", () => {
+    expect(linkScope(undefined)).toBe("anonymous");
+    expect(linkScope("")).toBe("anonymous");
+    expect(linkScope("anyone")).toBe("anonymous");
+    expect(linkScope("Organization")).toBe("organization");
+    expect(() => linkScope("everyone at work")).toThrow(/Unknown link audience/);
+  });
+});
+
 describe("resolveItem()", () => {
   const notFound = () => ({ json: { successful: false, error: "itemNotFound: The resource could not be found." } });
 
   test("looks up IDs directly", async () => {
     mockComposio({ ONE_DRIVE_GET_ITEM: (a) => ({ json: { successful: true, data: { id: a.item_id, name: "x" } } }) });
-    expect((await resolveItem("D4648F06C91D9D3D!54927", false)).id).toBe("D4648F06C91D9D3D!54927");
+    expect((await resolveItem("0123456789ABCDEF!54927", false)).id).toBe("0123456789ABCDEF!54927");
     expect(executed()).toEqual(["ONE_DRIVE_GET_ITEM"]);
   });
 
@@ -167,13 +296,13 @@ describe("resolveItem()", () => {
 });
 
 describe("downloadBytes()", () => {
-  const item = { id: "D4648F06C91D9D3D!1", name: "Q3 Report.doc" };
+  const item = { id: "0123456789ABCDEF!1", name: "Q3 Report.doc" };
 
   test("downloads the original file from Composio's staged URL", async () => {
     mockComposio({
       ONE_DRIVE_DOWNLOAD_FILE: (a) => ({ json: { successful: true, data: { file: { s3url: `https://files.example/${a.item_id}` } } } }),
     });
-    expect((await downloadBytes(item)).toString()).toBe("bytes of https://files.example/D4648F06C91D9D3D!1");
+    expect((await downloadBytes(item)).toString()).toBe("bytes of https://files.example/0123456789ABCDEF!1");
   });
 
   test("asks OneDrive to convert to PDF when asPdf is set", async () => {
@@ -221,7 +350,7 @@ describe("time budget", () => {
   /** A Composio that never answers, so only the abort signal can end the request. */
   function hangingComposio() {
     globalThis.fetch = ((input: any, init?: any) => {
-      if (String(input).includes("/connected_accounts")) return Promise.resolve(Response.json({ items: [] }));
+      if (String(input).includes("/connected_accounts")) return Promise.resolve(accountsReply(String(input)));
       return new Promise((_, reject) => init?.signal?.addEventListener("abort", () => reject(init.signal.reason)));
     }) as typeof fetch;
   }
