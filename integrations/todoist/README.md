@@ -1,4 +1,4 @@
-# Todoist integration — 1.0.8
+# Todoist integration — 1.0.9
 
 ## Platform and setup
 
@@ -23,11 +23,26 @@ its host and does not automatically load `.env` files.
 - Delete project
 - Create section
 - Delete section
-- Manage labels (list/create/update personal labels)
+- List labels (`manage_labels`, read-only; optional legacy `action: "list"`)
+- Create label
+- Update label
 - Delete label (confirmation required; removes the label from all tasks)
 - Get productivity stats
 - List projects (read-only lookup with pagination)
 - List sections (read-only lookup, optional project filter, pagination)
+
+## Confirmation cards
+
+All actions use native cards with the same spacing and Cancel/action footer.
+Task, project, section, and label creation share an editable Name field followed
+by a details summary. Updates show the selected name and ID plus the requested
+changes; fields absent from the request stay unchanged. Deletions always show
+Name, ID, and the consequence of deleting that entity. Read-only lookups never
+ask for confirmation by default.
+
+`manage_labels` only lists labels now. Use `create_label`, `update_label`, and
+`delete_label` for changes; the legacy create/update/delete actions are rejected.
+There are **18 exposed tools: 15 business tools and 3 account/setup helpers**.
 
 ## Automated tests
 
@@ -50,11 +65,11 @@ the child server are cleaned up when the suite finishes.
 
 Coverage includes:
 
-- The thirteen business tools, including separate confirmed label deletion, and the three current
+- The fifteen business tools, including separate label creation, updates, and deletion, and the three current
   account/setup helpers. The explicit catalog assertion documents the setup
   helpers separately; it does not imply additional business-tool approval.
 - Exact Composio operations and arguments, partial updates, and invalid inputs.
-- Project, section, and label deletion confirmation definitions, result-card limits, empty responses, and
+- Action confirmation definitions, read-only confirmation exclusions, result-card limits, empty responses, and
   pagination while retaining full response data.
 - Success/error notifications, notification failures, credential redaction,
   and SDK-wrapped timeouts without repeating writes.

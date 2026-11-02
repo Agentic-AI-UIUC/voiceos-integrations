@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "id": "com.voiceos.generated.composio-todoist",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "name": "Todoist",
   "summary": "Manage Todoist tasks, projects, sections, and labels through Composio OAuth.",
-  "description": "Todoist account controls, task/project/section/label actions, and productivity statistics. Project, section, and label deletion ask for confirmation. Writes report success or failure using VoiceOS notifications.",
+  "description": "Todoist account controls, task/project/section/label actions, and productivity statistics. Actions show consistent confirmation cards; lookups run without confirmation. Writes report success or failure using VoiceOS notifications.",
   "icon": "icon.png",
   "categories": [
     "Productivity"
@@ -59,7 +59,7 @@
     {
       "name": "connect_account",
       "title": "Connect Todoist",
-      "description": "Connect Todoist using Composio OAuth. Use when asked to connect or authorize Todoist. Reuse a verified saved connection; otherwise open browser authorization and wait. OAuth consent happens in the browser without an extra VoiceOS confirmation.",
+      "description": "Connect Todoist using Composio OAuth. Use when asked to connect or authorize Todoist. Reuse a verified saved connection; otherwise confirm opening browser authorization and wait for consent.",
       "inputSchema": {
         "type": "object",
         "properties": {}
@@ -67,6 +67,32 @@
       "execution": {
         "mode": "background",
         "estimatedDurationMs": 180000
+      },
+      "confirmation": {
+        "schemaVersion": 1,
+        "root": {
+          "type": "card",
+          "title": "Connect Todoist",
+          "children": [
+            {
+              "type": "stack",
+              "direction": "vertical",
+              "gap": "md",
+              "children": [
+                { "type": "text", "text": "Continue in your browser to securely link Todoist through Composio. If you’re already connected, we’ll verify your connection instead.", "color": "muted" }
+              ]
+            }
+          ],
+          "footer": [
+            {
+              "type": "actions",
+              "items": [
+                { "label": "Cancel", "role": "cancel" },
+                { "label": "Continue", "role": "confirm", "color": "accent" }
+              ]
+            }
+          ]
+        }
       },
       "uiCallable": true
     },
@@ -88,7 +114,27 @@
         "type": "object",
         "properties": {}
       },
-      "uiCallable": true
+      "uiCallable": true,
+      "confirmation": {
+        "schemaVersion": 1,
+        "root": {
+          "type": "card",
+          "title": "Disconnect Todoist",
+          "children": [
+            {
+              "type": "stack", "direction": "vertical", "gap": "md",
+              "children": [
+                { "type": "text", "text": "Disconnect this installation’s saved Todoist account. You can reconnect later.", "color": "muted" },
+                { "type": "text", "text": "Your tasks, projects, sections, and labels will remain.", "color": "muted" }
+              ]
+            }
+          ],
+          "footer": [{ "type": "actions", "items": [
+            { "label": "Cancel", "role": "cancel" },
+            { "label": "Disconnect Todoist", "role": "confirm", "color": "accent" }
+          ] }]
+        }
+      }
     },
     {
       "name": "create_task",
@@ -258,6 +304,44 @@
           }
         },
         "description": "Request model for creating a task."
+      },
+      "confirmation": {
+        "schemaVersion": 1,
+        "root": {
+          "type": "card",
+          "title": "Create task",
+          "children": [
+            {
+              "type": "stack", "direction": "vertical", "gap": "md",
+              "children": [
+                { "type": "text", "text": "Review the details, then create this task.", "color": "muted" },
+                { "type": "textField", "bind": "{{content}}", "label": "Name", "required": true },
+                {
+                  "type": "stack", "direction": "vertical", "gap": "sm",
+                  "children": [
+                    { "type": "keyValue", "visibleIf": "{{description}}", "rows": [{ "label": "Description", "value": "{{description}}" }] },
+                    { "type": "keyValue", "visibleIf": "{{due_string}}", "rows": [{ "label": "Due", "value": "{{due_string}}" }] },
+                    { "type": "keyValue", "visibleIf": "{{due_date}}", "rows": [{ "label": "Due date", "value": "{{due_date}}" }] },
+                    { "type": "keyValue", "visibleIf": "{{due_datetime}}", "rows": [{ "label": "Due time", "value": "{{due_datetime}}" }] },
+                    { "type": "keyValue", "visibleIf": "{{due_lang}}", "rows": [{ "label": "Scheduling language", "value": "{{due_lang}}" }] },
+                    { "type": "keyValue", "visibleIf": "{{priority}}", "rows": [{ "label": "Priority", "value": "{{priority}}" }] },
+                    { "type": "keyValue", "visibleIf": "{{labels}}", "rows": [{ "label": "Labels", "value": "{{labels}}" }] },
+                    { "type": "keyValue", "visibleIf": "{{project_id}}", "rows": [{ "label": "Project ID", "value": "{{project_id}}" }] },
+                    { "type": "keyValue", "visibleIf": "{{section_id}}", "rows": [{ "label": "Section ID", "value": "{{section_id}}" }] },
+                    { "type": "keyValue", "visibleIf": "{{parent_id}}", "rows": [{ "label": "Parent ID", "value": "{{parent_id}}" }] },
+                    { "type": "keyValue", "visibleIf": "{{assignee_id}}", "rows": [{ "label": "Assignee ID", "value": "{{assignee_id}}" }] },
+                    { "type": "keyValue", "visibleIf": "{{duration}}", "rows": [{ "label": "Duration", "value": "{{duration}} {{duration_unit}}" }] },
+                    { "type": "keyValue", "visibleIf": "{{order}}", "rows": [{ "label": "Order", "value": "{{order}}" }] }
+                  ]
+                }
+              ]
+            }
+          ],
+          "footer": [{ "type": "actions", "items": [
+            { "label": "Cancel", "role": "cancel" },
+            { "label": "Create task", "role": "confirm", "color": "accent" }
+          ] }]
+        }
       }
     },
     {
@@ -410,11 +494,46 @@
           }
         },
         "description": "Request model for updating an existing task in Todoist."
+      },
+      "confirmation": {
+        "schemaVersion": 1,
+        "root": {
+          "type": "card",
+          "title": "Update task",
+          "children": [
+            {
+              "type": "stack", "direction": "vertical", "gap": "md",
+              "children": [
+                { "type": "text", "text": "Review the requested changes. Other fields stay unchanged.", "color": "muted" },
+                { "type": "keyValue", "rows": [{ "label": "Name", "value": "{{target_name}}" }, { "label": "ID", "value": "{{task_id}}" }] },
+                {
+                  "type": "stack", "direction": "vertical", "gap": "sm",
+                  "children": [
+                    { "type": "keyValue", "visibleIf": "{{content}}", "rows": [{ "label": "New name", "value": "{{content}}" }] },
+                    { "type": "keyValue", "rows": [{ "label": "Description (if specified)", "value": "{{description}}" }, { "label": "Labels (if specified)", "value": "{{labels}}" }] },
+                    { "type": "keyValue", "visibleIf": "{{due_string}}", "rows": [{ "label": "Due", "value": "{{due_string}}" }] },
+                    { "type": "keyValue", "visibleIf": "{{due_date}}", "rows": [{ "label": "Due date", "value": "{{due_date}}" }] },
+                    { "type": "keyValue", "visibleIf": "{{due_datetime}}", "rows": [{ "label": "Due time", "value": "{{due_datetime}}" }] },
+                    { "type": "keyValue", "visibleIf": "{{due_lang}}", "rows": [{ "label": "Scheduling language", "value": "{{due_lang}}" }] },
+                    { "type": "keyValue", "visibleIf": "{{priority}}", "rows": [{ "label": "Priority", "value": "{{priority}}" }] },
+                    { "type": "keyValue", "visibleIf": "{{assignee_id}}", "rows": [{ "label": "Assignee ID", "value": "{{assignee_id}}" }] },
+                    { "type": "keyValue", "visibleIf": "{{duration}}", "rows": [{ "label": "Duration", "value": "{{duration}} {{duration_unit}}" }] },
+                    { "type": "keyValue", "visibleIf": "{{deadline_date}}", "rows": [{ "label": "Deadline", "value": "{{deadline_date}}" }] }
+                  ]
+                }
+              ]
+            }
+          ],
+          "footer": [{ "type": "actions", "items": [
+            { "label": "Cancel", "role": "cancel" },
+            { "label": "Save changes", "role": "confirm", "color": "accent" }
+          ] }]
+        }
       }
     },
     {
       "name": "close_task",
-      "title": "Close task",
+      "title": "Complete task",
       "description": "Complete a Todoist task. Use when asked to finish or check off a task. Find its ID with get_active_tasks. Recurring tasks advance to their next occurrence instead of permanently completing.",
       "inputSchema": {
         "type": "object",
@@ -439,6 +558,27 @@
           }
         },
         "description": "Request model for closing a task."
+      },
+      "confirmation": {
+        "schemaVersion": 1,
+        "root": {
+          "type": "card",
+          "title": "Complete task",
+          "children": [
+            {
+              "type": "stack", "direction": "vertical", "gap": "md",
+              "children": [
+                { "type": "text", "text": "Review the selected task before completing it.", "color": "muted" },
+                { "type": "keyValue", "rows": [{ "label": "Name", "value": "{{target_name}}" }, { "label": "ID", "value": "{{task_id}}" }] },
+                { "type": "text", "text": "Recurring tasks advance to their next occurrence.", "color": "muted" }
+              ]
+            }
+          ],
+          "footer": [{ "type": "actions", "items": [
+            { "label": "Cancel", "role": "cancel" },
+            { "label": "Complete task", "role": "confirm", "color": "accent" }
+          ] }]
+        }
       }
     },
     {
@@ -599,6 +739,36 @@
             "description": "Workspace ID. If provided, creates a workspace project instead of a personal project."
           }
         }
+      },
+      "confirmation": {
+        "schemaVersion": 1,
+        "root": {
+          "type": "card",
+          "title": "Create project",
+          "children": [
+            {
+              "type": "stack", "direction": "vertical", "gap": "md",
+              "children": [
+                { "type": "text", "text": "Review the details, then create this project.", "color": "muted" },
+                { "type": "textField", "bind": "{{name}}", "label": "Name", "required": true },
+                {
+                  "type": "stack", "direction": "vertical", "gap": "sm",
+                  "children": [
+                    { "type": "keyValue", "visibleIf": "{{description}}", "rows": [{ "label": "Description", "value": "{{description}}" }] },
+                    { "type": "keyValue", "visibleIf": "{{parent_id}}", "rows": [{ "label": "Parent ID", "value": "{{parent_id}}" }] },
+                    { "type": "keyValue", "visibleIf": "{{workspace_id}}", "rows": [{ "label": "Workspace ID", "value": "{{workspace_id}}" }] },
+                    { "type": "keyValue", "visibleIf": "{{view_style}}", "rows": [{ "label": "View", "value": "{{view_style}}" }] },
+                    { "type": "keyValue", "rows": [{ "label": "Color (optional)", "value": "{{color}}" }, { "label": "Favorite (optional)", "value": "{{is_favorite}}" }] }
+                  ]
+                }
+              ]
+            }
+          ],
+          "footer": [{ "type": "actions", "items": [
+            { "label": "Cancel", "role": "cancel" },
+            { "label": "Create project", "role": "confirm", "color": "accent" }
+          ] }]
+        }
       }
     },
     {
@@ -636,20 +806,11 @@
           "title": "Delete project",
           "children": [
             {
-              "type": "text",
-              "text": "Delete the selected project, including its sections and tasks. Check the name and ID carefully."
-            },
-            {
-              "type": "keyValue",
-              "rows": [
-                {
-                  "label": "Project Id",
-                  "value": "{{project_id}}"
-                },
-                {
-                  "label": "Selected target",
-                  "value": "{{target_name}}"
-                }
+              "type": "stack", "direction": "vertical", "gap": "md",
+              "children": [
+                { "type": "text", "text": "Review the selected project before deleting it.", "color": "muted" },
+                { "type": "keyValue", "rows": [{ "label": "Name", "value": "{{target_name}}" }, { "label": "ID", "value": "{{project_id}}" }] },
+                { "type": "text", "text": "This also deletes every section and task in the project.", "color": "danger" }
               ]
             }
           ],
@@ -715,6 +876,32 @@
           }
         },
         "description": "Request model for creating a new section using API v1."
+      },
+      "confirmation": {
+        "schemaVersion": 1,
+        "root": {
+          "type": "card",
+          "title": "Create section",
+          "children": [
+            {
+              "type": "stack", "direction": "vertical", "gap": "md",
+              "children": [
+                { "type": "text", "text": "Review the details, then create this section.", "color": "muted" },
+                { "type": "textField", "bind": "{{name}}", "label": "Name", "required": true },
+                {
+                  "type": "stack", "direction": "vertical", "gap": "sm",
+                  "children": [
+                    { "type": "keyValue", "rows": [{ "label": "Project ID", "value": "{{project_id}}" }, { "label": "Order (optional)", "value": "{{order}}" }] }
+                  ]
+                }
+              ]
+            }
+          ],
+          "footer": [{ "type": "actions", "items": [
+            { "label": "Cancel", "role": "cancel" },
+            { "label": "Create section", "role": "confirm", "color": "accent" }
+          ] }]
+        }
       }
     },
     {
@@ -752,20 +939,11 @@
           "title": "Delete section",
           "children": [
             {
-              "type": "text",
-              "text": "Delete the selected section and every task within it. Check its name and ID carefully."
-            },
-            {
-              "type": "keyValue",
-              "rows": [
-                {
-                  "label": "Section Id",
-                  "value": "{{section_id}}"
-                },
-                {
-                  "label": "Selected target",
-                  "value": "{{target_name}}"
-                }
+              "type": "stack", "direction": "vertical", "gap": "md",
+              "children": [
+                { "type": "text", "text": "Review the selected section before deleting it.", "color": "muted" },
+                { "type": "keyValue", "rows": [{ "label": "Name", "value": "{{target_name}}" }, { "label": "ID", "value": "{{section_id}}" }] },
+                { "type": "text", "text": "This also deletes every task in the section.", "color": "danger" }
               ]
             }
           ],
@@ -861,19 +1039,17 @@
     },
     {
       "name": "manage_labels",
-      "title": "Manage labels",
-      "description": "List, create, or update personal Todoist labels. Use for label management and finding existing label IDs. Choose the action explicitly. List first to resolve a name; clarify duplicate matches. Use delete_label for deletion, which requires confirmation.",
+      "title": "List labels",
+      "description": "Read personal Todoist labels and resolve label names into IDs. Use when asked to list labels or find an exact label before an update or deletion. Clarify duplicate names and follow next_cursor for more results. Use create_label, update_label, or delete_label for changes.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "action": {
             "type": "string",
             "enum": [
-              "list",
-              "create",
-              "update"
+              "list"
             ],
-            "description": "Choose list, create, or update. Create requires name; update requires label_id and at least one changed field. Use delete_label to delete a label with confirmation."
+            "description": "Optional legacy list action. This tool only reads labels; use create_label, update_label, or delete_label for changes."
           },
           "limit": {
             "type": "integer",
@@ -893,67 +1069,93 @@
               "eyJpZCI6ICI3MTg0MzI5OCIsICJvcmRlciI6IDB9"
             ],
             "description": "Cursor for pagination. Use the next_cursor value from the previous response to get the next page of results."
-          },
-          "name": {
-            "type": "string",
-            "title": "Name",
-            "examples": [
-              "Updated Reading Label",
-              "Work Tasks"
-            ],
-            "maxLength": 128,
-            "minLength": 1,
-            "description": "Updated label name. Must be between 1 and 128 characters if provided. Passing null or omitting this field will leave it unchanged."
-          },
-          "color": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "integer"
-              }
-            ],
-            "title": "Color",
-            "examples": [
-              "blue",
-              "charcoal",
-              30,
-              41
-            ],
-            "description": "Label color. Can be a color name (e.g., 'blue', 'red') or a color code (integer). Passing null or omitting this field will leave it unchanged."
-          },
-          "order": {
-            "type": "integer",
-            "title": "Order",
-            "examples": [
-              1,
-              5,
-              10
-            ],
-            "description": "Position of the label in the label list. Used by clients to sort labels. Passing null or omitting this field will leave it unchanged."
-          },
-          "is_favorite": {
-            "type": "boolean",
-            "title": "Is Favorite",
-            "examples": [
-              true,
-              false
-            ],
-            "description": "Whether the label is marked as a favorite. Passing null or omitting this field will leave it unchanged."
-          },
-          "label_id": {
-            "type": "string",
-            "title": "Label Id",
-            "examples": [
-              "2182932094"
-            ],
-            "description": "The ID of the personal label to delete. All instances of the label will be removed from tasks."
           }
-        },
-        "required": [
-          "action"
-        ]
+        }
+      }
+    },
+    {
+      "name": "create_label",
+      "title": "Create label",
+      "description": "Create a personal Todoist label. Use when asked to add a new label. Review its name and requested settings before confirming.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1, "maxLength": 128, "description": "Name of the new label." },
+          "color": { "anyOf": [{ "type": "string" }, { "type": "integer" }], "description": "Color name or numeric color code. Defaults to charcoal if omitted." },
+          "order": { "type": "integer", "description": "Position in the label list." },
+          "is_favorite": { "type": "boolean", "description": "Whether to mark the label as a favorite. Defaults to false if omitted." }
+        }
+      },
+      "confirmation": {
+        "schemaVersion": 1,
+        "root": {
+          "type": "card",
+          "title": "Create label",
+          "children": [
+            {
+              "type": "stack", "direction": "vertical", "gap": "md",
+              "children": [
+                { "type": "text", "text": "Review the details, then create this label.", "color": "muted" },
+                { "type": "textField", "bind": "{{name}}", "label": "Name", "required": true },
+                {
+                  "type": "stack", "direction": "vertical", "gap": "sm",
+                  "children": [
+                    { "type": "keyValue", "rows": [{ "label": "Color (optional)", "value": "{{color}}" }, { "label": "Order (optional)", "value": "{{order}}" }, { "label": "Favorite (optional)", "value": "{{is_favorite}}" }] }
+                  ]
+                }
+              ]
+            }
+          ],
+          "footer": [{ "type": "actions", "items": [
+            { "label": "Cancel", "role": "cancel" },
+            { "label": "Create label", "role": "confirm", "color": "accent" }
+          ] }]
+        }
+      }
+    },
+    {
+      "name": "update_label",
+      "title": "Update label",
+      "description": "Update a personal Todoist label. Use when asked to rename a label or change its color, order, or favorite status. Resolve the exact ID with manage_labels first, clarify ambiguous names, and send only requested changes.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["label_id"],
+        "properties": {
+          "label_id": { "type": "string", "description": "ID of the label to update." },
+          "target_name": { "type": "string", "description": "Existing label name from manage_labels, for confirmation display only. Never substitute it for label_id." },
+          "name": { "type": "string", "minLength": 1, "maxLength": 128, "description": "New label name. Omit to leave unchanged." },
+          "color": { "anyOf": [{ "type": "string" }, { "type": "integer" }], "description": "New color name or numeric color code. Omit to leave unchanged." },
+          "order": { "type": "integer", "description": "New position in the label list. Omit to leave unchanged." },
+          "is_favorite": { "type": "boolean", "description": "New favorite status. Omit to leave unchanged." }
+        }
+      },
+      "confirmation": {
+        "schemaVersion": 1,
+        "root": {
+          "type": "card",
+          "title": "Update label",
+          "children": [
+            {
+              "type": "stack", "direction": "vertical", "gap": "md",
+              "children": [
+                { "type": "text", "text": "Review the requested changes. Other fields stay unchanged.", "color": "muted" },
+                { "type": "keyValue", "rows": [{ "label": "Name", "value": "{{target_name}}" }, { "label": "ID", "value": "{{label_id}}" }] },
+                {
+                  "type": "stack", "direction": "vertical", "gap": "sm",
+                  "children": [
+                    { "type": "keyValue", "visibleIf": "{{name}}", "rows": [{ "label": "New name", "value": "{{name}}" }] },
+                    { "type": "keyValue", "rows": [{ "label": "Color (if specified)", "value": "{{color}}" }, { "label": "Order (if specified)", "value": "{{order}}" }, { "label": "Favorite (if specified)", "value": "{{is_favorite}}" }] }
+                  ]
+                }
+              ]
+            }
+          ],
+          "footer": [{ "type": "actions", "items": [
+            { "label": "Cancel", "role": "cancel" },
+            { "label": "Save changes", "role": "confirm", "color": "accent" }
+          ] }]
+        }
       }
     },
     {
@@ -990,20 +1192,11 @@
           "title": "Delete label",
           "children": [
             {
-              "type": "text",
-              "text": "Delete this label and remove it from every task that uses it. Tasks themselves will remain. Check the label name and ID carefully."
-            },
-            {
-              "type": "keyValue",
-              "rows": [
-                {
-                  "label": "Label ID",
-                  "value": "{{label_id}}"
-                },
-                {
-                  "label": "Selected label",
-                  "value": "{{target_name}}"
-                }
+              "type": "stack", "direction": "vertical", "gap": "md",
+              "children": [
+                { "type": "text", "text": "Review the selected label before deleting it.", "color": "muted" },
+                { "type": "keyValue", "rows": [{ "label": "Name", "value": "{{target_name}}" }, { "label": "ID", "value": "{{label_id}}" }] },
+                { "type": "text", "text": "This removes the label from every task that uses it. Tasks themselves remain.", "color": "danger" }
               ]
             }
           ],
