@@ -38,7 +38,7 @@ describe("normPath", () => {
 
 describe("looksLikeItemId", () => {
   test("recognises personal and business IDs", () => {
-    expect(looksLikeItemId("D4648F06C91D9D3D!54927")).toBe(true);
+    expect(looksLikeItemId("0123456789ABCDEF!54927")).toBe(true);
     expect(looksLikeItemId("01NKDM7HMOJTVYMDOSXFDK2QJDXCDI3WUK")).toBe(true);
   });
   test("treats names and paths as not IDs", () => {
