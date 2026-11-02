@@ -3,3 +3,5 @@ node_modules/
 .env.*
 .composio-auth*
 .DS_Store
+!.env.example
+studio-meta.json

@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "id": "com.voiceos.generated.composio-todoist",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "name": "Todoist",
   "summary": "Manage Todoist tasks, projects, sections, and labels through Composio OAuth.",
-  "description": "Todoist account controls, task/project/section/label actions, and productivity statistics. Only project and section deletion ask for confirmation. Writes report success or failure using VoiceOS notifications.",
+  "description": "Todoist account controls, task/project/section/label actions, and productivity statistics. Project, section, and label deletion ask for confirmation. Writes report success or failure using VoiceOS notifications.",
   "icon": "icon.png",
   "categories": [
     "Productivity"
@@ -862,7 +862,7 @@
     {
       "name": "manage_labels",
       "title": "Manage labels",
-      "description": "List, create, update, or delete personal Todoist labels. Use for label management and finding existing label IDs. Choose the action explicitly. List first to resolve a name; clarify duplicate matches. Deleting a label removes it from tasks, not the tasks themselves. These label operations do not require a confirmation popup.",
+      "description": "List, create, or update personal Todoist labels. Use for label management and finding existing label IDs. Choose the action explicitly. List first to resolve a name; clarify duplicate matches. Use delete_label for deletion, which requires confirmation.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -871,10 +871,9 @@
             "enum": [
               "list",
               "create",
-              "update",
-              "delete"
+              "update"
             ],
-            "description": "Choose list, create, update, or delete. Create requires name; update/delete require label_id. Update requires at least one changed field."
+            "description": "Choose list, create, or update. Create requires name; update requires label_id and at least one changed field. Use delete_label to delete a label with confirmation."
           },
           "limit": {
             "type": "integer",
@@ -955,6 +954,76 @@
         "required": [
           "action"
         ]
+      }
+    },
+    {
+      "name": "delete_label",
+      "title": "Delete label",
+      "description": "Delete a personal Todoist label and remove it from every task that uses it. Use only when explicitly asked to delete a label. Resolve its exact ID and name with manage_labels/action=list, clarify ambiguous names, and require confirmation. Tasks themselves are not deleted.",
+      "inputSchema": {
+        "type": "object",
+        "title": "DeleteLabelV1Request",
+        "required": [
+          "label_id"
+        ],
+        "properties": {
+          "label_id": {
+            "type": "string",
+            "title": "Label Id",
+            "examples": [
+              "2182932094"
+            ],
+            "description": "The ID of the personal label to delete. All instances of the label will be removed from tasks."
+          },
+          "target_name": {
+            "type": "string",
+            "title": "Selected label",
+            "description": "Human-readable label name from manage_labels/action=list, for confirmation display only. Never substitute it for label_id."
+          }
+        },
+        "description": "Request model for deleting a personal label."
+      },
+      "confirmation": {
+        "schemaVersion": 1,
+        "root": {
+          "type": "card",
+          "title": "Delete label",
+          "children": [
+            {
+              "type": "text",
+              "text": "Delete this label and remove it from every task that uses it. Tasks themselves will remain. Check the label name and ID carefully."
+            },
+            {
+              "type": "keyValue",
+              "rows": [
+                {
+                  "label": "Label ID",
+                  "value": "{{label_id}}"
+                },
+                {
+                  "label": "Selected label",
+                  "value": "{{target_name}}"
+                }
+              ]
+            }
+          ],
+          "footer": [
+            {
+              "type": "actions",
+              "items": [
+                {
+                  "label": "Cancel",
+                  "role": "cancel"
+                },
+                {
+                  "label": "Delete label",
+                  "role": "confirm",
+                  "color": "accent"
+                }
+              ]
+            }
+          ]
+        }
       }
     }
   ]

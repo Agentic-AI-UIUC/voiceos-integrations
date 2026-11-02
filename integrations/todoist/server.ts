@@ -8,7 +8,7 @@ import { readFile, writeFile, rename } from "node:fs/promises";
 
 // Composio owns OAuth, token storage/refresh, and Todoist requests.
 // This adapter only saves this installation's identity and connection reference.
-const server = new McpServer({ name: "composio-todoist", version: "1.0.7" });
+const server = new McpServer({ name: "composio-todoist", version: "1.0.8" });
 // BEGIN TOOL CATALOG
 const catalog: any = {
   "version": "20260731_00",
@@ -724,7 +724,7 @@ const catalog: any = {
       "name": "manage_labels",
       "title": "Manage labels",
       "readOnly": false,
-      "description": "List, create, update, or delete personal Todoist labels. Use for label management and finding existing label IDs. Choose the action explicitly. List first to resolve a name; clarify duplicate matches. Deleting a label removes it from tasks, not the tasks themselves. These label operations do not require a confirmation popup.",
+      "description": "List, create, or update personal Todoist labels. Use for label management and finding existing label IDs. Choose the action explicitly. List first to resolve a name; clarify duplicate matches. Use delete_label for deletion, which requires confirmation.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -733,10 +733,9 @@ const catalog: any = {
             "enum": [
               "list",
               "create",
-              "update",
-              "delete"
+              "update"
             ],
-            "description": "Choose list, create, update, or delete. Create requires name; update/delete require label_id. Update requires at least one changed field."
+            "description": "Choose list, create, or update. Create requires name; update requires label_id and at least one changed field. Use delete_label to delete a label with confirmation."
           },
           "limit": {
             "type": "integer",
@@ -978,28 +977,37 @@ const catalog: any = {
             },
             "description": "Request model for updating a label using API v1."
           }
-        },
-        "delete": {
-          "slug": "TODOIST_DELETE_LABEL_V1",
-          "inputSchema": {
-            "type": "object",
-            "title": "DeleteLabelV1Request",
-            "required": [
-              "label_id"
-            ],
-            "properties": {
-              "label_id": {
-                "type": "string",
-                "title": "Label Id",
-                "examples": [
-                  "2182932094"
-                ],
-                "description": "The ID of the personal label to delete. All instances of the label will be removed from tasks."
-              }
-            },
-            "description": "Request model for deleting a personal label."
-          }
         }
+      }
+    },
+    {
+      "name": "delete_label",
+      "title": "Delete label",
+      "slug": "TODOIST_DELETE_LABEL_V1",
+      "description": "Delete a personal Todoist label and remove it from every task that uses it. Use only when explicitly asked to delete a label. Resolve its exact ID and name with manage_labels/action=list, clarify ambiguous names, and require confirmation. Tasks themselves are not deleted.",
+      "readOnly": false,
+      "inputSchema": {
+        "type": "object",
+        "title": "DeleteLabelV1Request",
+        "required": [
+          "label_id"
+        ],
+        "properties": {
+          "label_id": {
+            "type": "string",
+            "title": "Label Id",
+            "examples": [
+              "2182932094"
+            ],
+            "description": "The ID of the personal label to delete. All instances of the label will be removed from tasks."
+          },
+          "target_name": {
+            "type": "string",
+            "title": "Selected label",
+            "description": "Human-readable label name from manage_labels/action=list, for confirmation display only. Never substitute it for label_id."
+          }
+        },
+        "description": "Request model for deleting a personal label."
       }
     }
   ]
@@ -1412,12 +1420,12 @@ function operationResult(tool: any, args: Record<string, any>, data: any, action
 for (const tool of catalog.tools) {
   server.registerTool(tool.name, {
     title: tool.title, description: tool.description, inputSchema: inputShape(tool.inputSchema),
-    annotations: { readOnlyHint: tool.readOnly, destructiveHint: ["delete_project", "delete_section"].includes(tool.name), openWorldHint: true },
+    annotations: { readOnlyHint: tool.readOnly, destructiveHint: ["delete_project", "delete_section", "delete_label"].includes(tool.name), openWorldHint: true },
   }, async (input: Record<string, any>, extra) => withFeedback(tool.title,
     !tool.readOnly && !(tool.name === "manage_labels" && input.action === "list"), extra, async () => {
       const { target_name, action, ...supplied } = input;
       const operation = tool.operations ? tool.operations[action] : tool;
-      if (!operation) throw new Error("Choose a supported label operation: list, create, update, or delete.");
+      if (!operation) throw new Error("Choose a supported label operation: list, create, or update. Use delete_label for deletion.");
       // The action-specific schema rejects parameters belonging to another
       // label operation instead of silently applying the wrong operation.
       const schema = operation.inputSchema ?? tool.inputSchema;

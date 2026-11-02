@@ -15,7 +15,7 @@ const TEST_KEY = "test-only-key-7c2bd731e9f54c099865";
 const ACTIVE_STATE = { userId: "voiceos-test-user", accountId: "ca_test" };
 const EXPECTED_BUSINESS_TOOLS = [
   "close_task", "create_project", "create_section", "create_task", "delete_project",
-  "delete_section", "get_active_tasks", "get_productivity_stats", "list_projects",
+  "delete_section", "delete_label", "get_active_tasks", "get_productivity_stats", "list_projects",
   "list_sections", "manage_labels", "update_task",
 ];
 // Account/setup helpers are counted separately; this asserts the current
@@ -148,9 +148,19 @@ describe("manifest and MCP contract", () => {
     expect(manifest.tools.find((tool: JsonObject) => tool.name === "connect_account").execution.mode).toBe("background");
   });
 
-  test("declares complete confirmation cards for project and section deletion", () => {
+  test("documents each required secret without committing a value", () => {
+    const example = readFileSync(join(ROOT, ".env.example"), "utf8");
+    const entries = example.split("\n").filter(line => line && !line.startsWith("#"));
+    const names = entries.map(line => line.split("=", 1)[0]);
+    const required = manifest.preferences.filter((field: JsonObject) => field.type === "password")
+      .map((field: JsonObject) => field.name);
+    expect(names.sort()).toEqual(required.sort());
+    for (const line of entries) expect(line.slice(line.indexOf("=") + 1)).toBe("");
+  });
+
+  test("declares complete confirmation cards for project, section, and label deletion", () => {
     const confirmed = manifest.tools.filter((tool: JsonObject) => tool.confirmation);
-    expect(confirmed.map((tool: JsonObject) => tool.name).sort()).toEqual(["delete_project", "delete_section"]);
+    expect(confirmed.map((tool: JsonObject) => tool.name).sort()).toEqual(["delete_label", "delete_project", "delete_section"]);
     for (const tool of confirmed) {
       const actions = tool.confirmation.root.footer.flatMap((block: JsonObject) => block.items ?? []);
       expect(actions.map((action: JsonObject) => action.role).sort()).toEqual(["cancel", "confirm"]);
@@ -178,7 +188,7 @@ const operationCases: [string, string, JsonObject, JsonObject][] = [
   ["manage_labels", "TODOIST_LIST_LABELS", { action: "list" }, {}],
   ["manage_labels", "TODOIST_CREATE_LABEL_V1", { action: "create", name: "test_label" }, { name: "test_label" }],
   ["manage_labels", "TODOIST_UPDATE_LABEL_V1_SECOND", { action: "update", label_id: "label_1", name: "renamed", is_favorite: false }, { label_id: "label_1", name: "renamed", is_favorite: false }],
-  ["manage_labels", "TODOIST_DELETE_LABEL_V1", { action: "delete", label_id: "label_1" }, { label_id: "label_1" }],
+  ["delete_label", "TODOIST_DELETE_LABEL_V1", { label_id: "label_1", target_name: "read" }, { label_id: "label_1" }],
 ];
 
 describe("real server routing through the real Composio SDK", () => {
@@ -220,7 +230,9 @@ describe("validation before executing a Todoist operation", () => {
     ["delete_section", { section_id: " " }],
     ["manage_labels", { action: "create" }],
     ["manage_labels", { action: "update", label_id: "label_1" }],
-    ["manage_labels", { action: "delete" }],
+    ["manage_labels", { action: "delete", label_id: "label_1" }],
+    ["delete_label", {}],
+    ["delete_label", { label_id: " " }],
     ["manage_labels", { action: "list", name: "not a list parameter" }],
     ["manage_labels", { action: "unsupported" }],
   ] satisfies [string, JsonObject][])("%s rejects invalid input %j", async (name, args) => {
