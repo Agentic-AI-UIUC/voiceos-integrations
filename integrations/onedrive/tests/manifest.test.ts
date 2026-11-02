@@ -27,9 +27,13 @@ describe("voiceos.integration.json", () => {
     }
   });
 
-  test("network permission lists only the host the code calls", () => {
+  test("network permission lists only the hosts the code calls", () => {
     const domains = manifest.permissions.find((p: any) => p.kind === "network").domains;
-    expect(domains).toEqual(["backend.composio.dev"]);
+    expect(domains).toEqual([
+      "backend.composio.dev", // tool execution and account lookup
+      "temp.4d4f16c61d89ec64e760039c4ec50717.r2.cloudflarestorage.com", // Composio's signed download URLs
+      "my.microsoftpersonalcontent.com", // Graph's pre-authenticated download link (personal accounts), the fallback
+    ]);
   });
 
   test("API key is a password preference with no default value", () => {

@@ -24,7 +24,9 @@
     {
       "kind": "network",
       "domains": [
-        "backend.composio.dev"
+        "backend.composio.dev",
+        "temp.4d4f16c61d89ec64e760039c4ec50717.r2.cloudflarestorage.com",
+        "my.microsoftpersonalcontent.com"
       ]
     }
   ],
