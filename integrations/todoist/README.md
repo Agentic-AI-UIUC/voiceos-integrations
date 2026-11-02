@@ -1,4 +1,14 @@
-# Todoist integration — 1.0.7
+# Todoist integration — 1.0.8
+
+## Platform and setup
+
+This integration supports macOS only (`supportedPlatforms: ["darwin"]`).
+The bundled `run.cmd` launcher does not imply Windows support; browser authorization
+currently uses macOS’s `/usr/bin/open`.
+
+Enter `COMPOSIO_API_KEY` in VoiceOS’s Todoist integration settings. `.env.example`
+documents the required key; the server reads the environment variable supplied by
+its host and does not automatically load `.env` files.
 
 ## Tools
 
@@ -13,7 +23,8 @@
 - Delete project
 - Create section
 - Delete section
-- Manage labels (list/create/update/delete personal labels)
+- Manage labels (list/create/update personal labels)
+- Delete label (confirmation required; removes the label from all tasks)
 - Get productivity stats
 - List projects (read-only lookup with pagination)
 - List sections (read-only lookup, optional project filter, pagination)
@@ -39,11 +50,11 @@ the child server are cleaned up when the suite finishes.
 
 Coverage includes:
 
-- The twelve business tools, all four label operations, and the three current
+- The thirteen business tools, including separate confirmed label deletion, and the three current
   account/setup helpers. The explicit catalog assertion documents the setup
   helpers separately; it does not imply additional business-tool approval.
 - Exact Composio operations and arguments, partial updates, and invalid inputs.
-- Deletion confirmation definitions, result-card limits, empty responses, and
+- Project, section, and label deletion confirmation definitions, result-card limits, empty responses, and
   pagination while retaining full response data.
 - Success/error notifications, notification failures, credential redaction,
   and SDK-wrapped timeouts without repeating writes.
