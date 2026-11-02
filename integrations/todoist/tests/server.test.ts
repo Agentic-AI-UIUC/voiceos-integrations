@@ -14,9 +14,9 @@ const manifest = JSON.parse(readFileSync(join(ROOT, "voiceos.integration.json"),
 const TEST_KEY = "test-only-key-7c2bd731e9f54c099865";
 const ACTIVE_STATE = { userId: "voiceos-test-user", accountId: "ca_test" };
 const EXPECTED_BUSINESS_TOOLS = [
-  "close_task", "create_project", "create_section", "create_task", "delete_project",
+  "close_task", "create_label", "create_project", "create_section", "create_task", "delete_project",
   "delete_section", "delete_label", "get_active_tasks", "get_productivity_stats", "list_projects",
-  "list_sections", "manage_labels", "update_task",
+  "list_sections", "manage_labels", "update_label", "update_task",
 ];
 // Account/setup helpers are counted separately; this asserts the current
 // catalog without treating the setup-tool exception as a business-tool approval.
@@ -158,17 +158,30 @@ describe("manifest and MCP contract", () => {
     for (const line of entries) expect(line.slice(line.indexOf("=") + 1)).toBe("");
   });
 
-  test("declares complete confirmation cards for project, section, and label deletion", () => {
+  test("declares complete confirmation cards for every action and none for reads", async () => {
+    const { tools } = await client.listTools();
+    const reads = tools.filter(tool => tool.annotations?.readOnlyHint).map(tool => tool.name);
+    expect(reads.sort()).toEqual(["connection_status", "get_active_tasks", "get_productivity_stats", "list_projects", "list_sections", "manage_labels"]);
+    for (const tool of manifest.tools) expect(Boolean(tool.confirmation)).toBe(!reads.includes(tool.name));
     const confirmed = manifest.tools.filter((tool: JsonObject) => tool.confirmation);
-    expect(confirmed.map((tool: JsonObject) => tool.name).sort()).toEqual(["delete_label", "delete_project", "delete_section"]);
     for (const tool of confirmed) {
       const actions = tool.confirmation.root.footer.flatMap((block: JsonObject) => block.items ?? []);
       expect(actions.map((action: JsonObject) => action.role).sort()).toEqual(["cancel", "confirm"]);
       for (const match of JSON.stringify(tool.confirmation).matchAll(/\{\{(\w+)\}\}/g)) {
         expect(tool.inputSchema.properties).toHaveProperty(match[1]);
       }
-      const details = tool.confirmation.root.children.find((block: JsonObject) => block.type === "keyValue");
-      expect(Array.isArray(details.rows)).toBe(true);
+      if (tool.name.startsWith("delete_")) {
+        const details = tool.confirmation.root.children[0].children.find((block: JsonObject) => block.type === "keyValue");
+        expect(Array.isArray(details.rows)).toBe(true);
+      }
+    }
+  });
+
+  test("creation cards bind their editable name to the argument that executes", () => {
+    for (const [name, argument] of [["create_task", "content"], ["create_project", "name"], ["create_section", "name"], ["create_label", "name"]]) {
+      const tool = manifest.tools.find((tool: JsonObject) => tool.name === name);
+      const fields = tool.confirmation.root.children[0].children.filter((block: JsonObject) => block.type === "textField");
+      expect(fields).toEqual([{ type: "textField", bind: `{{${argument}}}`, label: "Name", required: true }]);
     }
   });
 });
@@ -186,8 +199,8 @@ const operationCases: [string, string, JsonObject, JsonObject][] = [
   ["list_sections", "TODOIST_LIST_SECTIONS", { project_id: "project_1" }, { project_id: "project_1" }],
   ["get_productivity_stats", "TODOIST_GET_PRODUCTIVITY_STATS", {}, {}],
   ["manage_labels", "TODOIST_LIST_LABELS", { action: "list" }, {}],
-  ["manage_labels", "TODOIST_CREATE_LABEL_V1", { action: "create", name: "test_label" }, { name: "test_label" }],
-  ["manage_labels", "TODOIST_UPDATE_LABEL_V1_SECOND", { action: "update", label_id: "label_1", name: "renamed", is_favorite: false }, { label_id: "label_1", name: "renamed", is_favorite: false }],
+  ["create_label", "TODOIST_CREATE_LABEL_V1", { name: "test_label" }, { name: "test_label" }],
+  ["update_label", "TODOIST_UPDATE_LABEL_V1_SECOND", { label_id: "label_1", target_name: "read", name: "renamed", is_favorite: false }, { label_id: "label_1", name: "renamed", is_favorite: false }],
   ["delete_label", "TODOIST_DELETE_LABEL_V1", { label_id: "label_1", target_name: "read" }, { label_id: "label_1" }],
 ];
 
@@ -210,6 +223,21 @@ describe("real server routing through the real Composio SDK", () => {
     await invoke("update_task", { task_id: "task_1", labels: [] });
     expect(operations()[0].body?.arguments).toEqual({ task_id: "task_1", labels: [] });
   });
+
+  test("label lookups accept omitted action without a write notification", async () => {
+    const result = await invoke("manage_labels");
+    expect(result.isError).toBe(false);
+    expect(result.body.labels).toEqual([{ id: "label_1", name: "read" }]);
+    expect(operations()[0].body?.arguments).toEqual({});
+    expect(notifications).toHaveLength(0);
+  });
+
+  test("label updates preserve false and zero without changing unspecified fields", async () => {
+    const result = await invoke("update_label", { label_id: "label_1", is_favorite: false, order: 0 });
+    expect(result.isError).toBe(false);
+    expect(operations()[0].body?.arguments).toEqual({ label_id: "label_1", is_favorite: false, order: 0 });
+    expect(notifications).toEqual([{ message: "Todoist — Update label completed.", speak: false }]);
+  });
 });
 
 describe("validation before executing a Todoist operation", () => {
@@ -230,6 +258,13 @@ describe("validation before executing a Todoist operation", () => {
     ["delete_section", { section_id: " " }],
     ["manage_labels", { action: "create" }],
     ["manage_labels", { action: "update", label_id: "label_1" }],
+    ["manage_labels", { action: "create", name: "must not create" }],
+    ["manage_labels", { action: "update", label_id: "label_1", name: "must not update" }],
+    ["create_label", {}],
+    ["create_label", { name: " " }],
+    ["update_label", { label_id: "label_1" }],
+    ["update_label", { label_id: "label_1", target_name: "Display only" }],
+    ["update_label", { label_id: " ", name: "renamed" }],
     ["manage_labels", { action: "delete", label_id: "label_1" }],
     ["delete_label", {}],
     ["delete_label", { label_id: " " }],

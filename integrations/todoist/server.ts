@@ -8,7 +8,7 @@ import { readFile, writeFile, rename } from "node:fs/promises";
 
 // Composio owns OAuth, token storage/refresh, and Todoist requests.
 // This adapter only saves this installation's identity and connection reference.
-const server = new McpServer({ name: "composio-todoist", version: "1.0.8" });
+const server = new McpServer({ name: "composio-todoist", version: "1.0.9" });
 // BEGIN TOOL CATALOG
 const catalog: any = {
   "version": "20260731_00",
@@ -341,7 +341,7 @@ const catalog: any = {
     },
     {
       "name": "close_task",
-      "title": "Close task",
+      "title": "Complete task",
       "slug": "TODOIST_CLOSE_TASK_V1",
       "description": "Complete a Todoist task. Use when asked to finish or check off a task. Find its ID with get_active_tasks. Recurring tasks advance to their next occurrence instead of permanently completing.",
       "readOnly": false,
@@ -722,20 +722,19 @@ const catalog: any = {
     },
     {
       "name": "manage_labels",
-      "title": "Manage labels",
-      "readOnly": false,
-      "description": "List, create, or update personal Todoist labels. Use for label management and finding existing label IDs. Choose the action explicitly. List first to resolve a name; clarify duplicate matches. Use delete_label for deletion, which requires confirmation.",
+      "title": "List labels",
+      "readOnly": true,
+      "slug": "TODOIST_LIST_LABELS",
+      "description": "Read personal Todoist labels and resolve label names into IDs. Use when asked to list labels or find an exact label before an update or deletion. Clarify duplicate names and follow next_cursor for more results. Use create_label, update_label, or delete_label for changes.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "action": {
             "type": "string",
             "enum": [
-              "list",
-              "create",
-              "update"
+              "list"
             ],
-            "description": "Choose list, create, or update. Create requires name; update requires label_id and at least one changed field. Use delete_label to delete a label with confirmation."
+            "description": "Optional legacy list action. This tool only reads labels; use create_label, update_label, or delete_label for changes."
           },
           "limit": {
             "type": "integer",
@@ -755,228 +754,43 @@ const catalog: any = {
               "eyJpZCI6ICI3MTg0MzI5OCIsICJvcmRlciI6IDB9"
             ],
             "description": "Cursor for pagination. Use the next_cursor value from the previous response to get the next page of results."
-          },
-          "name": {
-            "type": "string",
-            "title": "Name",
-            "examples": [
-              "Updated Reading Label",
-              "Work Tasks"
-            ],
-            "maxLength": 128,
-            "minLength": 1,
-            "description": "Updated label name. Must be between 1 and 128 characters if provided. Passing null or omitting this field will leave it unchanged."
-          },
-          "color": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "integer"
-              }
-            ],
-            "title": "Color",
-            "examples": [
-              "blue",
-              "charcoal",
-              30,
-              41
-            ],
-            "description": "Label color. Can be a color name (e.g., 'blue', 'red') or a color code (integer). Passing null or omitting this field will leave it unchanged."
-          },
-          "order": {
-            "type": "integer",
-            "title": "Order",
-            "examples": [
-              1,
-              5,
-              10
-            ],
-            "description": "Position of the label in the label list. Used by clients to sort labels. Passing null or omitting this field will leave it unchanged."
-          },
-          "is_favorite": {
-            "type": "boolean",
-            "title": "Is Favorite",
-            "examples": [
-              true,
-              false
-            ],
-            "description": "Whether the label is marked as a favorite. Passing null or omitting this field will leave it unchanged."
-          },
-          "label_id": {
-            "type": "string",
-            "title": "Label Id",
-            "examples": [
-              "2182932094"
-            ],
-            "description": "The ID of the personal label to delete. All instances of the label will be removed from tasks."
           }
-        },
-        "required": [
-          "action"
-        ]
-      },
-      "operations": {
-        "list": {
-          "slug": "TODOIST_LIST_LABELS",
-          "inputSchema": {
-            "type": "object",
-            "title": "ListLabelsRequest",
-            "properties": {
-              "limit": {
-                "type": "integer",
-                "title": "Limit",
-                "default": 50,
-                "minimum": 1,
-                "examples": [
-                  50,
-                  100
-                ],
-                "description": "The number of objects to return in a page. Default is 50."
-              },
-              "cursor": {
-                "type": "string",
-                "title": "Cursor",
-                "examples": [
-                  "eyJpZCI6ICI3MTg0MzI5OCIsICJvcmRlciI6IDB9"
-                ],
-                "description": "Cursor for pagination. Use the next_cursor value from the previous response to get the next page of results."
-              }
-            },
-            "description": "Request model for listing labels."
-          }
-        },
-        "create": {
-          "slug": "TODOIST_CREATE_LABEL_V1",
-          "inputSchema": {
-            "type": "object",
-            "title": "CreateLabelV1Request",
-            "required": [
-              "name"
-            ],
-            "properties": {
-              "name": {
-                "type": "string",
-                "title": "Name",
-                "examples": [
-                  "Test Label API",
-                  "Work",
-                  "Personal"
-                ],
-                "maxLength": 128,
-                "minLength": 1,
-                "description": "Name of the new label. Must be between 1 and 128 characters."
-              },
-              "color": {
-                "anyOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "integer"
-                  }
-                ],
-                "title": "Color",
-                "examples": [
-                  "blue",
-                  "charcoal",
-                  30,
-                  41
-                ],
-                "description": "Label color. Can be a color name (e.g., 'blue', 'red') or a color code (integer). Defaults to 'charcoal' if not specified."
-              },
-              "order": {
-                "type": "integer",
-                "title": "Order",
-                "examples": [
-                  1,
-                  5,
-                  10
-                ],
-                "description": "Position of the new label in the label list. Used by clients to sort labels."
-              },
-              "is_favorite": {
-                "type": "boolean",
-                "title": "Is Favorite",
-                "examples": [
-                  true,
-                  false
-                ],
-                "description": "Whether the label is marked as a favorite. Defaults to false if not specified."
-              }
-            },
-            "description": "Request model for creating a personal label using API v1."
-          }
-        },
-        "update": {
-          "slug": "TODOIST_UPDATE_LABEL_V1_SECOND",
-          "inputSchema": {
-            "type": "object",
-            "title": "UpdateLabelV1SecondRequest",
-            "required": [
-              "label_id"
-            ],
-            "properties": {
-              "name": {
-                "type": "string",
-                "title": "Name",
-                "examples": [
-                  "Updated Reading Label",
-                  "Work Tasks"
-                ],
-                "maxLength": 128,
-                "minLength": 1,
-                "description": "Updated label name. Must be between 1 and 128 characters if provided. Passing null or omitting this field will leave it unchanged."
-              },
-              "color": {
-                "anyOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "integer"
-                  }
-                ],
-                "title": "Color",
-                "examples": [
-                  "blue",
-                  "charcoal",
-                  30,
-                  41
-                ],
-                "description": "Label color. Can be a color name (e.g., 'blue', 'red') or a color code (integer). Passing null or omitting this field will leave it unchanged."
-              },
-              "order": {
-                "type": "integer",
-                "title": "Order",
-                "examples": [
-                  1,
-                  5,
-                  10
-                ],
-                "description": "Position of the label in the label list. Used by clients to sort labels. Passing null or omitting this field will leave it unchanged."
-              },
-              "label_id": {
-                "type": "string",
-                "title": "Label Id",
-                "examples": [
-                  "2179601773"
-                ],
-                "description": "The ID of the label to update."
-              },
-              "is_favorite": {
-                "type": "boolean",
-                "title": "Is Favorite",
-                "examples": [
-                  true,
-                  false
-                ],
-                "description": "Whether the label is marked as a favorite. Passing null or omitting this field will leave it unchanged."
-              }
-            },
-            "description": "Request model for updating a label using API v1."
-          }
+        }
+      }
+    },
+    {
+      "name": "create_label",
+      "title": "Create label",
+      "readOnly": false,
+      "slug": "TODOIST_CREATE_LABEL_V1",
+      "description": "Create a personal Todoist label. Use when asked to add a new label. Review its name and requested settings before confirming.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1, "maxLength": 128, "description": "Name of the new label." },
+          "color": { "anyOf": [{ "type": "string" }, { "type": "integer" }], "description": "Color name or numeric color code. Defaults to charcoal if omitted." },
+          "order": { "type": "integer", "description": "Position in the label list." },
+          "is_favorite": { "type": "boolean", "description": "Whether to mark the label as a favorite. Defaults to false if omitted." }
+        }
+      }
+    },
+    {
+      "name": "update_label",
+      "title": "Update label",
+      "readOnly": false,
+      "slug": "TODOIST_UPDATE_LABEL_V1_SECOND",
+      "description": "Update a personal Todoist label. Use when asked to rename a label or change its color, order, or favorite status. Resolve the exact ID with manage_labels first, clarify ambiguous names, and send only requested changes.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["label_id"],
+        "properties": {
+          "label_id": { "type": "string", "description": "ID of the label to update." },
+          "target_name": { "type": "string", "description": "Existing label name from manage_labels, for confirmation display only. Never substitute it for label_id." },
+          "name": { "type": "string", "minLength": 1, "maxLength": 128, "description": "New label name. Omit to leave unchanged." },
+          "color": { "anyOf": [{ "type": "string" }, { "type": "integer" }], "description": "New color name or numeric color code. Omit to leave unchanged." },
+          "order": { "type": "integer", "description": "New position in the label list. Omit to leave unchanged." },
+          "is_favorite": { "type": "boolean", "description": "New favorite status. Omit to leave unchanged." }
         }
       }
     },
@@ -1129,9 +943,9 @@ function accountResult(connected: boolean, status: string, message: string, extr
     *{box-sizing:border-box;scrollbar-width:none}::-webkit-scrollbar{display:none}
     :root{--k-radius:26px;--ink:#fff;--muted:#b5b5b5;--line:#ffffff26}
     html[data-theme=light]{--ink:#171717;--muted:#555;--line:#0002}
-    body{margin:0;padding:14px;color:var(--ink);font:13px/1.45 -apple-system,BlinkMacSystemFont,sans-serif;background:transparent}
-    h3{margin:0 0 6px;font-size:15px}p{margin:0 0 12px;color:var(--muted)}
-    .buttons{display:flex;gap:8px}button{border:1px solid var(--line);border-radius:10px;padding:8px 12px;background:transparent;color:var(--ink);cursor:pointer}
+    body{margin:0;padding:20px;color:var(--ink);font:15px/1.5 -apple-system,BlinkMacSystemFont,sans-serif;background:transparent}
+    h3{margin:0 0 8px;font-size:18px}p{margin:0 0 18px;color:var(--muted)}
+    .buttons{display:flex;gap:12px;flex-wrap:wrap}button{min-height:44px;border:1px solid var(--line);border-radius:12px;padding:10px 18px;background:transparent;color:var(--ink);font:inherit;cursor:pointer}
     button.primary{background:#db4035;border-color:#db4035;color:white}button:disabled{opacity:.5;cursor:default}
     [aria-busy=true] #status:before{content:"";display:inline-block;width:10px;height:10px;border:2px solid var(--line);border-top-color:#db4035;border-radius:50%;animation:spin .8s linear infinite;margin-right:7px}
     @keyframes spin{to{transform:rotate(360deg)}}
@@ -1157,7 +971,7 @@ function accountResult(connected: boolean, status: string, message: string, extr
       if(window.ResizeObserver)new ResizeObserver(resize).observe(document.documentElement);paint();
     })()</script></body></html>`;
   return { content: [{ type: "text" as const, text: JSON.stringify({
-    ...data, _voiceos_glance: { blocks: [{ type: "widget", html, height: 175, label: "Todoist account controls", data }] },
+    ...data, _voiceos_glance: { blocks: [{ type: "widget", html, height: 210, label: "Todoist account controls", data }] },
   }) }] };
 }
 
@@ -1216,8 +1030,7 @@ async function connect() {
   if (!state.pending) {
     const session = await api().sessions.create(state.userId, {
       toolkits: ["todoist"],
-      tools: { todoist: { enable: [...new Set<string>(catalog.tools.flatMap((tool: any) =>
-        tool.slug ? [tool.slug] : Object.values(tool.operations).map((operation: any) => operation.slug)))] } },
+      tools: { todoist: { enable: catalog.tools.map((tool: any) => tool.slug) } },
     });
     const request = await session.authorize("todoist");
     if (!request.redirectUrl || new URL(request.redirectUrl).protocol !== "https:") {
@@ -1362,7 +1175,7 @@ function validateArguments(name: string, args: Record<string, any>) {
       throw new Error("Choose at least one task field to update.");
     }
   }
-  if (name === "manage_labels_update" && !Object.keys(args).some(key => key !== "label_id")) {
+  if (name === "update_label" && !Object.keys(args).some(key => key !== "label_id")) {
     throw new Error("Choose at least one label field to update.");
   }
 }
@@ -1380,12 +1193,12 @@ function listPage(data: any, keys: string[], depth = 0): { items: any[]; nextCur
   throw new Error("Unexpected list response from Composio; no empty list was assumed.");
 }
 
-function operationResult(tool: any, args: Record<string, any>, data: any, action?: string) {
+function operationResult(tool: any, args: Record<string, any>, data: any) {
   const listKeys: Record<string, string> = {
-    list_projects: "projects", list_sections: "sections", get_active_tasks: "tasks",
+    list_projects: "projects", list_sections: "sections", get_active_tasks: "tasks", manage_labels: "labels",
   };
-  const entity = tool.name === "manage_labels" && action === "list" ? "labels" : listKeys[tool.name];
-  const payload: Record<string, any> = { success: true, operation: tool.name, ...(action ? { action } : {}), data };
+  const entity = listKeys[tool.name];
+  const payload: Record<string, any> = { success: true, operation: tool.name, data };
   const blocks: any[] = [{ type: "header", title: tool.title }];
   if (entity) {
     const page = listPage(data, [entity]);
@@ -1410,7 +1223,7 @@ function operationResult(tool: any, args: Record<string, any>, data: any, action
     payload.arguments = args;
     const selected = args.target_name ?? args.content ?? args.name ?? args.task_id ?? args.project_id ?? args.section_id ?? args.label_id;
     blocks.push({ type: "keyValue", pairs: [
-      ["Status", tool.name === "manage_labels" ? `Label ${action} succeeded` : `${tool.title} succeeded`],
+      ["Status", `${tool.title} succeeded`],
       ...(selected ? [["Item", String(selected).slice(0, 180)]] : []),
     ] });
   }
@@ -1419,32 +1232,26 @@ function operationResult(tool: any, args: Record<string, any>, data: any, action
 
 for (const tool of catalog.tools) {
   server.registerTool(tool.name, {
-    title: tool.title, description: tool.description, inputSchema: inputShape(tool.inputSchema),
+    title: tool.title, description: tool.description, inputSchema: z.object(inputShape(tool.inputSchema)).strict(),
     annotations: { readOnlyHint: tool.readOnly, destructiveHint: ["delete_project", "delete_section", "delete_label"].includes(tool.name), openWorldHint: true },
   }, async (input: Record<string, any>, extra) => withFeedback(tool.title,
-    !tool.readOnly && !(tool.name === "manage_labels" && input.action === "list"), extra, async () => {
-      const { target_name, action, ...supplied } = input;
-      const operation = tool.operations ? tool.operations[action] : tool;
-      if (!operation) throw new Error("Choose a supported label operation: list, create, or update. Use delete_label for deletion.");
-      // The action-specific schema rejects parameters belonging to another
-      // label operation instead of silently applying the wrong operation.
-      const schema = operation.inputSchema ?? tool.inputSchema;
-      const shape = inputShape(schema);
-      delete shape.target_name;
-      const args = z.object(shape).strict().parse(supplied);
-      validateArguments(tool.name === "manage_labels" ? `manage_labels_${action}` : tool.name, args);
+    !tool.readOnly, extra, async () => {
+      const { target_name, ...args } = input;
+      // Accept the legacy list action locally, without sending it to Todoist.
+      if (tool.name === "manage_labels") delete args.action;
+      validateArguments(tool.name, args);
       const state = await load();
       const account = await requireAccount(state);
       // A single selected action, no fallback tool names and no automatic OAuth.
       let response;
       try {
-        response = await api().tools.execute(operation.slug, {
+        response = await api().tools.execute(tool.slug, {
           userId: state.userId, connectedAccountId: account.id,
           arguments: args, version: catalog.version,
         }, { signal: AbortSignal.timeout(20000) });
       } catch (error: any) {
         if (isTimeout(error)) {
-          throw new TodoistError("OUTCOME_UNKNOWN", tool.readOnly || (tool.name === "manage_labels" && action === "list")
+          throw new TodoistError("OUTCOME_UNKNOWN", tool.readOnly
             ? "Todoist took too long to respond. Try the read request again."
             : "Todoist did not return a final response in time. The change may have completed; check Todoist before retrying to avoid a duplicate.");
         }
@@ -1462,7 +1269,7 @@ for (const tool of catalog.tools) {
         if (/invalid|unauthoriz|authentication/i.test(detail) && /token|oauth|credential|authoriz|connection/i.test(detail)) throw new TodoistError("AUTH_REJECTED", 'Todoist rejected the saved authorization. Check your Todoist connection and authorize again if needed.', true);
         throw new Error(detail);
       }
-      return operationResult(tool, { ...args, ...(target_name ? { target_name } : {}) }, response.data, action);
+      return operationResult(tool, { ...args, ...(target_name ? { target_name } : {}) }, response.data);
   }));
 }
 
