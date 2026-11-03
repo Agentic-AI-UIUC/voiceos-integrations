@@ -27,15 +27,27 @@ There are 14 tools: 12 read tools and 2 write tools. `POSTHOG_LIST_ALL_PROJECTS_
 
 ## Screenshots
 
-Glance cards and a confirmation card as they appear in the VoiceOS notch, from v1.1.1 against a test project.
+The integration as it appears in VoiceOS, from v1.1.1 against a test project.
+
+Glance cards:
 
 | `list_feature_flags` | `get_insights` |
 |---|---|
 | ![Feature flags glance card listing 4 flags with on/off badges](ui_images/feature-flags.png) | ![Saved insights glance card listing insights with their type](ui_images/saved-insights.png) |
 
-| `run_query` | `create_feature_flag` confirmation |
+| `run_query` | `create_feature_flag` result |
 |---|---|
-| ![Query glance card showing a single total_events value](ui_images/query.png) | ![Create feature flag confirmation card with key, name, active toggle off and rollout 0%](ui_images/create-flag-confirmation.png) |
+| ![Query glance card showing a single total_events value](ui_images/query.png) | ![Feature flag created card showing key, status off, 0% rollout and flag ID](ui_images/flag-created.png) |
+
+Confirmation cards for the two write tools:
+
+| `create_feature_flag` | `capture_event` |
+|---|---|
+| ![Create feature flag confirmation card with key, name, active toggle off and rollout 0%](ui_images/create-flag-confirmation.png) | ![Capture event confirmation card with event name, distinct ID and optional JSON properties](ui_images/capture-event-confirmation.png) |
+
+Setup page, where the user enters their keys (stored masked):
+
+![Setup page with Composio API key, PostHog personal API key, region and optional project ID](ui_images/setup.png)
 
 ## Setup
 
