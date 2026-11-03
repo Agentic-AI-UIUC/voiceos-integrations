@@ -48,6 +48,20 @@ integration off in VoiceOS.
 Not available, by design: creating, merging or editing pull requests, reading
 diffs or files, listing issues, and inline review comments.
 
+## Screenshots
+
+[`screenshots/`](screenshots/README.md) has 30 captures of the integration in
+the VoiceOS notch, covering all eight actions: the reads, each change's card
+and its result after the click, a spoken "yes" that doesn't send, a cancel,
+and GitHub refusing a change.
+
+<table>
+<tr>
+<td valign="top" width="50%"><img src="screenshots/05-all-my-open-prs.jpg" alt="Your open pull requests across repositories in the VoiceOS notch" width="100%"></td>
+<td valign="top" width="50%"><img src="screenshots/13-create-issue-card.jpg" alt="The create issue confirmation card in the VoiceOS notch" width="100%"></td>
+</tr>
+</table>
+
 ## How it works
 
 - **No error that the next answer replaces.** VoiceOS shows each result's
