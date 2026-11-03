@@ -862,7 +862,7 @@ body{font:13.5px/1.45 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",
 .k-dot{width:6px;height:6px;border-radius:50%;background:var(--accent);flex:none}
 .k-mk{display:flex;align-items:center;flex:none}
 .k-mk:empty{display:none}
-.k-mk-i{width:15px;height:15px;border-radius:4px;object-fit:contain;display:block}
+.k-mk-i{width:15px;height:15px;border-radius:0;object-fit:contain;display:block}
 .k-hd-t{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .k-hd-tr{font-size:11px;color:var(--ink-4);white-space:nowrap;flex:none}
 .k-hd-sub{font-size:14.5px;font-weight:590;letter-spacing:-.01em;margin-top:-4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

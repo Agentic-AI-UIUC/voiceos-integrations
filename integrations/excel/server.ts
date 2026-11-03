@@ -9,7 +9,7 @@ import { renderCustom, markHtml, esc, clip } from "./widgetKit.ts";
 const server = new McpServer({ name: "microsoft-excel", version: "1.0.0" });
 const ACCENT = "#107c41"; // Microsoft Excel brand green
 const COMPOSIO_BASE_URL = "https://backend.composio.dev";
-const BUILD_ID = "excel-review-fixed-v5-collections";
+const BUILD_ID = "excel-review-fixed-v7-inline-brand";
 
 export const APPROVED_COMPOSIO_ACTIONS = {
   excel_get_workbook: "EXCEL_GET_WORKBOOK",
@@ -2133,16 +2133,8 @@ server.registerTool(
             <span class="xl-pill good">Inserted</span>
           </div>
           <div class="xl-chart-box">
-            <svg width="280" height="48" viewBox="0 0 280 48" fill="none">
-              <rect x="20" y="24" width="22" height="24" rx="2" fill="var(--accent)" opacity="0.85"/>
-              <rect x="52" y="14" width="22" height="34" rx="2" fill="var(--accent)"/>
-              <rect x="84" y="28" width="22" height="20" rx="2" fill="var(--accent)" opacity="0.6"/>
-              <rect x="116" y="8" width="22" height="40" rx="2" fill="var(--accent)"/>
-              <rect x="148" y="18" width="22" height="30" rx="2" fill="var(--accent)" opacity="0.9"/>
-              <rect x="180" y="12" width="22" height="36" rx="2" fill="var(--accent)"/>
-              <rect x="212" y="22" width="22" height="26" rx="2" fill="var(--accent)" opacity="0.75"/>
-              <rect x="244" y="16" width="22" height="32" rx="2" fill="var(--accent)"/>
-            </svg>
+            <svg aria-hidden="true" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="14" rx="2"/><path d="M12 17v4M8 21h8"/></svg>
+            <span style="margin-left:10px;color:var(--ink-3);font-size:12px">Open Excel to view the chart.</span>
           </div>
         </div>
       `;
