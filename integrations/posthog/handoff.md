@@ -25,6 +25,18 @@ There are 14 tools: 12 read tools and 2 write tools. `POSTHOG_LIST_ALL_PROJECTS_
 | `create_feature_flag` | Write, confirmation required | `POSTHOG_CREATE_FEATURE_FLAG` |
 | `capture_event` | Write, confirmation required | `POSTHOG_CAPTURE_EVENT` |
 
+## Screenshots
+
+Glance cards and a confirmation card as they appear in the VoiceOS notch, from v1.1.1 against a test project.
+
+| `list_feature_flags` | `get_insights` |
+|---|---|
+| ![Feature flags glance card listing 4 flags with on/off badges](ui_images/feature-flags.png) | ![Saved insights glance card listing insights with their type](ui_images/saved-insights.png) |
+
+| `run_query` | `create_feature_flag` confirmation |
+|---|---|
+| ![Query glance card showing a single total_events value](ui_images/query.png) | ![Create feature flag confirmation card with key, name, active toggle off and rollout 0%](ui_images/create-flag-confirmation.png) |
+
 ## Setup
 
 1. Create a Composio API key and a PostHog personal API key.
