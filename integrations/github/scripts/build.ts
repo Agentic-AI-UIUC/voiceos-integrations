@@ -21,11 +21,17 @@ import { FACADES, TOOL_META, WRITE_TOOLS } from "../src/catalog.ts";
 import { buildConfirmation } from "../src/confirmations.ts";
 import { Gateway } from "../src/gateway.ts";
 import { createServer } from "../src/mcpServer.ts";
+import { PRODUCTION_REVIEW_WARNING } from "../src/productionReview.ts";
+import { inspectProductionReview } from "./productionReview.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const args = process.argv.slice(2);
 const manifestPath = join(root, "voiceos.integration.json");
 const existing = JSON.parse(readFileSync(manifestPath, "utf8"));
+const productionReview = inspectProductionReview(root);
+if (args.includes("--production") && !productionReview.approved) {
+  throw new Error("SOC 2 review required: Max and the SOC 2 team must sign off on this build. See PRODUCTION-REVIEW.md.");
+}
 
 // 1. server.ts bundle -------------------------------------------------------
 // One self-contained file. A shared install is just the five packaged files,
@@ -62,6 +68,7 @@ const bundle = await Bun.build({
   target: "bun",
   format: "esm",
   minify: false,
+  define: { __GITHUB_PRODUCTION_APPROVED__: JSON.stringify(productionReview.approved) },
   plugins: [
     {
       name: "no-code-from-strings",
@@ -118,6 +125,7 @@ const tools = FACADES.map((name) => {
 
 // 3. Manifest -------------------------------------------------------------
 const description = [
+  ...(!productionReview.approved ? [`**${PRODUCTION_REVIEW_WARNING}**`] : []),
   "Answers questions about a repository's code from GitHub's own search of it: where behavior is implemented, how it handles failures, validation, caching or configuration, with the source excerpts the search returns. Also finds repositories, checks issues and pull requests, and makes changes you confirm on a card.",
   "**What VoiceOS can do on GitHub**\n- Get an issue\n- Create an issue\n- Update an issue (close, reopen, rename, labels, assignees)\n- Comment on an issue or pull request\n- List pull requests, in one repository or across all of yours\n- Review a pull request (comment, approve, or request changes)\n- Search repositories\n- Search code",
   "**What it can't do:** create, merge or edit pull requests, read pull request diffs or files, list issues, or leave inline review comments.",
@@ -179,7 +187,7 @@ const preferences = [
 const manifest = {
   schemaVersion: 1,
   id: existing.id,
-  version: "2.5.2",
+  version: "2.5.3",
   name: "GitHub",
   summary: "Find GitHub repositories and source code, investigate code behavior, and check issues and pull requests.",
   description,

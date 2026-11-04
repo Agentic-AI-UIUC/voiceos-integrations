@@ -14773,6 +14773,7 @@ var TOOL_META = Object.fromEntries(Object.entries(META).map(([name, meta]) => [
 
 // src/errors.ts
 var TITLES = {
+  production_review_required: "SOC 2 review required",
   invalid_input: "Check the request",
   not_connected: "Connect GitHub",
   connecting: "Finish connecting GitHub",
@@ -14977,7 +14978,7 @@ function classifyUpstreamFailure(raw, ctx) {
 
 // src/composio.ts
 var DEFAULT_BASE_URL = "https://backend.composio.dev";
-var CLIENT_VERSION = "2.5.2";
+var CLIENT_VERSION = "2.5.3";
 function resolveBaseUrl(override) {
   if (!override)
     return DEFAULT_BASE_URL;
@@ -16012,9 +16013,9 @@ function reviewSubmittedCard(input) {
   return render(body, 124 + (input.body ? 40 : 0) + (input.warnings?.length ?? 0) * 34, `Review on pull request #${input.number}`);
 }
 function errorCard(error2, ctx = {}) {
-  const unknown3 = error2.category === "unknown_outcome";
+  const warning = error2.category === "unknown_outcome" || error2.category === "production_review_required";
   const href = safeHref(ctx.openUrl);
-  const body = `${header(ctx.target)}<div class="gh-err${unknown3 ? " unk" : ""}">${icon(unknown3 ? "alert" : "stop")}<span>${titleLink(href, esc2(error2.title))}</span></div><div class="gh-msg">${esc2(error2.message)}</div>${error2.nextAction ? `<div class="gh-meta">${esc2(error2.nextAction)}</div>` : ""}`;
+  const body = `${header(ctx.target)}<div class="gh-err${warning ? " unk" : ""}"${error2.category === "production_review_required" ? ' role="alert"' : ""}>${icon(warning ? "alert" : "stop")}<span>${titleLink(href, esc2(error2.title))}</span></div><div class="gh-msg">${esc2(error2.message)}</div>${error2.nextAction ? `<div class="gh-meta">${esc2(error2.nextAction)}</div>` : ""}`;
   const height = 110 + (error2.message.length > 90 ? 18 : 0) + (error2.nextAction ? 20 : 0);
   return render(body, height, error2.title);
 }
@@ -17205,6 +17206,27 @@ function normalizeReview(raw, owner2, repo2) {
   };
 }
 
+// src/productionReview.ts
+var approved = false;
+function productionAccessAllowed(baseUrl) {
+  if (approved)
+    return true;
+  try {
+    const url2 = new URL(baseUrl);
+    return (url2.protocol === "http:" || url2.protocol === "https:") && ["127.0.0.1", "localhost", "[::1]"].includes(url2.hostname) && !url2.username && !url2.password;
+  } catch {
+    return false;
+  }
+}
+function assertProductionReviewed(baseUrl) {
+  if (!productionAccessAllowed(baseUrl))
+    throw new GithubError({
+      category: "production_review_required",
+      message: "Production GitHub access is blocked until Max and the SOC 2 team sign off on this build. Nothing was sent to GitHub.",
+      nextAction: "The maintainers must record both sign-offs and rebuild the reviewed release. See PRODUCTION-REVIEW.md."
+    });
+}
+
 // src/repoNames.ts
 var plain = (s2) => s2.toLowerCase().replace(/[^a-z0-9]/g, "");
 function wordRun(name, said) {
@@ -17502,6 +17524,8 @@ class Gateway {
   async warmUp() {
     if (this.stopping || !this.config.connectionEnabled || !this.usableKey())
       return;
+    if (!productionAccessAllowed(this.config.baseUrl))
+      return;
     try {
       await this.connection().warm();
     } catch (error2) {
@@ -17594,6 +17618,7 @@ class Gateway {
       const record3 = this.usableKey() ? await this.disconnectAll() : undefined;
       throw new GithubError({ category: "disconnected", message: record3?.accountId ? DISCONNECTED_MESSAGE : CONNECTION_OFF_MESSAGE });
     }
+    assertProductionReviewed(this.config.baseUrl);
     if (isWriteTool(tool)) {
       const result = await this.write(tool, args, guard);
       this.remember(args.owner, args.repo);
