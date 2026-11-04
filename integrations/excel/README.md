@@ -74,4 +74,4 @@ Fake-client tests do not execute Composio or replace live QA. Importing the serv
 does not open the MCP transport.
 
 Read [IMPLEMENTATION-NOTES.md](IMPLEMENTATION-NOTES.md) before modifying the working
-flow. Keep the SDK pinned to 0.27.0, including after Studio regenerates an export.
+flow. Keep the SDK pinned to 0.28.0, including after Studio regenerates an export.

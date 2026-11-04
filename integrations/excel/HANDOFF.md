@@ -87,3 +87,12 @@ Charts now validate the requested sheet against the current workbook worksheet l
 74 offline tests pass, including missing sheets, stable table-ID resolution, missing tables, lookup failures and pagination safety. A successful live append/chart on this build has not yet been recorded. Use the actual worksheet name from List Worksheets when retesting; do not claim permanent live success from these tests.
 ## Current working baseline: excel-review-fixed-v5-collections
 On November 1, 2026, the user confirmed the integration is working after live VoiceOS retesting. Local verification: 130 offline tests passed and MCP discovery returned 10 tools. Earlier v2/v4 pending-live notes above are historical. This confirmation does not independently establish every acceptance criterion. See IMPLEMENTATION-NOTES.md for the implementation method and regression safeguards.
+
+## SDK upgrade — November 3, 2026
+
+Current dependency pin: `@composio/core` **0.28.0**, with regenerated `bun.lock`.
+The 0.27.0 references above record the earlier reviewed baseline. No action
+mapping, toolkit version, ownership validation, or confirmation behavior changed.
+Offline regression tests and an actual SDK API-shape check pass. Fresh live
+Microsoft/Composio execution on 0.28.0 is pending author testing; older live
+results do not establish live compatibility of this upgrade.

@@ -188,7 +188,7 @@ test("chart uses a verified existing worksheet without changing approved range",
 
 test("Composio SDK remains pinned after Studio regeneration", () => {
   const pkg = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8"));
-  expect(pkg.dependencies["@composio/core"]).toBe("0.27.0");
+  expect(pkg.dependencies["@composio/core"]).toBe("0.28.0");
 });
 
 test("Studio fixtures contain no personal OneDrive IDs or truncated prefixes", () => {
