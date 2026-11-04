@@ -2,7 +2,6 @@
  * The gateway: every tool call passes through the same ordered checks before
  * exactly one approved Composio tool is called.
  *
- *  0. production build approval from Max and the SOC 2 team
  *  1. for writes: a valid, fresh, unused confirmation receipt from the card
  *  2. semantic validation of the arguments
  *  3. configuration (a real Composio project key)
@@ -55,7 +54,6 @@ import {
   listExcerpt,
 } from "./normalize.ts";
 import { receiptCore } from "./receiptCore.ts";
-import { assertProductionReviewed, productionAccessAllowed } from "./productionReview.ts";
 import { matchRepository } from "./repoNames.ts";
 import { SearchMemory, SEARCH_SCOPE, repositoryQuery, type SearchTool } from "./search.ts";
 import { Coalescer, KeyedMutex, OperationLedger, SlidingWindowLimiter, StateStore, type DisconnectRecord, type Environment, type OperationRecord } from "./state.ts";
@@ -296,7 +294,6 @@ export class Gateway {
 
   private async warmUp(): Promise<void> {
     if (this.stopping || !this.config.connectionEnabled || !this.usableKey()) return;
-    if (!productionAccessAllowed(this.config.baseUrl)) return;
     try {
       await this.connection().warm();
     } catch (error) {
@@ -405,7 +402,6 @@ export class Gateway {
       const record = this.usableKey() ? await this.disconnectAll() : undefined;
       throw new GithubError({ category: "disconnected", message: record?.accountId ? DISCONNECTED_MESSAGE : CONNECTION_OFF_MESSAGE });
     }
-    assertProductionReviewed(this.config.baseUrl);
     if (isWriteTool(tool)) {
       const result = await this.write(tool, args, guard);
       this.remember(args.owner, args.repo);

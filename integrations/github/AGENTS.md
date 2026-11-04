@@ -90,14 +90,13 @@ changes on its next turn — just talk to it.
 - **Check every change:** `bun run build && bun test && bun run verify`.
 - **The tool list is fixed at eight** (`src/catalog.ts`, the approved
   allowlist). The integration works with every repository the connected
-  GitHub account can reach after production approval; there's no repository limit.
-- **Production requires SOC 2 sign-off.** `production-review.json` stays
-  pending until Max and the SOC 2 team approve the current source fingerprint.
-  `scripts/productionReview.ts` validates it; `scripts/build.ts` embeds the
-  outcome. `src/productionReview.ts` blocks production calls and warm-up
-  without approval. Only the loopback fake bypasses it; disconnect is still
-  available. Do not turn it into a setup preference or invent approvals.
-  See `PRODUCTION-REVIEW.md` and use `bun run build:production` for releases.
+  GitHub account can reach; there's no repository limit.
+- **SOC 2 review is warn-only for QA (v2.5.4).** Keep the warning on the
+  integration page and every result/confirmation card (`src/reviewWarning.ts`).
+  All eight tools and connection warm-up remain available. Production
+  approval is tracked on the VoiceOS side: In Review → QA → switch to the
+  VoiceOS Composio key → publish. There is no repository sign-off JSON or
+  code fingerprint gate. Maks decides the final policy and reviewers.
 - **Writes depend on their confirmation cards.** Each write card stages a
   receipt: a keyless SHA-256 digest of the exact arguments on screen
   (`src/receiptCoreScript.ts`), which the server recomputes. A card whose
@@ -125,8 +124,9 @@ changes on its next turn — just talk to it.
   switches off zod 4's code generation and replaces the SDK's ajv validator
   (Composio's tools declare no output schemas). `bun verify.ts --package`
   runs the shared files alone with an empty Bun cache.
-- **Cards carry facts only:** no explanatory notes, disclaimers or "click to
-  send" lines (`tests/cards.test.ts`, `tests/confirmations.test.ts`).
+- **Cards carry facts and the required SOC 2 review footer:** no other
+  explanatory notes or "click to send" lines (`tests/cards.test.ts`,
+  `tests/confirmations.test.ts`).
 - **A spoken yes can't approve a change.** VoiceOS drops the card's staged
   receipt on voice approval, so the server refuses and hands the draft back
   once (`ReceiptMissing` in `src/gateway.ts`). Don't weaken the receipt check

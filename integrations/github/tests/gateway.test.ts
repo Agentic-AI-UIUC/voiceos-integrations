@@ -9,7 +9,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { chmodSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { FACADES, WRITE_TOOLS } from "../src/catalog.ts";
+import { FACADES } from "../src/catalog.ts";
 import { Gateway, type GatewayConfig } from "../src/gateway.ts";
 import { createServer } from "../src/mcpServer.ts";
 import { receiptCore } from "../src/receiptCore.ts";
@@ -82,25 +82,18 @@ const upstream = (env: Env, slug?: string) => env.mock.calls.filter((c) => !slug
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-describe("SOC 2 production gate", () => {
-  test("blocks all eight tools and startup before any production request, including approved writes", async () => {
+describe("SOC 2 review warning", () => {
+  test("pending review leaves the default Composio endpoint callable for QA", async () => {
     const env = await boot({ baseUrl: "https://backend.composio.dev" });
-    const network = spyOn(globalThis, "fetch").mockRejectedValue(new Error("Production must not be contacted"));
+    // A transport failure is deliberate: prove the request is dispatched
+    // without contacting a real account or requiring a review record.
+    const network = spyOn(globalThis, "fetch").mockRejectedValue(new Error("Test transport"));
     try {
-      await env.gateway.start();
-      const fixtures = JSON.parse(readFileSync(join(import.meta.dir, "../voiceos.integration.preview.json"), "utf8")).tools;
-      for (const tool of FACADES) {
-        const args = { ...fixtures[tool].args };
-        if (tool === "update_issue") args.expected_updated_at = "2026-01-01T00:00:00Z";
-        if (tool === "create_pull_request_review") Object.assign(args, { commit_id: SHA_55, pr_title: "Reviewed pull request" });
-        const result = await call(env, tool, WRITE_TOOLS.has(tool) ? signed(tool, args) : args);
-        expect(result.isError).toBe(true);
-        expect({ tool, error: result.json?.error?.category, text: result.json ? undefined : result.text }).toEqual({ tool, error: "production_review_required", text: undefined });
-        expect(result.card).toContain("SOC 2 review required");
-        expect(result.card).toContain("Max and the SOC 2 team");
-      }
-      expect(network).not.toHaveBeenCalled();
-      expect(upstream(env)).toHaveLength(0);
+      const result = await call(env, "search_repositories", { q: "desktop" });
+      expect(network).toHaveBeenCalled();
+      expect(String(network.mock.calls[0][0])).toStartWith("https://backend.composio.dev/");
+      expect(result.card).toContain("⚠️ SOC 2 review pending");
+      expect(result.text).not.toContain("production is blocked");
     } finally { network.mockRestore(); }
   });
 });

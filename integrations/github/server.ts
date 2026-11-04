@@ -14773,7 +14773,6 @@ var TOOL_META = Object.fromEntries(Object.entries(META).map(([name, meta]) => [
 
 // src/errors.ts
 var TITLES = {
-  production_review_required: "SOC 2 review required",
   invalid_input: "Check the request",
   not_connected: "Connect GitHub",
   connecting: "Finish connecting GitHub",
@@ -14978,7 +14977,7 @@ function classifyUpstreamFailure(raw, ctx) {
 
 // src/composio.ts
 var DEFAULT_BASE_URL = "https://backend.composio.dev";
-var CLIENT_VERSION = "2.5.3";
+var CLIENT_VERSION = "2.5.4";
 function resolveBaseUrl(override) {
   if (!override)
     return DEFAULT_BASE_URL;
@@ -15722,6 +15721,10 @@ ${authorCss}</style></head><body><div class="k-cwrap${confirm ? " k-confirm" : "
   return { html, height, label: o.label };
 }
 
+// src/reviewWarning.ts
+var SOC2_REVIEW_WARNING = "\u26A0\uFE0F SOC 2 review pending";
+var SOC2_REVIEW_FOOTER = `<div class="gh-soc2" role="note">${SOC2_REVIEW_WARNING}</div>`;
+
 // src/cards.ts
 var PATHS = {
   "issue-opened": '<path d="M8 9.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z"/><path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Z"/>',
@@ -15746,7 +15749,10 @@ var icon = (name, cls = "") => `<svg class="gh-i${cls ? ` ${cls}` : ""}" viewBox
 var CARD_CSS = `
 :root{--gh-open:#3fb950;--gh-done:#a371f7;--gh-closed:#f85149;--gh-muted:#8b949e;--gh-link:#4493f8;--gh-warn:#d29922;--gh-btn:#238636;--gh-mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace}
 html[data-k-theme=light]{--gh-open:#1a7f37;--gh-done:#8250df;--gh-closed:#cf222e;--gh-muted:#59636e;--gh-link:#0969da;--gh-warn:#9a6700;--gh-btn:#1f883d}
-.gh{padding:13px 15px 14px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.gh{padding:13px 15px 46px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.gh-soc2{position:fixed;left:0;right:0;bottom:0;z-index:20;padding:7px 15px;border-top:1px solid var(--line);font-size:11px;line-height:16px;color:var(--gh-warn);background:rgba(25,25,28,.98);white-space:nowrap;pointer-events:none}
+html[data-k-theme=light] .gh-soc2{background:rgba(252,252,253,.98)}
+.k-confirm .gh-soc2{padding-bottom:59px}
 .gh-i{width:16px;height:16px;flex:none;display:block}
 .s-open{--gh-c:var(--gh-open)}.s-done{--gh-c:var(--gh-done)}.s-closed{--gh-c:var(--gh-closed)}.s-muted{--gh-c:var(--gh-muted)}
 .gh-pill{display:inline-flex;align-items:center;gap:4px;height:22px;padding:0 9px 0 7px;border-radius:999px;font-size:12px;font-weight:600;color:#fff;background:var(--gh-c);width:max-content;flex:none}
@@ -15857,7 +15863,7 @@ function header(trailing) {
   return `<div class="k-hd"><div class="k-hd-l">${markHtml()}<span class="k-hd-t">GitHub</span></div>${trailing ? `<span class="k-hd-tr">${esc2(clip(trailing, 28))}</span>` : ""}</div>`;
 }
 function render(body, height, label) {
-  const card = renderCustom({ css: CARD_CSS, body: `<div class="gh">${body}</div>`, height, label: clip(label, 60) });
+  const card = renderCustom({ css: CARD_CSS, body: `<div class="gh">${body}</div>${SOC2_REVIEW_FOOTER}`, height: height + 32, label: clip(label, 60) });
   return { type: "widget", html: card.html, height: card.height, label: card.label ?? clip(label, 60) };
 }
 function glance(widget) {
@@ -16013,9 +16019,9 @@ function reviewSubmittedCard(input) {
   return render(body, 124 + (input.body ? 40 : 0) + (input.warnings?.length ?? 0) * 34, `Review on pull request #${input.number}`);
 }
 function errorCard(error2, ctx = {}) {
-  const warning = error2.category === "unknown_outcome" || error2.category === "production_review_required";
+  const unknown3 = error2.category === "unknown_outcome";
   const href = safeHref(ctx.openUrl);
-  const body = `${header(ctx.target)}<div class="gh-err${warning ? " unk" : ""}"${error2.category === "production_review_required" ? ' role="alert"' : ""}>${icon(warning ? "alert" : "stop")}<span>${titleLink(href, esc2(error2.title))}</span></div><div class="gh-msg">${esc2(error2.message)}</div>${error2.nextAction ? `<div class="gh-meta">${esc2(error2.nextAction)}</div>` : ""}`;
+  const body = `${header(ctx.target)}<div class="gh-err${unknown3 ? " unk" : ""}">${icon(unknown3 ? "alert" : "stop")}<span>${titleLink(href, esc2(error2.title))}</span></div><div class="gh-msg">${esc2(error2.message)}</div>${error2.nextAction ? `<div class="gh-meta">${esc2(error2.nextAction)}</div>` : ""}`;
   const height = 110 + (error2.message.length > 90 ? 18 : 0) + (error2.nextAction ? 20 : 0);
   return render(body, height, error2.title);
 }
@@ -17206,27 +17212,6 @@ function normalizeReview(raw, owner2, repo2) {
   };
 }
 
-// src/productionReview.ts
-var approved = false;
-function productionAccessAllowed(baseUrl) {
-  if (approved)
-    return true;
-  try {
-    const url2 = new URL(baseUrl);
-    return (url2.protocol === "http:" || url2.protocol === "https:") && ["127.0.0.1", "localhost", "[::1]"].includes(url2.hostname) && !url2.username && !url2.password;
-  } catch {
-    return false;
-  }
-}
-function assertProductionReviewed(baseUrl) {
-  if (!productionAccessAllowed(baseUrl))
-    throw new GithubError({
-      category: "production_review_required",
-      message: "Production GitHub access is blocked until Max and the SOC 2 team sign off on this build. Nothing was sent to GitHub.",
-      nextAction: "The maintainers must record both sign-offs and rebuild the reviewed release. See PRODUCTION-REVIEW.md."
-    });
-}
-
 // src/repoNames.ts
 var plain = (s2) => s2.toLowerCase().replace(/[^a-z0-9]/g, "");
 function wordRun(name, said) {
@@ -17524,8 +17509,6 @@ class Gateway {
   async warmUp() {
     if (this.stopping || !this.config.connectionEnabled || !this.usableKey())
       return;
-    if (!productionAccessAllowed(this.config.baseUrl))
-      return;
     try {
       await this.connection().warm();
     } catch (error2) {
@@ -17618,7 +17601,6 @@ class Gateway {
       const record3 = this.usableKey() ? await this.disconnectAll() : undefined;
       throw new GithubError({ category: "disconnected", message: record3?.accountId ? DISCONNECTED_MESSAGE : CONNECTION_OFF_MESSAGE });
     }
-    assertProductionReviewed(this.config.baseUrl);
     if (isWriteTool(tool)) {
       const result = await this.write(tool, args, guard);
       this.remember(args.owner, args.repo);

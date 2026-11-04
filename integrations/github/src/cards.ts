@@ -12,6 +12,7 @@ import { clip, esc, markHtml, renderCustom } from "../widgetKit.ts";
 import type { GithubError } from "./errors.ts";
 import type { CodeFacts, IssueFacts, LabelFact, PullFacts, RepoFacts } from "./normalize.ts";
 import type { DisconnectRecord } from "./state.ts";
+import { SOC2_REVIEW_FOOTER } from "./reviewWarning.ts";
 
 export interface Widget {
   type: "widget";
@@ -47,7 +48,10 @@ const icon = (name: keyof typeof PATHS | string, cls = "") =>
 export const CARD_CSS = `
 :root{--gh-open:#3fb950;--gh-done:#a371f7;--gh-closed:#f85149;--gh-muted:#8b949e;--gh-link:#4493f8;--gh-warn:#d29922;--gh-btn:#238636;--gh-mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace}
 html[data-k-theme=light]{--gh-open:#1a7f37;--gh-done:#8250df;--gh-closed:#cf222e;--gh-muted:#59636e;--gh-link:#0969da;--gh-warn:#9a6700;--gh-btn:#1f883d}
-.gh{padding:13px 15px 14px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.gh{padding:13px 15px 46px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.gh-soc2{position:fixed;left:0;right:0;bottom:0;z-index:20;padding:7px 15px;border-top:1px solid var(--line);font-size:11px;line-height:16px;color:var(--gh-warn);background:rgba(25,25,28,.98);white-space:nowrap;pointer-events:none}
+html[data-k-theme=light] .gh-soc2{background:rgba(252,252,253,.98)}
+.k-confirm .gh-soc2{padding-bottom:59px}
 .gh-i{width:16px;height:16px;flex:none;display:block}
 .s-open{--gh-c:var(--gh-open)}.s-done{--gh-c:var(--gh-done)}.s-closed{--gh-c:var(--gh-closed)}.s-muted{--gh-c:var(--gh-muted)}
 .gh-pill{display:inline-flex;align-items:center;gap:4px;height:22px;padding:0 9px 0 7px;border-radius:999px;font-size:12px;font-weight:600;color:#fff;background:var(--gh-c);width:max-content;flex:none}
@@ -157,7 +161,7 @@ function header(trailing?: string): string {
 }
 
 function render(body: string, height: number, label: string): Widget {
-  const card = renderCustom({ css: CARD_CSS, body: `<div class="gh">${body}</div>`, height, label: clip(label, 60) });
+  const card = renderCustom({ css: CARD_CSS, body: `<div class="gh">${body}</div>${SOC2_REVIEW_FOOTER}`, height: height + 32, label: clip(label, 60) });
   return { type: "widget", html: card.html, height: card.height, label: card.label ?? clip(label, 60) };
 }
 
@@ -442,9 +446,9 @@ export function reviewSubmittedCard(input: {
 // ---------------------------------------------------------------------------
 
 export function errorCard(error: GithubError, ctx: { target?: string; openUrl?: string } = {}): Widget {
-  const warning = error.category === "unknown_outcome" || error.category === "production_review_required";
+  const unknown = error.category === "unknown_outcome";
   const href = safeHref(ctx.openUrl);
-  const body = `${header(ctx.target)}<div class="gh-err${warning ? " unk" : ""}"${error.category === "production_review_required" ? ' role="alert"' : ""}>${icon(warning ? "alert" : "stop")}<span>${titleLink(href, esc(error.title))}</span></div><div class="gh-msg">${esc(
+  const body = `${header(ctx.target)}<div class="gh-err${unknown ? " unk" : ""}">${icon(unknown ? "alert" : "stop")}<span>${titleLink(href, esc(error.title))}</span></div><div class="gh-msg">${esc(
     error.message,
   )}</div>${error.nextAction ? `<div class="gh-meta">${esc(error.nextAction)}</div>` : ""}`;
   const height = 110 + (error.message.length > 90 ? 18 : 0) + (error.nextAction ? 20 : 0);

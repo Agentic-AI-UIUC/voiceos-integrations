@@ -11,7 +11,6 @@ import { join } from "node:path";
 import { FACADES, TOOL_META, WRITE_TOOLS } from "../src/catalog.ts";
 import { Gateway } from "../src/gateway.ts";
 import { createServer } from "../src/mcpServer.ts";
-import { inspectProductionReview } from "../scripts/productionReview.ts";
 
 const ROOT = join(import.meta.dir, "..");
 const manifest = JSON.parse(readFileSync(join(ROOT, "voiceos.integration.json"), "utf8"));
@@ -174,11 +173,9 @@ describe("detail page", () => {
       "Use my GitHub connection",
     ]) expect(d).toContain(s);
     expect(d).not.toContain("**Set up**");
-    if (inspectProductionReview(ROOT).approved) expect(d).not.toContain("SOC 2 review pending");
-    else {
-      expect(d).toStartWith("**⚠️ SOC 2 review pending");
-      expect(d).toContain("production is blocked until Max and the SOC 2 team sign off");
-    }
+    expect(d).toStartWith("**⚠️ SOC 2 review pending");
+    expect(d).toContain("VoiceOS approval is required before production release");
+    expect(d).not.toContain("production is blocked");
     expect(raw).not.toMatch(/test repositor|release channel/i);
   });
 

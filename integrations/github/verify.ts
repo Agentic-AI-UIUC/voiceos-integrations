@@ -81,9 +81,29 @@ console.log(
 );
 
 const state = mkdtempSync(join(tmpdir(), "voiceos-github-verify-"));
+// Keep the normal endpoint/configuration, so the exact shared bundle proves
+// pending review permits QA. Redirect transport to the local fake before
+// any network request; its session URLs are rewritten back to the same origin.
+const fakeTransport = join(state, "fake-transport.ts");
+writeFileSync(fakeTransport, `
+const realFetch = globalThis.fetch;
+const fakeOrigin = ${JSON.stringify(mock.baseUrl)};
+const endpoint = "https://backend.composio.dev";
+globalThis.fetch = async (input, init) => {
+  const url = new URL(input instanceof Request ? input.url : String(input));
+  if (url.origin !== endpoint) throw new Error("Unexpected network origin during verification");
+  const target = new URL(url.pathname + url.search, fakeOrigin);
+  const response = await realFetch(input instanceof Request ? new Request(target, input) : target, init);
+  if (response.status === 204 || response.status === 304) return response;
+  const body = (await response.text()).replaceAll(fakeOrigin, endpoint);
+  const headers = new Headers(response.headers);
+  headers.delete("content-length");
+  return new Response(body, { status: response.status, headers });
+};
+`);
 const transport = new StdioClientTransport({
   command: existsSync(VOICEOS_BUN) ? VOICEOS_BUN : "bun",
-  args: ["server.ts", `--composio-base-url=${mock.baseUrl}`, `--state-dir=${state}`],
+  args: ["--preload", fakeTransport, "server.ts", `--state-dir=${state}`],
   cwd: launchDir,
   env: hostEnvironment({
     COMPOSIO_PROJECT_API_KEY: mock.apiKey,
@@ -138,6 +158,7 @@ try {
 
   const cards = manifest.tools.filter((t: any) => t.confirmation);
   check(cards.length === 4 && cards.every((t: any) => t.confirmation.root.html.includes('"voiceos-github-receipt-v2\\n"')), "the four confirmation cards stage a receipt digest");
+  check(cards.every((t: any) => t.confirmation.root.html.includes('<div class="gh-soc2" role="note">⚠️ SOC 2 review pending</div>')), "all four confirmation cards show the pending review footer");
   for (const [name, fixture] of Object.entries(preview.tools) as Array<[string, any]>) {
     let args = { ...fixture.args };
     if (name === "update_issue") {
@@ -155,35 +176,10 @@ try {
     check(text.length > 0 && json, `${name} preview call returns text`);
     const blocks = json?._voiceos_glance?.blocks ?? [];
     check(blocks.length >= 1 && blocks.length <= 3 && (fixture.expectedGlanceBlocks ?? blocks.length) === blocks.length, `${name} preview call returns 1-3 glance blocks`);
+    check(blocks[0]?.html?.includes('<div class="gh-soc2" role="note">⚠️ SOC 2 review pending</div>'), `${name} result shows the pending review footer`);
     check(!res.isError && json?.ok === true, `${name} preview call succeeds${res.isError ? ` (${json?.error?.message ?? text.slice(0, 120)})` : ""}`);
   }
   check(slowest.ms < 10_000, `every call finished well inside VoiceOS's 60 s limit (slowest: ${slowest.name}, ${slowest.ms} ms)`);
-  // Exercise the shipped bundle without the loopback override too. A preload
-  // traps every network attempt, so a regression cannot contact production.
-  if (manifest.description.includes("SOC 2 review pending")) {
-    const attempted = join(state, "unexpected-production-request");
-    const guard = join(state, "no-network.ts");
-    writeFileSync(guard, `import { writeFileSync } from "node:fs"; globalThis.fetch = async () => { writeFileSync(${JSON.stringify(attempted)}, "attempted"); throw new Error("Production network forbidden in verification"); };`);
-    const productionTransport = new StdioClientTransport({
-      command: existsSync(VOICEOS_BUN) ? VOICEOS_BUN : "bun",
-      args: ["--preload", guard, "server.ts", `--state-dir=${join(state, "production")}`],
-      cwd: launchDir, env: hostEnvironment({ COMPOSIO_PROJECT_API_KEY: mock.apiKey }), stderr: "ignore",
-    });
-    const productionClient = new Client({ name: "voiceos-production-gate-verify", version: "1.0.0" });
-    try {
-      await productionClient.connect(productionTransport);
-      for (const [name, fixture] of Object.entries(preview.tools) as Array<[string, any]>) {
-        const args = { ...fixture.args };
-        if (name === "update_issue") args.expected_updated_at = "2026-01-01T00:00:00Z";
-        if (name === "create_pull_request_review") Object.assign(args, { commit_id: "55".repeat(20), pr_title: "Review target" });
-        if (WRITES.has(name)) args.confirmation_receipt = receiptCore.mint(name, args, Date.now(), crypto.randomUUID().replace(/-/g, ""));
-        const result: any = await productionClient.callTool({ name, arguments: args });
-        const json = JSON.parse(result.content[0].text);
-        check(result.isError && json.error?.category === "production_review_required" && json._voiceos_glance?.blocks?.[0]?.html.includes("SOC 2 review required"), `${name} is blocked by the shipped production gate with a visible warning`);
-      }
-      check(!existsSync(attempted), "unreviewed production startup and all eight actions made zero network requests");
-    } finally { await productionClient.close().catch(() => {}); }
-  }
   if (bunCache) {
     const fetched = readdirSync(bunCache);
     check(fetched.length === 0, `first launch downloaded nothing; server.ts carries its dependencies${fetched.length ? ` (fetched: ${fetched.join(", ")})` : ""}`);

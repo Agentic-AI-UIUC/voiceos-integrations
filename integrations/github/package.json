@@ -1,13 +1,11 @@
 {
   "name": "github-composio",
-  "version": "2.5.3",
+  "version": "2.5.4",
   "private": true,
   "description": "GitHub for VoiceOS through Composio: eight approved actions, confirmed writes, repo-only OAuth.",
   "type": "module",
   "scripts": {
     "build": "bun scripts/build.ts",
-    "build:production": "bun scripts/build.ts --production",
-    "review:production": "bun scripts/productionReview.ts",
     "test": "bun test",
     "verify": "bun verify.ts"
   },
