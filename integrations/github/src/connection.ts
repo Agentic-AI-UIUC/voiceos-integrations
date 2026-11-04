@@ -601,7 +601,7 @@ export class ConnectionManager {
     await live?.upstream.retire();
   }
 
-  /** Disconnect from outside a tool call's readiness check (at startup, or ahead of the release gate). */
+  /** Disconnect from outside a tool call's readiness check, including at startup. */
   ensureDisconnected(): Promise<DisconnectRecord> {
     return this.lock.run("ready", () => this.disconnect());
   }

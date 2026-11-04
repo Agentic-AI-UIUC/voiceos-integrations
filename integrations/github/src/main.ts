@@ -1,8 +1,8 @@
 /**
  * GitHub for VoiceOS, through Composio — the MCP server VoiceOS launches.
  *
- * Eight approved GitHub actions, each routed through the gateway: release
- * gate, confirmation receipts for writes, a verified repo-only GitHub
+ * Eight approved GitHub actions, each routed through the gateway:
+ * confirmation receipts for writes, a verified repo-only GitHub
  * connection, and exactly one Composio tool call per action.
  */
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";

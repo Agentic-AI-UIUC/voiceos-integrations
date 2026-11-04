@@ -14,6 +14,7 @@
  */
 import { esc, markHtml, renderCustom } from "../widgetKit.ts";
 import { CARD_CSS } from "./cards.ts";
+import { SOC2_REVIEW_FOOTER } from "./reviewWarning.ts";
 import type { Facade } from "./catalog.ts";
 import { readFileSync } from "node:fs";
 
@@ -292,7 +293,7 @@ const CONFIRM_DOM_JS = String.raw`(function () {
 })();`;
 
 const CONFIRM_CSS = `
-.gh-c{padding:13px 15px 6px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.gh-c{padding:13px 15px 38px;display:flex;flex-direction:column;gap:8px;min-width:0}
 .gh-h{font-size:15px;font-weight:600;letter-spacing:-.01em;line-height:1.3;overflow-wrap:anywhere}
 .gh-ttl{font-size:12.5px;color:var(--ink-2);margin-top:-5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .gh-f{display:flex;flex-direction:column;gap:4px;min-width:0}
@@ -436,8 +437,8 @@ export function buildConfirmation(tool: WriteTool): ConfirmationView {
   const card = renderCustom({
     mode: "confirm",
     css: `${CARD_CSS}\n${CONFIRM_CSS}`,
-    body: `<div class="gh-c">${view.body()}</div><button type="button" class="gh-morehint" id="gh-more" hidden>${ICONS.down}More below</button>${script}`,
-    height: view.height,
+    body: `<div class="gh-c">${view.body()}</div>${SOC2_REVIEW_FOOTER}<button type="button" class="gh-morehint" id="gh-more" hidden>${ICONS.down}More below</button>${script}`,
+    height: view.height + 32,
     label: view.label,
   });
   return { schemaVersion: 1, root: { type: "widget", html: card.html, height: card.height, confirmLabel: view.confirmLabel, label: view.label } };

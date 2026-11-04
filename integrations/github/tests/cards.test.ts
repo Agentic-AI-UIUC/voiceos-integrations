@@ -55,6 +55,7 @@ function expectValid(w: Widget) {
   expect(w.height).toBeGreaterThanOrEqual(60);
   expect(w.height).toBeLessThanOrEqual(420);
   expect(w.label.length).toBeLessThanOrEqual(60);
+  expect(w.html).toContain('<div class="gh-soc2" role="note">⚠️ SOC 2 review pending</div>');
   for (const h of hrefs(w)) expect(h).toMatch(/^https:\/\/(github\.com\/|connect\.composio\.dev\/)/);
 }
 
@@ -73,7 +74,7 @@ describe("issue card", () => {
     expect(visibleText(issueCard(issue({ state: "closed", state_reason: "not_planned", closed_at: "2026-10-24T19:00:00Z" }), "acme", "desktop", NOW))).toContain("Not planned");
     const pr = visibleText(issueCard(issue({ is_pull_request: true }), "acme", "desktop", NOW));
     expect(pr).toContain("Open");
-    expect(pr).not.toMatch(/diff|review|code changes/i);
+    expect(pr.replace("⚠️ SOC 2 review pending", "")).not.toMatch(/diff|review|code changes/i);
   });
 
   test("hostile titles are escaped and unsafe links are dropped", () => {
@@ -107,8 +108,9 @@ describe("pull request list card", () => {
     expect(first).not.toContain("PR description");
     const second = visibleText(card("Retries twice, then shows an error."));
     // Everything on the first card is still there, in the same place, with the summary added after it.
-    expect(second).toStartWith(first);
-    expect(second).toEndWith("Retries twice, then shows an error.");
+    expect(second).toStartWith(first.replace(/ ⚠️ SOC 2 review pending$/, ""));
+    expect(second).toEndWith("⚠️ SOC 2 review pending");
+    expect(second.replace(/ ⚠️ SOC 2 review pending$/, "")).toEndWith("Retries twice, then shows an error.");
     expectValid(card());
   });
   test("shows at most three rows, counts the rest of the list, and states the page", () => {
@@ -343,7 +345,7 @@ describe("error, connect and policy cards", () => {
       "Repo access: your public and private repositories",
     ]) expect(text).toContain(s);
     expect(text).not.toMatch(/Search code|Composio|limits itself|keep logs/);
-    expect(text).not.toContain("SOC 2");
+    expect(text).toContain("⚠️ SOC 2 review pending");
   });
 
   test("waiting and reconnect stages change the call to action", () => {

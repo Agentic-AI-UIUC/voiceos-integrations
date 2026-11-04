@@ -94,11 +94,12 @@ describe("built confirmation views", () => {
       const keys = [...view.root.html.matchAll(/data-gh-key="([^"]+)"/g)].map((m) => m[1]);
       expect(keys.length).toBeGreaterThan(0);
       for (const key of keys) expect(props).toContain(key);
-      expect(view.root.html).not.toMatch(/SOC 2|test repositor/);
+      expect(view.root.html).toContain('<div class="gh-soc2" role="note">⚠️ SOC 2 review pending</div>');
+      expect(view.root.html).not.toContain("test repositor");
     });
   }
 
-  test("cards show the change and nothing else: no explanatory notes (user, 2026-10-28)", () => {
+  test("cards show the change and required review warning without explanatory notes", () => {
     for (const tool of WRITE_TOOLS) {
       const html = buildConfirmation(tool as WriteTool).root.html;
       const markup = html.slice(html.indexOf("<body>"), html.indexOf("<script>"));
