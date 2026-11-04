@@ -16,15 +16,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 2
       - id: find
         env:
           EVENT: ${{ github.event_name }}
-          BASE: ${{ github.event.pull_request.base.sha }}
         run: |
           # PRs check only the integrations they touch; pushes to main check all of them.
+          # HEAD is the PR merge commit; HEAD^1 is current main. pull_request.base.sha goes stale
+          # when main moves, which pulled other integrations into the diff.
           if [ "$EVENT" = pull_request ]; then
-            changed=$(git diff --name-only "$BASE" HEAD -- integrations/ | cut -d/ -f1-2 | sort -u)
+            changed=$(git diff --name-only HEAD^1 HEAD -- integrations/ | cut -d/ -f1-2 | sort -u)
           else
             changed=$(find integrations -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort)
           fi
