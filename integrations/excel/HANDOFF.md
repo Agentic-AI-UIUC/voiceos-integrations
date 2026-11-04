@@ -96,3 +96,12 @@ mapping, toolkit version, ownership validation, or confirmation behavior changed
 Offline regression tests and an actual SDK API-shape check pass. Fresh live
 Microsoft/Composio execution on 0.28.0 is pending author testing; older live
 results do not establish live compatibility of this upgrade.
+
+## Published branding update — November 4, 2026
+
+The author republished version `1.0.1` at the existing share URL:
+https://api.voiceos.com/integration-share/09SN91amuePp/page
+
+The local server was verified byte-identical to the reviewed real implementation
+before committing. The temporary one-time reload stub and recovery backups are
+local recovery artifacts and are not included in this repository.
