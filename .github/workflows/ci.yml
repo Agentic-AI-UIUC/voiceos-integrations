@@ -11,6 +11,9 @@ permissions:
 jobs:
   ci:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
         with:
@@ -20,7 +23,7 @@ jobs:
       - name: No .env files committed
         run: |
           if git ls-files | grep -E '(^|/)\.env($|\.)' | grep -v '\.env\.example$'; then
-            echo "::error::.env file committed - remove it and rotate any keys in it"
+            echo "::error::.env file committed: remove it and rotate any keys in it"
             exit 1
           fi
 
