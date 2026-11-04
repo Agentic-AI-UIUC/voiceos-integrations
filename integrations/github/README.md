@@ -4,6 +4,12 @@ Eight GitHub actions for the VoiceOS voice agent, run through Composio with a
 repo-scope OAuth connection. Every change is shown on a confirmation card first,
 and the server refuses any change that arrives without that card's approval.
 
+**⚠️ SOC 2 review pending.** Production access is blocked until Max and the
+SOC 2 team sign off on this build. The integration page and blocked-action
+card show the warning. [Production review](PRODUCTION-REVIEW.md) describes
+the evidence, source fingerprint and release commands. Local mock testing
+and disconnect/revocation remain available.
+
 ## Use it
 
 1. VoiceOS → Integrations → GitHub → Configure → **Composio project API key**

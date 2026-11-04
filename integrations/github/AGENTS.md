@@ -90,7 +90,14 @@ changes on its next turn — just talk to it.
 - **Check every change:** `bun run build && bun test && bun run verify`.
 - **The tool list is fixed at eight** (`src/catalog.ts`, the approved
   allowlist). The integration works with every repository the connected
-  GitHub account can reach; there's no release channel or repository limit.
+  GitHub account can reach after production approval; there's no repository limit.
+- **Production requires SOC 2 sign-off.** `production-review.json` stays
+  pending until Max and the SOC 2 team approve the current source fingerprint.
+  `scripts/productionReview.ts` validates it; `scripts/build.ts` embeds the
+  outcome. `src/productionReview.ts` blocks production calls and warm-up
+  without approval. Only the loopback fake bypasses it; disconnect is still
+  available. Do not turn it into a setup preference or invent approvals.
+  See `PRODUCTION-REVIEW.md` and use `bun run build:production` for releases.
 - **Writes depend on their confirmation cards.** Each write card stages a
   receipt: a keyless SHA-256 digest of the exact arguments on screen
   (`src/receiptCoreScript.ts`), which the server recomputes. A card whose

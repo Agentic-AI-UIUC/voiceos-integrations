@@ -442,9 +442,9 @@ export function reviewSubmittedCard(input: {
 // ---------------------------------------------------------------------------
 
 export function errorCard(error: GithubError, ctx: { target?: string; openUrl?: string } = {}): Widget {
-  const unknown = error.category === "unknown_outcome";
+  const warning = error.category === "unknown_outcome" || error.category === "production_review_required";
   const href = safeHref(ctx.openUrl);
-  const body = `${header(ctx.target)}<div class="gh-err${unknown ? " unk" : ""}">${icon(unknown ? "alert" : "stop")}<span>${titleLink(href, esc(error.title))}</span></div><div class="gh-msg">${esc(
+  const body = `${header(ctx.target)}<div class="gh-err${warning ? " unk" : ""}"${error.category === "production_review_required" ? ' role="alert"' : ""}>${icon(warning ? "alert" : "stop")}<span>${titleLink(href, esc(error.title))}</span></div><div class="gh-msg">${esc(
     error.message,
   )}</div>${error.nextAction ? `<div class="gh-meta">${esc(error.nextAction)}</div>` : ""}`;
   const height = 110 + (error.message.length > 90 ? 18 : 0) + (error.nextAction ? 20 : 0);

@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { FACADES, TOOL_META, WRITE_TOOLS } from "../src/catalog.ts";
 import { Gateway } from "../src/gateway.ts";
 import { createServer } from "../src/mcpServer.ts";
+import { inspectProductionReview } from "../scripts/productionReview.ts";
 
 const ROOT = join(import.meta.dir, "..");
 const manifest = JSON.parse(readFileSync(join(ROOT, "voiceos.integration.json"), "utf8"));
@@ -164,7 +165,7 @@ describe("tools", () => {
 });
 
 describe("detail page", () => {
-  test("states the real scope, the eight actions, and how to disconnect, with no review or repository limits", () => {
+  test("states the real scope, the eight actions, how to disconnect, and the pending production review", () => {
     const d: string = manifest.description;
     for (const s of [
       "`repo` scope",
@@ -173,7 +174,12 @@ describe("detail page", () => {
       "Use my GitHub connection",
     ]) expect(d).toContain(s);
     expect(d).not.toContain("**Set up**");
-    expect(raw).not.toMatch(/SOC 2|test repositor|release channel/i);
+    if (inspectProductionReview(ROOT).approved) expect(d).not.toContain("SOC 2 review pending");
+    else {
+      expect(d).toStartWith("**⚠️ SOC 2 review pending");
+      expect(d).toContain("production is blocked until Max and the SOC 2 team sign off");
+    }
+    expect(raw).not.toMatch(/test repositor|release channel/i);
   });
 
   test("setup steps sit in the setup guide above Configure, ending with something to say", () => {

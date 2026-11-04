@@ -9,6 +9,7 @@
  */
 
 export type ErrorCategory =
+  | "production_review_required"
   | "invalid_input"
   | "not_connected"
   | "connecting"
@@ -51,6 +52,7 @@ export interface GithubErrorInit {
 }
 
 const TITLES: Record<ErrorCategory, string> = {
+  production_review_required: "SOC 2 review required",
   invalid_input: "Check the request",
   not_connected: "Connect GitHub",
   connecting: "Finish connecting GitHub",
