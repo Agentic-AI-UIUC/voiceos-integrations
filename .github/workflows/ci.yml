@@ -9,43 +9,12 @@ permissions:
   contents: read
 
 jobs:
-  changes:
+  ci:
     runs-on: ubuntu-latest
-    outputs:
-      dirs: ${{ steps.find.outputs.dirs }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 2
-      - id: find
-        env:
-          EVENT: ${{ github.event_name }}
-        run: |
-          # PRs check only the integrations they touch; pushes to main check all of them.
-          # HEAD is the PR merge commit; HEAD^1 is current main. pull_request.base.sha goes stale
-          # when main moves, which pulled other integrations into the diff.
-          if [ "$EVENT" = pull_request ]; then
-            changed=$(git diff --name-only HEAD^1 HEAD -- integrations/ | cut -d/ -f1-2 | sort -u)
-          else
-            changed=$(find integrations -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort)
-          fi
-          dirs=$(for d in $changed; do [ -d "$d" ] && echo "$d"; done | jq -R . | jq -sc .)
-          echo "dirs=$dirs" >> "$GITHUB_OUTPUT"
-          echo "Checking: $dirs"
-
-  integration:
-    needs: changes
-    if: needs.changes.outputs.dirs != '[]'
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        dir: ${{ fromJSON(needs.changes.outputs.dirs) }}
-    defaults:
-      run:
-        working-directory: ${{ matrix.dir }}
-    steps:
-      - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
 
       - name: No .env files committed
@@ -55,27 +24,34 @@ jobs:
             exit 1
           fi
 
-      - name: Install
-        if: hashFiles(format('{0}/package.json', matrix.dir)) != ''
-        run: bun install
-
-      - name: Tests
+      - name: Test changed integrations
+        env:
+          EVENT: ${{ github.event_name }}
         run: |
-          if [ -z "$(git ls-files '*.test.ts' '*.test.js')" ]; then
-            echo "::error::no tests found - add *.test.ts files for your integration"
+          if [ "$EVENT" = pull_request ]; then
+            changed=$(git diff --name-only HEAD^1 HEAD -- integrations/ | cut -d/ -f1-2 | sort -u)
+          else
+            changed=$(find integrations -mindepth 1 -maxdepth 1 -type d | sort)
+          fi
+          failed=""
+          for dir in $changed; do
+            [ -d "$dir" ] || continue
+            echo "::group::$dir"
+            if ! (
+              cd "$dir"
+              if [ -z "$(git ls-files '*.test.ts' '*.test.js')" ]; then
+                echo "::error::$dir has no tests - add *.test.ts files for your integration"
+                exit 1
+              fi
+              if [ -f package.json ]; then bun install || exit 1; fi
+              bun test
+            ); then
+              failed="$failed $dir"
+            fi
+            echo "::endgroup::"
+          done
+          if [ -n "$failed" ]; then
+            echo "::error::failed:$failed"
             exit 1
           fi
-          bun test
-
-  # Single required check for branch protection, so it works however many integrations a PR touches.
-  ci:
-    if: always()
-    needs: [changes, integration]
-    runs-on: ubuntu-latest
-    steps:
-      - env:
-          CHANGES: ${{ needs.changes.result }}
-          INTEGRATION: ${{ needs.integration.result }}
-        run: |
-          [ "$CHANGES" = success ] || exit 1
-          case "$INTEGRATION" in success|skipped) ;; *) exit 1 ;; esac
+          echo "Checked: ${changed:-nothing}"
