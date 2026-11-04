@@ -1,7 +1,7 @@
 import {expect,test} from 'bun:test';
 import {readFileSync} from 'node:fs';
 const manifest=JSON.parse(readFileSync(new URL('./voiceos.integration.json',import.meta.url),'utf8'));
-const icon='data:image/png;base64,'+readFileSync(new URL('./icon.png',import.meta.url)).toString('base64');
+const icon='data:image/png;base64,'+readFileSync(new URL('./icon-mark.png',import.meta.url)).toString('base64');
 const writes=manifest.tools.filter((tool:any)=>tool.confirmation);
 for(const tool of writes){test(`${tool.name}: brand and title share normal flow`,()=>{
  const html=tool.confirmation.root.html;
