@@ -1,4 +1,4 @@
-# Todoist integration — 1.0.10
+# Todoist integration — 1.0.11
 
 ## Platform and setup
 
@@ -23,7 +23,7 @@ its host and does not automatically load `.env` files.
 - Delete project
 - Create section
 - Delete section
-- List labels (`list_labels`, read-only)
+- List Todoist labels (`list_labels`, read-only)
 - Create label
 - Update label
 - Delete label (confirmation required; removes the label from all tasks)

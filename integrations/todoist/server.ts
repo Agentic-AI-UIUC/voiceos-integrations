@@ -8,7 +8,7 @@ import { readFile, writeFile, rename } from "node:fs/promises";
 
 // Composio owns OAuth, token storage/refresh, and Todoist requests.
 // This adapter only saves this installation's identity and connection reference.
-const server = new McpServer({ name: "composio-todoist", version: "1.0.10" });
+const server = new McpServer({ name: "composio-todoist", version: "1.0.11" });
 // BEGIN TOOL CATALOG
 const catalog: any = {
   "version": "20260731_00",
@@ -722,7 +722,7 @@ const catalog: any = {
     },
     {
       "name": "list_labels",
-      "title": "List labels",
+      "title": "List Todoist labels",
       "readOnly": true,
       "slug": "TODOIST_LIST_LABELS",
       "description": "Read personal Todoist labels and resolve label names into IDs. Use when asked to list labels or find an exact label before an update or deletion. Clarify duplicate names and follow next_cursor for more results. Use create_label, update_label, or delete_label for changes.",
