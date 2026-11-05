@@ -1,4 +1,4 @@
-# Todoist integration — 1.0.9
+# Todoist integration — 1.0.10
 
 ## Platform and setup
 
@@ -23,7 +23,7 @@ its host and does not automatically load `.env` files.
 - Delete project
 - Create section
 - Delete section
-- List labels (`manage_labels`, read-only; optional legacy `action: "list"`)
+- List labels (`list_labels`, read-only)
 - Create label
 - Update label
 - Delete label (confirmation required; removes the label from all tasks)
@@ -40,8 +40,8 @@ changes; fields absent from the request stay unchanged. Deletions always show
 Name, ID, and the consequence of deleting that entity. Read-only lookups never
 ask for confirmation by default.
 
-`manage_labels` only lists labels now. Use `create_label`, `update_label`, and
-`delete_label` for changes; the legacy create/update/delete actions are rejected.
+`list_labels` only lists labels and accepts optional `limit` and `cursor` arguments.
+Use `create_label`, `update_label`, and `delete_label` for changes.
 There are **18 exposed tools: 15 business tools and 3 account/setup helpers**.
 
 ## Automated tests

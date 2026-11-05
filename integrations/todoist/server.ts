@@ -8,7 +8,7 @@ import { readFile, writeFile, rename } from "node:fs/promises";
 
 // Composio owns OAuth, token storage/refresh, and Todoist requests.
 // This adapter only saves this installation's identity and connection reference.
-const server = new McpServer({ name: "composio-todoist", version: "1.0.9" });
+const server = new McpServer({ name: "composio-todoist", version: "1.0.10" });
 // BEGIN TOOL CATALOG
 const catalog: any = {
   "version": "20260731_00",
@@ -721,7 +721,7 @@ const catalog: any = {
       }
     },
     {
-      "name": "manage_labels",
+      "name": "list_labels",
       "title": "List labels",
       "readOnly": true,
       "slug": "TODOIST_LIST_LABELS",
@@ -729,13 +729,6 @@ const catalog: any = {
       "inputSchema": {
         "type": "object",
         "properties": {
-          "action": {
-            "type": "string",
-            "enum": [
-              "list"
-            ],
-            "description": "Optional legacy list action. This tool only reads labels; use create_label, update_label, or delete_label for changes."
-          },
           "limit": {
             "type": "integer",
             "title": "Limit",
@@ -780,13 +773,13 @@ const catalog: any = {
       "title": "Update label",
       "readOnly": false,
       "slug": "TODOIST_UPDATE_LABEL_V1_SECOND",
-      "description": "Update a personal Todoist label. Use when asked to rename a label or change its color, order, or favorite status. Resolve the exact ID with manage_labels first, clarify ambiguous names, and send only requested changes.",
+      "description": "Update a personal Todoist label. Use when asked to rename a label or change its color, order, or favorite status. Resolve the exact ID with list_labels first, clarify ambiguous names, and send only requested changes.",
       "inputSchema": {
         "type": "object",
         "required": ["label_id"],
         "properties": {
           "label_id": { "type": "string", "description": "ID of the label to update." },
-          "target_name": { "type": "string", "description": "Existing label name from manage_labels, for confirmation display only. Never substitute it for label_id." },
+          "target_name": { "type": "string", "description": "Existing label name from list_labels, for confirmation display only. Never substitute it for label_id." },
           "name": { "type": "string", "minLength": 1, "maxLength": 128, "description": "New label name. Omit to leave unchanged." },
           "color": { "anyOf": [{ "type": "string" }, { "type": "integer" }], "description": "New color name or numeric color code. Omit to leave unchanged." },
           "order": { "type": "integer", "description": "New position in the label list. Omit to leave unchanged." },
@@ -798,7 +791,7 @@ const catalog: any = {
       "name": "delete_label",
       "title": "Delete label",
       "slug": "TODOIST_DELETE_LABEL_V1",
-      "description": "Delete a personal Todoist label and remove it from every task that uses it. Use only when explicitly asked to delete a label. Resolve its exact ID and name with manage_labels/action=list, clarify ambiguous names, and require confirmation. Tasks themselves are not deleted.",
+      "description": "Delete a personal Todoist label and remove it from every task that uses it. Use only when explicitly asked to delete a label. Resolve its exact ID and name with list_labels, clarify ambiguous names, and require confirmation. Tasks themselves are not deleted.",
       "readOnly": false,
       "inputSchema": {
         "type": "object",
@@ -818,7 +811,7 @@ const catalog: any = {
           "target_name": {
             "type": "string",
             "title": "Selected label",
-            "description": "Human-readable label name from manage_labels/action=list, for confirmation display only. Never substitute it for label_id."
+            "description": "Human-readable label name from list_labels, for confirmation display only. Never substitute it for label_id."
           }
         },
         "description": "Request model for deleting a personal label."
@@ -1195,7 +1188,7 @@ function listPage(data: any, keys: string[], depth = 0): { items: any[]; nextCur
 
 function operationResult(tool: any, args: Record<string, any>, data: any) {
   const listKeys: Record<string, string> = {
-    list_projects: "projects", list_sections: "sections", get_active_tasks: "tasks", manage_labels: "labels",
+    list_projects: "projects", list_sections: "sections", get_active_tasks: "tasks", list_labels: "labels",
   };
   const entity = listKeys[tool.name];
   const payload: Record<string, any> = { success: true, operation: tool.name, data };
@@ -1237,8 +1230,6 @@ for (const tool of catalog.tools) {
   }, async (input: Record<string, any>, extra) => withFeedback(tool.title,
     !tool.readOnly, extra, async () => {
       const { target_name, ...args } = input;
-      // Accept the legacy list action locally, without sending it to Todoist.
-      if (tool.name === "manage_labels") delete args.action;
       validateArguments(tool.name, args);
       const state = await load();
       const account = await requireAccount(state);

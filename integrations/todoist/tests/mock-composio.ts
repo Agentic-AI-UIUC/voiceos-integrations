@@ -96,7 +96,7 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
   // The SDK checks its package version asynchronously. Answer locally without
   // treating that package-maintenance request as an integration API operation.
   if (url.origin === "https://registry.npmjs.org" && path === "/@composio/core/latest") {
-    return respond({ version: "0.27.0" });
+    return respond({ version: "0.28.0" });
   }
   record({ kind: "request", path, method: request.method, body });
 

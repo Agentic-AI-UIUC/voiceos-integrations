@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "com.voiceos.generated.composio-todoist",
-  "version": "1.0.9",
+  "version": "1.0.10",
   "name": "Todoist",
   "summary": "Manage Todoist tasks, projects, sections, and labels through Composio OAuth.",
   "description": "Todoist account controls, task/project/section/label actions, and productivity statistics. Actions show consistent confirmation cards; lookups run without confirmation. Writes report success or failure using VoiceOS notifications.",
@@ -1038,19 +1038,12 @@
       }
     },
     {
-      "name": "manage_labels",
+      "name": "list_labels",
       "title": "List labels",
       "description": "Read personal Todoist labels and resolve label names into IDs. Use when asked to list labels or find an exact label before an update or deletion. Clarify duplicate names and follow next_cursor for more results. Use create_label, update_label, or delete_label for changes.",
       "inputSchema": {
         "type": "object",
         "properties": {
-          "action": {
-            "type": "string",
-            "enum": [
-              "list"
-            ],
-            "description": "Optional legacy list action. This tool only reads labels; use create_label, update_label, or delete_label for changes."
-          },
           "limit": {
             "type": "integer",
             "title": "Limit",
@@ -1117,13 +1110,13 @@
     {
       "name": "update_label",
       "title": "Update label",
-      "description": "Update a personal Todoist label. Use when asked to rename a label or change its color, order, or favorite status. Resolve the exact ID with manage_labels first, clarify ambiguous names, and send only requested changes.",
+      "description": "Update a personal Todoist label. Use when asked to rename a label or change its color, order, or favorite status. Resolve the exact ID with list_labels first, clarify ambiguous names, and send only requested changes.",
       "inputSchema": {
         "type": "object",
         "required": ["label_id"],
         "properties": {
           "label_id": { "type": "string", "description": "ID of the label to update." },
-          "target_name": { "type": "string", "description": "Existing label name from manage_labels, for confirmation display only. Never substitute it for label_id." },
+          "target_name": { "type": "string", "description": "Existing label name from list_labels, for confirmation display only. Never substitute it for label_id." },
           "name": { "type": "string", "minLength": 1, "maxLength": 128, "description": "New label name. Omit to leave unchanged." },
           "color": { "anyOf": [{ "type": "string" }, { "type": "integer" }], "description": "New color name or numeric color code. Omit to leave unchanged." },
           "order": { "type": "integer", "description": "New position in the label list. Omit to leave unchanged." },
@@ -1161,7 +1154,7 @@
     {
       "name": "delete_label",
       "title": "Delete label",
-      "description": "Delete a personal Todoist label and remove it from every task that uses it. Use only when explicitly asked to delete a label. Resolve its exact ID and name with manage_labels/action=list, clarify ambiguous names, and require confirmation. Tasks themselves are not deleted.",
+      "description": "Delete a personal Todoist label and remove it from every task that uses it. Use only when explicitly asked to delete a label. Resolve its exact ID and name with list_labels, clarify ambiguous names, and require confirmation. Tasks themselves are not deleted.",
       "inputSchema": {
         "type": "object",
         "title": "DeleteLabelV1Request",
@@ -1180,7 +1173,7 @@
           "target_name": {
             "type": "string",
             "title": "Selected label",
-            "description": "Human-readable label name from manage_labels/action=list, for confirmation display only. Never substitute it for label_id."
+            "description": "Human-readable label name from list_labels, for confirmation display only. Never substitute it for label_id."
           }
         },
         "description": "Request model for deleting a personal label."
