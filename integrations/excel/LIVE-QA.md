@@ -1,6 +1,6 @@
 # Live QA - November 4, 2026
 
-Build: excel-review-fixed-v7-inline-brand. Integration/package version: 1.0.1.
+Build: excel-review-fixed-v7-inline-brand. Integration/package version: 1.0.2.
 SDK: @composio/core 0.28.0; toolkit: 20261029_00.
 Share: https://api.voiceos.com/integration-share/09SN91amuePp/page
 
@@ -37,8 +37,30 @@ follow-up, not evidence that every confirmation field is populated.
 Local verification: 141 tests pass, including the version-check regression.
 The agent did not open VoiceOS or run live calls.
 
-**Republishing after this test remains pending**, confirmed by the author.
-The earlier share version 1.0.1 predates this SDK stdout fix. After republishing,
-record the share's updated timestamp. Cancellation, fresh installation,
-expired/revoked credentials, actual scopes, and chart inspection in Excel
-remain separate QA; tool success and result screenshots do not prove them.
+## Post-publication smoke test - version 1.0.2
+
+Saved publication metadata confirms 2026-11-05T01:48:03.985Z
+(November 4, 19:48:03 America/Chicago), using the existing share channel.
+The real local server was verified byte-identical to the repository; no reload
+stub or recovery backup is committed.
+
+The author's supplied subsequent log reports SDK 0.28.0 and ten discovered
+tools at 19:48:25. Results:
+
+| Time | Action | Observed result |
+| --- | --- | --- |
+| 19:49:27 | List worksheets | Successful list |
+| 19:50:23 | Create Publish QA 102 | Created |
+| 19:50:51 | List worksheets | Publish QA 102 present |
+| 19:51:11 | Delete Publish QA 102 | Deleted; raw success true |
+
+No Upgrade available notice occurs in the supplied excerpt. The disabled SDK
+version-check option, not absence of a notice alone, protects future starts.
+Deletion was acknowledged; no final list after deletion was supplied. Logs do
+not independently capture button clicks. All six confirmation layouts and
+successful earlier live writes are documented in the November 4 gallery/logs.
+
+Republishing and the requested minimum live read/write test are complete.
+Maintainer approval/CI remain merge requirements. Cancellation, fresh shared
+installation, credential lifecycle, actual scopes and chart appearance inside
+Excel remain separate QA and are not established by these logs.

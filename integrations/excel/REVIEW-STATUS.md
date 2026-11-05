@@ -1,6 +1,6 @@
 # Review status: Microsoft Excel
 
-Current source: excel-review-fixed-v7-inline-brand; version 1.0.1;
+Current source: excel-review-fixed-v7-inline-brand; version 1.0.2;
 @composio/core pinned to 0.28.0; toolkit 20261029_00.
 
 ## Completed
@@ -17,8 +17,7 @@ Current source: excel-review-fixed-v7-inline-brand; version 1.0.1;
 
 ## Remaining
 
-- Author will republish after this live test. The existing version 1.0.1
-  publication predates the stdout fix; do not report hosting as updated yet.
+- Republished version 1.0.2 and post-publication list/create/read-back/delete smoke test are complete; see LIVE-QA.md. Maintainer approval and CI remain required.
 - Append confirmation screenshot leaves Table ID blank even though execution
   receives the correct table_name. Review this field binding separately.
 - Cancellation, fresh installation, token lifecycle, auth-config scopes, and

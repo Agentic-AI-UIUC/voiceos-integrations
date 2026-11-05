@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "com.voiceos.generated.microsoft-excel",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "name": "Microsoft Excel",
   "summary": "View workbooks, read and update cell ranges, manage worksheets, append table rows, and create charts via Composio.",
   "description": "Access Microsoft 365 Excel spreadsheets stored in OneDrive or SharePoint Online using Composio-managed OAuth. Inspect workbook metadata, list and manage worksheets, read and update cell ranges, append data to tables, and generate charts.",

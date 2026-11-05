@@ -2,7 +2,7 @@
 
 ## Current version and evidence
 
-- Integration/package: 1.0.1; build: excel-review-fixed-v7-inline-brand.
+- Integration/package: 1.0.2; build: excel-review-fixed-v7-inline-brand.
 - Local folder: microsoft-excel-643af91a. Avoid older development exports.
 - @composio/core: exactly 0.28.0; Excel toolkit: 20261029_00.
 - 141 local tests pass. Regression checks run under bun test, not startup.
@@ -10,8 +10,7 @@
   See [LIVE-QA.md](LIVE-QA.md), [sanitized results](docs/live-qa-2026-11-04.md),
   and [ordered screenshots](docs/screenshots/README.md).
 - Share: https://api.voiceos.com/integration-share/09SN91amuePp/page
-- **Republish after the latest stdout fix/test is pending.** The author will
-  do this manually; the earlier 1.0.1 publication does not include this fix.
+- Republished as 1.0.2 on November 4 at 19:48:03 America/Chicago. The author supplied a successful post-publication read/create/read-back/delete smoke test (19:49-19:51).
 
 ## Implemented
 
