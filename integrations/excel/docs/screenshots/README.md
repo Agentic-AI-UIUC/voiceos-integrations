@@ -1,57 +1,103 @@
-# VoiceOS UI: fresh live QA
+# VoiceOS screenshots  November 4, 2026
 
-Original screenshots supplied by Prerak from November 1, 2026. They show all ten action results, including the six write results, and three confirmation cards. All six write tools ask the user to click the action button to confirm before execution. Read tools do not require confirmation.
+Author-supplied manual VoiceOS captures, ordered by action: confirmation before result. All six write tools require the user to click the confirmation action button. Titles are readable beside the Excel logo; the chart result uses a neutral icon rather than synthetic data bars.
 
-The chart screenshot is the VoiceOS result card, not a rendering of the chart inside Excel. Workbook cards contain truncated test-workbook identifiers; no API keys or OAuth tokens are shown.
+These are selected captures from repeated tests, not a single uninterrupted recording. Only one copy of each action/state is included; the repeated range-read capture and generic Q3 Forecast example were omitted. Original files in the author's Pictures folder were left untouched. No VoiceOS UI was opened or controlled by the agent.
 
-### Get workbook
+The append confirmation shows a blank Table ID field despite the requested table name appearing in the prompt; the execution logs contain the correct table_name and a successful append. These captures establish title/branding layout, not that every target field is populated.
 
-![Get workbook](get-workbook.png)
+## 01. Get workbook
 
-### List worksheets
+Source: Screenshot 2026-11-04 192503.png.
 
-![List worksheets](list-worksheets.png)
+![Get workbook](01-get-workbook.png)
 
-### Get worksheet
+## 02. List worksheets
 
-![Get worksheet](get-worksheet.png)
+Source: Screenshot 2026-11-04 192530.png.
 
-### Create worksheet confirmation
+![List worksheets](02-list-worksheets.png)
 
-![Create worksheet confirmation](create-worksheet-confirmation.png)
+## 03. Get worksheet
 
-### Create worksheet result
+Source: Screenshot 2026-11-04 192557.png.
 
-![Create worksheet result](create-worksheet-result.png)
+![Get worksheet](03-get-worksheet.png)
 
-### Update range confirmation
+## 04. Create worksheet: confirmation
 
-![Update range confirmation](update-range-confirmation.png)
+Source: Screenshot 2026-11-04 192637.png.
 
-### Update range result
+![Create worksheet: confirmation](04-create-worksheet-confirmation.png)
 
-![Update range result](update-range-result.png)
+## 05. Create worksheet: result
 
-### Read cell range
+Source: Screenshot 2026-11-04 193043.png.
 
-![Read cell range](get-range.png)
+![Create worksheet: result](05-create-worksheet-result.png)
 
-### Rename worksheet result
+## 06. Update range: confirmation
 
-![Rename worksheet result](rename-worksheet.png)
+Source: Screenshot 2026-11-04 192720.png.
 
-### Append table rows result
+![Update range: confirmation](06-update-range-confirmation.png)
 
-![Append table rows result](append-table-rows.png)
+## 07. Update range: result
 
-### Create chart result
+Source: Screenshot 2026-11-04 193105.png.
 
-![Create chart result](create-chart.png)
+![Update range: result](07-update-range-result.png)
 
-### Delete worksheet confirmation
+## 08. Read back A1:B4
 
-![Delete worksheet confirmation](delete-worksheet-confirmation.png)
+Source: Screenshot 2026-11-04 193124.png.
 
-### Delete worksheet result
+![Read back A1:B4](08-get-range.png)
 
-![Delete worksheet result](delete-worksheet-result.png)
+## 09. Rename worksheet: confirmation
+
+Source: Screenshot 2026-11-04 192807.png.
+
+![Rename worksheet: confirmation](09-rename-worksheet-confirmation.png)
+
+## 10. Rename worksheet: result
+
+Source: Screenshot 2026-11-04 193145.png.
+
+![Rename worksheet: result](10-rename-worksheet-result.png)
+
+## 11. Append rows: confirmation
+
+Source: Screenshot 2026-11-04 192903.png.
+
+![Append rows: confirmation](11-append-rows-confirmation.png)
+
+## 12. Append rows: result
+
+Source: Screenshot 2026-11-04 193317.png.
+
+![Append rows: result](12-append-rows-result.png)
+
+## 13. Create chart: confirmation
+
+Source: Screenshot 2026-11-04 192930.png.
+
+![Create chart: confirmation](13-create-chart-confirmation.png)
+
+## 14. Create chart: result
+
+Source: Screenshot 2026-11-04 192944.png.
+
+![Create chart: result](14-create-chart-result.png)
+
+## 15. Delete worksheet: confirmation
+
+Source: Screenshot 2026-11-04 193003.png.
+
+![Delete worksheet: confirmation](15-delete-worksheet-confirmation.png)
+
+## 16. Delete worksheet: result
+
+Source: Screenshot 2026-11-04 193018.png.
+
+![Delete worksheet: result](16-delete-worksheet-result.png)

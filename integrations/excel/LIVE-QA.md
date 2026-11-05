@@ -1,33 +1,44 @@
-# Fresh live QA: Excel v5
+# Live QA - November 4, 2026
 
-Build: `excel-review-fixed-v5-collections`  
-Toolkit: `20261029_00`; SDK: `@composio/core` 0.27.0  
-VoiceOS share: https://api.voiceos.com/integration-share/09SN91amuePp/page
+Build: excel-review-fixed-v7-inline-brand. Integration/package version: 1.0.1.
+SDK: @composio/core 0.28.0; toolkit: 20261029_00.
+Share: https://api.voiceos.com/integration-share/09SN91amuePp/page
 
-On November 1, 2026, Prerak confirmed successful live retesting after the v5
-collection and delete-mapping fixes. In response to the explicit question about
-testing all six writes and checking Excel, he confirmed: "Yes, I tested all the
-6 write functions."
+The author supplied fresh VoiceOS logs from 19:23:44-19:33:11 America/Chicago.
+Startup discovered ten tools; subsequent results cover all four reads and all
+six writes. This meets the requested minimum of one live read and one live
+write on the SDK-updated implementation. The local server contains
+`disableVersionCheck: true`; the reused build marker alone does not prove
+which source bytes ran. No SDK upgrade notice appears in the supplied log.
 
-| Action | Result reported by tester |
+| Action | Selected successful result time |
 | --- | --- |
-| Create worksheet | Passed |
-| Rename worksheet | Passed |
-| Delete worksheet | Passed |
-| Update cell range | Passed |
-| Add table rows | Passed |
-| Create chart | Passed |
+| Get workbook | 19:24:53 |
+| List worksheets | 19:25:16 |
+| Get worksheet | 19:25:42 |
+| Create worksheet | 19:27:02 |
+| Update range | 19:27:26 |
+| Read range | 19:27:42 |
+| Rename worksheet | 19:28:11 |
+| Append table rows | 19:29:13 |
+| Create chart | 19:29:38 |
+| Delete worksheet | 19:30:12 |
 
-This is the author's live-test attestation. It is distinct from the offline
-fake-client tests. No new raw trace or timings accompanied the final confirmation;
-do not represent earlier failing v4 logs as successful v5 evidence.
+See [sanitized successful results](docs/live-qa-2026-11-04.md) and the
+[ordered screenshot gallery](docs/screenshots/README.md). The excerpt removes
+repeated calls and error traces, with omitted failures explicitly disclosed.
+Original logs/screenshots remain unchanged outside the repository.
 
-The server source was verified identical between the local PR checkout and the
-current VoiceOS export `microsoft-excel-643af91a` before final documentation and
-dependency-pin cleanup. That export had resolved SDK 0.27.0 installed but its
-package manifest had reverted to `latest`; the exact pin and matching lockfile
-were restored without changing the working server.
+All six current confirmation cards are pictured. Confirmation action buttons
+require user clicks. The append screenshot has an empty Table ID field; the
+execution trace includes the correct table_name. This remains a UI binding
+follow-up, not evidence that every confirmation field is populated.
 
-Separate coverage still needed: cancellation with no side effects, fresh share-link
-installation, revoked/expired credentials, and native production account linking.
-These are not claimed by the six successful action tests.
+Local verification: 141 tests pass, including the version-check regression.
+The agent did not open VoiceOS or run live calls.
+
+**Republishing after this test remains pending**, confirmed by the author.
+The earlier share version 1.0.1 predates this SDK stdout fix. After republishing,
+record the share's updated timestamp. Cancellation, fresh installation,
+expired/revoked credentials, actual scopes, and chart inspection in Excel
+remain separate QA; tool success and result screenshots do not prove them.

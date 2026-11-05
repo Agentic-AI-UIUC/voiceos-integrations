@@ -1088,7 +1088,7 @@ export async function executeComposioAction(actionName: string, inputArgs: Recor
 
   let composio: any;
   try {
-    composio = clientForTest ?? new Composio({ apiKey, baseUrl: COMPOSIO_BASE_URL });
+    composio = clientForTest ?? new Composio({ apiKey, baseUrl: COMPOSIO_BASE_URL, disableVersionCheck: true });
   } catch (initErr: any) {
     throw new Error(`Failed to initialize Composio client: ${initErr.message || String(initErr)}`);
   }

@@ -1,40 +1,28 @@
 # Review status: Microsoft Excel
 
-Current build: `excel-review-fixed-v5-collections`. SDK pinned to 0.27.0;
-default toolkit version `20261029_00`. These current notes supersede historical
-v2/v4 pending-live statements in the handoff.
+Current source: excel-review-fixed-v7-inline-brand; version 1.0.1;
+@composio/core pinned to 0.28.0; toolkit 20261029_00.
 
 ## Completed
 
-- Author confirmed fresh live testing of all six writes after the v5 fixes;
-  see LIVE-QA.md for the attestation and limits.
-- Write timeouts report outcome unknown and require inspecting Excel before
-  retrying. Writes are not retried automatically.
-- Current SDK only; no deprecated v1 REST execution or alternate SDK fallbacks.
-- Fixed per-action field mapping with fetched schema validation, not alias guessing.
-- Account lookup fails closed on missing ownership, wrong owner, wrong toolkit,
-  wrong ID, inactive status, or retrieval failure.
-- Regression checks run only in bun test, not on startup.
-- Cached Studio identifiers sanitized; preview arguments use Setup defaults.
-- Current build marker replaces the original manual-account-restored marker.
-- 132 offline tests and ten-tool MCP discovery are the automated checks.
+- Production SDK construction disables version checking, preventing npm update
+  notices on the MCP stdout channel. A regression test guards this option.
+- Fresh author-supplied November 4 logs contain successful results for all ten
+  actions. See LIVE-QA.md for evidence and limits.
+- All six confirmation headers are pictured with the current Excel logo.
+- Chart result uses a neutral icon; fabricated data bars are removed.
+- Explicit field mappings, fail-closed ownership checks, single-attempt writes,
+  unknown-outcome write timeouts, and on-demand tests remain in place.
+- 141 local tests pass. Exactly ten public tools are retained.
 
-## Manual setup decision
+## Remaining
 
-Dario approved temporary manual API-key/User-ID/Connected-Account-ID setup for
-v1 QA. Syafino noted Todoist's native OAuth flow. Account linking remains a
-production follow-up to coordinate with the VoiceOS team. This integration does
-not claim to implement native linking or claim that linking is impossible.
+- Author will republish after this live test. The existing version 1.0.1
+  publication predates the stdout fix; do not report hosting as updated yet.
+- Append confirmation screenshot leaves Table ID blank even though execution
+  receives the correct table_name. Review this field binding separately.
+- Cancellation, fresh installation, token lifecycle, auth-config scopes, and
+  actual chart appearance in Excel need their own evidence.
 
-## Separate QA still needed
-
-Cancellation, fresh share-link installation, expired/revoked access, and actual
-auth-config scopes need their own verification. The six live write successes do
-not establish these additional criteria.
-
-## Export consistency
-
-The selected export is microsoft-excel-643af91a. Its working v5 runtime matched
-the repository, but Studio had regenerated package.json with latest. Restore the
-exact SDK pin and lockfile after every export, and run tests before deployment.
-GitHub updates alone do not republish VoiceOS hosting.
+Manual API-key/User-ID/Connected-Account-ID setup remains the agreed v1 QA
+flow. Production account linking is a VoiceOS-team follow-up.

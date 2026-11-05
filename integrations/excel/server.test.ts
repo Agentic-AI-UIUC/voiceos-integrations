@@ -195,3 +195,9 @@ test("Studio fixtures contain no personal OneDrive IDs or truncated prefixes", (
   const meta = readFileSync(new URL("./studio-meta.json", import.meta.url), "utf8");
   expect(meta).not.toMatch(/\b[0-9A-F]{14,16}(?:!|[.\u2026])/i);
 });
+
+test('production SDK constructor disables update notices on the MCP stdout channel', () => {
+  const calls = [...source.matchAll(/new Composio\(\{([^}]+)\}\)/g)];
+  expect(calls.length).toBeGreaterThan(0);
+  for (const call of calls) expect(call[1]).toMatch(/disableVersionCheck\s*:\s*true/);
+});

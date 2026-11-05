@@ -4,7 +4,7 @@ Microsoft Excel Cloud tools for VoiceOS Agent Mode, executed through Composio wi
 
 ## Release status
 
-The live-tested build marker is `excel-review-fixed-v5-collections`. The author confirmed fresh live testing of all six write actions after the v5 fixes; see [LIVE-QA.md](LIVE-QA.md). Earlier submitted logs also cover the four read actions. Confirmation cancellation, notifications, fresh-install behavior, and expired/revoked access require separate QA; they are not certified by those responses.
+The current build marker is `excel-review-fixed-v7-inline-brand` (version 1.0.1, SDK 0.28.0). Fresh November 4 author-supplied logs cover all ten actions; see [LIVE-QA.md](LIVE-QA.md) and the [ordered screenshots](docs/screenshots/README.md). The SDK version check is disabled to protect MCP stdout. Republishing this fix remains pending; cancellation, fresh-install behavior and credential lifecycle need separate QA.
 
 The verified setup uses a manually configured Connected Account ID. Automatic discovery by User ID is not a verified replacement. The API-key field is intentionally temporary for v1/QA.
 
