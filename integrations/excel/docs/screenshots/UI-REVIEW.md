@@ -1,3 +1,3 @@
-# UI review evidence
+# Current UI review evidence
 
-See [the ordered current screenshot gallery](README.md) for all six confirmation cards and the current Excel logo. Superseded November 1/3 images have been removed from this branch; Git history preserves the older evidence.
+The [ordered November 6 gallery](README.md) replaces the earlier captures. It contains all six confirmations, target fields, row-preserving JSON, and three supplemental lower-field/dropdown views demonstrating button clearance. Version 1.0.4 is published.

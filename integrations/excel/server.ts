@@ -9,7 +9,7 @@ import { renderCustom, markHtml, esc, clip } from "./widgetKit.ts";
 const server = new McpServer({ name: "microsoft-excel", version: "1.0.0" });
 const ACCENT = "#107c41"; // Microsoft Excel brand green
 const COMPOSIO_BASE_URL = "https://backend.composio.dev";
-const BUILD_ID = "excel-review-fixed-v7-inline-brand";
+const BUILD_ID = "excel-review-fixed-v9-footer-layout";
 
 export const APPROVED_COMPOSIO_ACTIONS = {
   excel_get_workbook: "EXCEL_GET_WORKBOOK",

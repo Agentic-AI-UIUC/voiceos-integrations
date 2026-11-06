@@ -1,6 +1,6 @@
 {
   "name": "microsoft-excel",
-  "version": "1.0.2",
+  "version": "1.0.4",
   "private": true,
   "description": "View workbooks, read and update cell ranges, manage worksheets, append table rows, and create charts via Composio.",
   "type": "module",

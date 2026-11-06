@@ -1,27 +1,30 @@
-# Review status: Microsoft Excel
+# Review status: Microsoft Excel 1.0.4
 
-Current source: excel-review-fixed-v7-inline-brand; version 1.0.2;
-@composio/core pinned to 0.28.0; toolkit 20261029_00.
+Build: excel-review-fixed-v9-footer-layout. SDK 0.28.0, toolkit 20261029_00.
+Published November 6 at 12:33 Chicago on the existing share channel.
 
-## Completed
+## Addressed
 
-- Production SDK construction disables version checking, preventing npm update
-  notices on the MCP stdout channel. A regression test guards this option.
-- Fresh author-supplied November 4 logs contain successful results for all ten
-  actions. See LIVE-QA.md for evidence and limits.
-- All six confirmation headers are pictured with the current Excel logo.
-- Chart result uses a neutral icon; fabricated data bars are removed.
-- Explicit field mappings, fail-closed ownership checks, single-attempt writes,
-  unknown-outcome write timeouts, and on-demand tests remain in place.
-- 141 local tests pass. Exactly ten public tools are retained.
+- SDK version checking disabled and regression-tested to protect MCP stdout.
+- Explicit mappings, fail-closed ownership and single-attempt unknown-outcome
+  writes retained; no deprecated API fallback.
+- Append Table Name, chart Worksheet and Series By appear on editable cards.
+- Schema-to-card coverage checks all write properties, exempting only drive_id
+  and Create Worksheet's worksheet_name alias.
+- Matrices retain JSON row breaks and typed round-trip after edits.
+- All six cards reserve a non-scrolling footer; long forms use compact columns.
+  Browser geometry checks cover scroll/focus and conservative button positions.
+- Readable dropdown options, Excel logo and full titles; neutral chart result.
+- All six final confirmation screenshots and results are in the current gallery.
+- Version/package numbers agree and author republished 1.0.4.
+- 154 tests pass locally (443 assertions), including the available Chrome test.
 
-## Remaining
+See [November 6 evidence](docs/live-qa-2026-11-06.md) and
+[the final screenshot gallery](docs/screenshots/README.md).
 
-- Republished version 1.0.2 and post-publication list/create/read-back/delete smoke test are complete; see LIVE-QA.md. Maintainer approval and CI remain required.
-- Append confirmation screenshot leaves Table ID blank even though execution
-  receives the correct table_name. Review this field binding separately.
-- Cancellation, fresh installation, token lifecycle, auth-config scopes, and
-  actual chart appearance in Excel need their own evidence.
+## Remaining release process / separate QA
 
-Manual API-key/User-ID/Connected-Account-ID setup remains the agreed v1 QA
-flow. Production account linking is a VoiceOS-team follow-up.
+CI and maintainer approval remain required. Native managed linking, credential
+lifecycle, cancellation, fresh shared installation, actual scopes and chart
+inspection in Excel are separate follow-ups, not claimed by these success cards.
+No VoiceOS UI was opened or controlled by the agent.

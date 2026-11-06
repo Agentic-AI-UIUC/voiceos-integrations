@@ -4,7 +4,7 @@ Microsoft Excel Cloud tools for VoiceOS Agent Mode, executed through Composio wi
 
 ## Release status
 
-The current build marker is `excel-review-fixed-v7-inline-brand` (version 1.0.2, SDK 0.28.0). Fresh November 4 author-supplied logs cover all ten actions; see [LIVE-QA.md](LIVE-QA.md) and the [ordered screenshots](docs/screenshots/README.md). The SDK version check is disabled to protect MCP stdout. Version 1.0.2 was republished and passed an author-supplied read/create/read-back/delete smoke test. Cancellation, fresh-install behavior and credential lifecycle need separate QA.
+Current release: **1.0.4**, build `excel-review-fixed-v9-footer-layout`, SDK **0.28.0**. It is republished on the existing share channel. See [current QA evidence](docs/live-qa-2026-11-06.md) and [today's ordered screenshots](docs/screenshots/README.md). All six confirmation cards expose approved inputs and separate scrolling fields from the floating footer. Credential lifecycle, cancellation and fresh installation remain separate QA.
 
 The verified setup uses a manually configured Connected Account ID. Automatic discovery by User ID is not a verified replacement. The API-key field is intentionally temporary for v1/QA.
 
@@ -31,7 +31,7 @@ List Named Items, Create Workbook, and Create Table are deferred. Delete Workboo
 2. In the VoiceOS integration Setup fields, enter your tester project API key, the connection's owning Composio User ID, and its active Connected Account ID. Use the same project for the key and connection.
 3. Optionally set the workbook driveItem ID and drive ID. Use actual IDs, not file URLs or Auth Config IDs.
 4. Keep the Excel toolkit version at the live-tested `20261029_00` unless separately validating a migration.
-5. Check that startup reports `excel-review-fixed-v5-collections` and discovery reports ten tools.
+5. Check that startup reports `excel-review-fixed-v9-footer-layout` and discovery reports ten tools.
 
 The execution path reads tool schemas and executes tools through the current Composio SDK. Connected Accounts Read is used to verify ownership and ACTIVE status. No proxy execution is used. Do not broaden key permissions without identifying the endpoint that needs them.
 
@@ -66,12 +66,7 @@ Publish through VoiceOS separately from uploading this source to GitHub. Verify 
 
 ## CI regression tests
 
-Run `bun install --frozen-lockfile` and `bun test`. The 132 offline tests in
-`server.test.ts` and `collections.test.ts` include the original 32 pure checks,
-account validation, ten-tool/confirmation parity, explicit mappings, collection
-formats, full lookup-to-execution sequences, timeout behavior, and fixture hygiene.
-Fake-client tests do not execute Composio or replace live QA. Importing the server
-does not open the MCP transport.
+Run `bun install --frozen-lockfile` and `bun test`. There are 154 tests across six files, covering account validation, ten-tool parity, explicit mappings, complete lookups, write timeouts, SDK stdout protection, confirmation input coverage, edit round-trips and footer geometry. The headless layout test requires Chrome/Chromium (`CHROME_BIN` may specify its path); it skips if unavailable. Fake-client tests do not call Composio. The browser test loads local HTML only. Importing the server does not open the MCP transport.
 
 Read [IMPLEMENTATION-NOTES.md](IMPLEMENTATION-NOTES.md) before modifying the working
 flow. Keep the SDK pinned to 0.28.0, including after Studio regenerates an export.

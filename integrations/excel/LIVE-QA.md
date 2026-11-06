@@ -1,4 +1,6 @@
-# Live QA - November 4, 2026
+# Historical live QA - November 4, 2026
+
+Current release evidence: [version 1.0.4, November 6](docs/live-qa-2026-11-06.md).
 
 Build: excel-review-fixed-v7-inline-brand. Integration/package version: 1.0.2.
 SDK: @composio/core 0.28.0; toolkit: 20261029_00.

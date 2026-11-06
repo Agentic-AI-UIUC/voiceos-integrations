@@ -1016,6 +1016,12 @@ var argKey=function(el){
   if(!el||!el.getAttribute)return null;
   return el.getAttribute('data-k-key')||el.getAttribute('data-voiceos-key');
 };
+var inputValue=function(value){
+  if(Array.isArray(value)&&value.every(Array.isArray)){
+    return '[\\n'+value.map(function(row){return '  '+JSON.stringify(row)}).join(',\\n')+'\\n]';
+  }
+  return Array.isArray(value)?JSON.stringify(value,null,2):String(value);
+};
 addEventListener('message',function(e){
   if(e.source!==parent)return;
   var m=e.data;if(!m)return;
@@ -1037,7 +1043,7 @@ addEventListener('message',function(e){
   var fields=document.querySelectorAll('[data-k-key],[data-voiceos-key]');
   for(var i=0;i<fields.length;i++){
     var key=argKey(fields[i]);
-    if(Object.prototype.hasOwnProperty.call(args,key)&&args[key]!=null)fields[i].value=String(args[key]);
+    if(Object.prototype.hasOwnProperty.call(args,key)&&args[key]!=null)fields[i].value=inputValue(args[key]);
   }
   report();
 });
