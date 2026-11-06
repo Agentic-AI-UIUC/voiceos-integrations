@@ -1,0 +1,160 @@
+{
+  "originalPrompt": "Improve the \"Calendly\" integration",
+  "preview": {
+    "utterances": [
+      "What's on my Calendly today?",
+      "Show my Calendly booking links",
+      "Cancel my meeting with Alex"
+    ],
+    "toolPreviews": [
+      {
+        "tool": "upcoming_events",
+        "sampleArgs": {
+          "count": 5
+        },
+        "stressCases": [
+          {
+            "state": "empty",
+            "sampleArgs": {
+              "count": 5
+            },
+            "sampleData": {
+              "total_events": 0,
+              "events": []
+            },
+            "expected": "Card displays an empty state with Calendly logo, 0 upcoming count, and link to share booking page"
+          },
+          {
+            "state": "single",
+            "sampleArgs": {
+              "count": 1
+            },
+            "sampleData": {
+              "total_events": 1,
+              "events": [
+                {
+                  "uuid": "7a8b9c0d-1234-5678-90ab-cdef12345678",
+                  "name": "30 Minute Strategy Session",
+                  "start_time": "2025-05-14T15:00:00.000000Z",
+                  "end_time": "2025-05-14T15:30:00.000000Z",
+                  "invitees": [
+                    {
+                      "name": "Sarah Connor",
+                      "email": "sarah@cyberdyne.com"
+                    }
+                  ]
+                }
+              ]
+            },
+            "expected": "Card highlights the single upcoming meeting in an expanded hero view with attendee and duration"
+          }
+        ]
+      },
+      {
+        "tool": "event_types",
+        "sampleArgs": {
+          "active_only": true
+        },
+        "stressCases": [
+          {
+            "state": "empty",
+            "sampleArgs": {
+              "active_only": true
+            },
+            "sampleData": {
+              "total_event_types": 0,
+              "event_types": []
+            },
+            "expected": "Card shows empty state prompting the user to create booking types on Calendly"
+          },
+          {
+            "state": "long-text",
+            "sampleArgs": {
+              "active_only": true
+            },
+            "sampleData": {
+              "total_event_types": 1,
+              "event_types": [
+                {
+                  "name": "Comprehensive Enterprise Cloud Infrastructure Modernization and Cross-Regional Zero-Trust Advisory Consultation Session",
+                  "slug": "enterprise-cloud-infrastructure-modernization-consultation",
+                  "duration": 60,
+                  "scheduling_url": "https://calendly.com/user/enterprise-cloud-infrastructure-modernization-consultation",
+                  "active": true
+                }
+              ]
+            },
+            "expected": "Card clips very long event type titles smoothly without pushing link buttons off-screen"
+          }
+        ]
+      },
+      {
+        "tool": "event_details",
+        "sampleArgs": {
+          "event_uuid": "7a8b9c0d-1234-5678-90ab-cdef12345678"
+        },
+        "stressCases": [
+          {
+            "state": "long-text",
+            "sampleArgs": {
+              "event_uuid": "7a8b9c0d-1234-5678-90ab-cdef12345678"
+            },
+            "sampleData": {
+              "uuid": "7a8b9c0d-1234-5678-90ab-cdef12345678",
+              "name": "Quarterly Enterprise Architecture, Cloud Migration Strategy, and Multi-Region Resiliency Review Session with External Engineering Staff",
+              "status": "active",
+              "start_time": "2025-05-14T15:00:00.000000Z",
+              "end_time": "2025-05-14T16:00:00.000000Z",
+              "location": {
+                "type": "zoom",
+                "join_url": "https://zoom.us/j/1234567890"
+              },
+              "invitee": {
+                "name": "Dr. Alexander Montgomery-Smith III",
+                "email": "alexander.montgomerysmith@enterpriseglobal.corp.internal"
+              },
+              "response": "Please ensure we have reviewed the complete 45-page RFC draft before the meeting, as we need to sign off on the data residency requirements and zero-trust perimeter configuration."
+            },
+            "expected": "Card clamps long meeting titles, long attendee details, and truncates the custom note cleanly"
+          },
+          {
+            "state": "error",
+            "sampleArgs": {
+              "event_uuid": "nonexistent-uuid-999"
+            },
+            "sampleData": {
+              "error": true,
+              "message": "Meeting not found or already cancelled."
+            },
+            "expected": "Card displays error banner stating meeting was not found or has been cancelled"
+          }
+        ]
+      },
+      {
+        "tool": "cancel_event",
+        "sampleArgs": {
+          "event_uuid": "7a8b9c0d-1234-5678-90ab-cdef12345678",
+          "event_name": "Product Sync with Alex",
+          "reason": "Rescheduling due to travel conflict"
+        },
+        "stressCases": [
+          {
+            "state": "long-text",
+            "sampleArgs": {
+              "event_uuid": "7a8b9c0d-1234-5678-90ab-cdef12345678",
+              "event_name": "Quarterly Enterprise Architecture, Cloud Migration Strategy, and Multi-Region Resiliency Review Session with External Engineering Staff",
+              "reason": "Emergency customer escalation on our production cluster requiring immediate incident response and root-cause analysis through the afternoon."
+            },
+            "sampleData": {
+              "canceled": true,
+              "uuid": "7a8b9c0d-1234-5678-90ab-cdef12345678",
+              "reason": "Emergency customer escalation on our production cluster requiring immediate incident response and root-cause analysis through the afternoon."
+            },
+            "expected": "Card wraps and displays the cancellation confirmation cleanly with warning badge"
+          }
+        ]
+      }
+    ]
+  },
+  "updatedAt": "2026-11-01T21:23:11.021Z"
+}
