@@ -5,10 +5,11 @@ import { z } from "zod";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { readFile, writeFile, rename } from "node:fs/promises";
+import { setTimeout as delay } from "node:timers/promises";
 
 // Composio owns OAuth, token storage/refresh, and Todoist requests.
 // This adapter only saves this installation's identity and connection reference.
-const server = new McpServer({ name: "composio-todoist", version: "1.0.9" });
+const server = new McpServer({ name: "composio-todoist", version: "1.0.12" });
 // BEGIN TOOL CATALOG
 const catalog: any = {
   "version": "20260731_00",
@@ -721,21 +722,14 @@ const catalog: any = {
       }
     },
     {
-      "name": "manage_labels",
-      "title": "List labels",
+      "name": "list_labels",
+      "title": "List Todoist labels",
       "readOnly": true,
       "slug": "TODOIST_LIST_LABELS",
       "description": "Read personal Todoist labels and resolve label names into IDs. Use when asked to list labels or find an exact label before an update or deletion. Clarify duplicate names and follow next_cursor for more results. Use create_label, update_label, or delete_label for changes.",
       "inputSchema": {
         "type": "object",
         "properties": {
-          "action": {
-            "type": "string",
-            "enum": [
-              "list"
-            ],
-            "description": "Optional legacy list action. This tool only reads labels; use create_label, update_label, or delete_label for changes."
-          },
           "limit": {
             "type": "integer",
             "title": "Limit",
@@ -780,13 +774,13 @@ const catalog: any = {
       "title": "Update label",
       "readOnly": false,
       "slug": "TODOIST_UPDATE_LABEL_V1_SECOND",
-      "description": "Update a personal Todoist label. Use when asked to rename a label or change its color, order, or favorite status. Resolve the exact ID with manage_labels first, clarify ambiguous names, and send only requested changes.",
+      "description": "Update a personal Todoist label. Use when asked to rename a label or change its color, order, or favorite status. Resolve the exact ID with list_labels first, clarify ambiguous names, and send only requested changes.",
       "inputSchema": {
         "type": "object",
         "required": ["label_id"],
         "properties": {
           "label_id": { "type": "string", "description": "ID of the label to update." },
-          "target_name": { "type": "string", "description": "Existing label name from manage_labels, for confirmation display only. Never substitute it for label_id." },
+          "target_name": { "type": "string", "description": "Existing label name from list_labels, for confirmation display only. Never substitute it for label_id." },
           "name": { "type": "string", "minLength": 1, "maxLength": 128, "description": "New label name. Omit to leave unchanged." },
           "color": { "anyOf": [{ "type": "string" }, { "type": "integer" }], "description": "New color name or numeric color code. Omit to leave unchanged." },
           "order": { "type": "integer", "description": "New position in the label list. Omit to leave unchanged." },
@@ -798,7 +792,7 @@ const catalog: any = {
       "name": "delete_label",
       "title": "Delete label",
       "slug": "TODOIST_DELETE_LABEL_V1",
-      "description": "Delete a personal Todoist label and remove it from every task that uses it. Use only when explicitly asked to delete a label. Resolve its exact ID and name with manage_labels/action=list, clarify ambiguous names, and require confirmation. Tasks themselves are not deleted.",
+      "description": "Delete a personal Todoist label and remove it from every task that uses it. Use only when explicitly asked to delete a label. Resolve its exact ID and name with list_labels, clarify ambiguous names, and require confirmation. Tasks themselves are not deleted.",
       "readOnly": false,
       "inputSchema": {
         "type": "object",
@@ -818,7 +812,7 @@ const catalog: any = {
           "target_name": {
             "type": "string",
             "title": "Selected label",
-            "description": "Human-readable label name from manage_labels/action=list, for confirmation display only. Never substitute it for label_id."
+            "description": "Human-readable label name from list_labels, for confirmation display only. Never substitute it for label_id."
           }
         },
         "description": "Request model for deleting a personal label."
@@ -836,7 +830,8 @@ let disconnecting: Promise<any> | undefined;
 function api() {
   const apiKey = process.env.COMPOSIO_API_KEY?.trim();
   if (!apiKey) throw new Error("Add your Composio API key in Todoist settings first.");
-  return client ??= new Composio({ apiKey, baseURL: "https://backend.composio.dev", allowTracking: false });
+  // SDK upgrade notices go to stdout, which must contain only MCP messages.
+  return client ??= new Composio({ apiKey, baseURL: "https://backend.composio.dev", allowTracking: false, disableVersionCheck: true });
 }
 
 async function save(state: State) {
@@ -1006,6 +1001,22 @@ async function requireAccount(state: State) {
   return account;
 }
 
+async function waitForAuthorization(id: string) {
+  // The SDK polling timeout does not cancel an in-flight lookup.
+  const deadline = AbortSignal.timeout(180000);
+  while (true) {
+    deadline.throwIfAborted();
+    const account = await api().connectedAccounts.get(id, {
+      signal: AbortSignal.any([deadline, AbortSignal.timeout(8000)]),
+    });
+    if (account.status === "ACTIVE") return account;
+    if (["FAILED", "EXPIRED", "REVOKED"].includes(account.status)) {
+      throw new Error(`Todoist authorization failed (${account.status.toLowerCase()}). Connect again to authorize.`);
+    }
+    await delay(1000, undefined, { signal: deadline });
+  }
+}
+
 async function connect() {
   const state = await load();
   const existing = await activeAccount(state);
@@ -1018,7 +1029,7 @@ async function connect() {
   }
   if (state.pending) {
     let pending;
-    try { pending = await api().connectedAccounts.get(state.pending.id); }
+    try { pending = await api().connectedAccounts.get(state.pending.id, { signal: AbortSignal.timeout(8000) }); }
     catch (error: any) {
       if (error.status !== 404 && error.cause?.status !== 404) throw error;
     }
@@ -1044,9 +1055,9 @@ async function connect() {
     execFile("/usr/bin/open", [state.pending!.url], { timeout: 8000 }, error => error ? reject(error) : resolve());
   });
   let account;
-  try { account = await api().connectedAccounts.waitForConnection(state.pending.id, 180000); }
+  try { account = await waitForAuthorization(state.pending.id); }
   catch (error: any) {
-    if (/timed?\s*out/i.test(error.message ?? "")) throw new TodoistError("AUTH_PENDING", "Todoist authorization has not finished yet. Complete it in your browser, then refresh the connection status. Your pending link is saved.");
+    if (isTimeout(error)) throw new TodoistError("AUTH_PENDING", "Todoist authorization has not finished yet. Complete it in your browser, then refresh the connection status. Your pending link is saved.");
     throw error;
   }
   if (account.toolkit.slug !== "todoist" || account.status !== "ACTIVE" || account.isDisabled) {
@@ -1195,7 +1206,7 @@ function listPage(data: any, keys: string[], depth = 0): { items: any[]; nextCur
 
 function operationResult(tool: any, args: Record<string, any>, data: any) {
   const listKeys: Record<string, string> = {
-    list_projects: "projects", list_sections: "sections", get_active_tasks: "tasks", manage_labels: "labels",
+    list_projects: "projects", list_sections: "sections", get_active_tasks: "tasks", list_labels: "labels",
   };
   const entity = listKeys[tool.name];
   const payload: Record<string, any> = { success: true, operation: tool.name, data };
@@ -1237,8 +1248,6 @@ for (const tool of catalog.tools) {
   }, async (input: Record<string, any>, extra) => withFeedback(tool.title,
     !tool.readOnly, extra, async () => {
       const { target_name, ...args } = input;
-      // Accept the legacy list action locally, without sending it to Todoist.
-      if (tool.name === "manage_labels") delete args.action;
       validateArguments(tool.name, args);
       const state = await load();
       const account = await requireAccount(state);

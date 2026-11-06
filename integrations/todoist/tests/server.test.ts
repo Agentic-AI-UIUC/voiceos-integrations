@@ -16,7 +16,7 @@ const ACTIVE_STATE = { userId: "voiceos-test-user", accountId: "ca_test" };
 const EXPECTED_BUSINESS_TOOLS = [
   "close_task", "create_label", "create_project", "create_section", "create_task", "delete_project",
   "delete_section", "delete_label", "get_active_tasks", "get_productivity_stats", "list_projects",
-  "list_sections", "manage_labels", "update_label", "update_task",
+  "list_sections", "list_labels", "update_label", "update_task",
 ];
 // Account/setup helpers are counted separately; this asserts the current
 // catalog without treating the setup-tool exception as a business-tool approval.
@@ -33,6 +33,7 @@ const eventsPath = join(directory, "events.jsonl");
 let client: Client;
 let transport: StdioClientTransport;
 let stderr = "";
+let protocolErrors: Error[] = [];
 let notifications: FeedbackRequest[] = [];
 let rejectNotification = false;
 
@@ -92,6 +93,7 @@ beforeAll(async () => {
   });
   transport.stderr?.on("data", chunk => { stderr += String(chunk); });
   client = new Client({ name: "todoist-offline-tests", version: "1.0.0" });
+  client.onerror = error => { protocolErrors.push(error); };
   // Emulate the VoiceOS notification request, including its failure mode.
   client.setRequestHandler(z.object({
     method: z.literal("voiceos/reminders/trigger"),
@@ -109,12 +111,15 @@ beforeEach(() => {
   setState();
   writeFileSync(eventsPath, "");
   notifications = [];
+  protocolErrors = [];
   rejectNotification = false;
 });
 
 afterEach(() => {
   // Unexpected SDK requests must fail a test even if the server catches them.
   expect(events().filter(event => event.kind === "unexpected")).toEqual([]);
+  expect(events().filter(event => event.kind === "version-check")).toEqual([]);
+  expect(protocolErrors).toEqual([]);
 });
 
 afterAll(async () => {
@@ -125,6 +130,16 @@ afterAll(async () => {
 });
 
 describe("manifest and MCP contract", () => {
+  test("keeps MCP stdout clean when npm advertises a newer SDK", async () => {
+    expect((await invoke("list_labels")).isError).toBe(false);
+    expect((await invoke("list_projects")).isError).toBe(false);
+    const { tools } = await client.listTools();
+    expect(tools.map(tool => tool.name).sort())
+      .toEqual([...EXPECTED_BUSINESS_TOOLS, ...EXPECTED_SETUP_TOOLS].sort());
+    expect(protocolErrors).toEqual([]);
+    expect(events().filter(event => event.kind === "version-check")).toEqual([]);
+  });
+
   test("registers exactly the business tools and documented setup helpers", async () => {
     const expected = [...EXPECTED_BUSINESS_TOOLS, ...EXPECTED_SETUP_TOOLS].sort();
     const { tools } = await client.listTools();
@@ -161,7 +176,7 @@ describe("manifest and MCP contract", () => {
   test("declares complete confirmation cards for every action and none for reads", async () => {
     const { tools } = await client.listTools();
     const reads = tools.filter(tool => tool.annotations?.readOnlyHint).map(tool => tool.name);
-    expect(reads.sort()).toEqual(["connection_status", "get_active_tasks", "get_productivity_stats", "list_projects", "list_sections", "manage_labels"]);
+    expect(reads.sort()).toEqual(["connection_status", "get_active_tasks", "get_productivity_stats", "list_labels", "list_projects", "list_sections"]);
     for (const tool of manifest.tools) expect(Boolean(tool.confirmation)).toBe(!reads.includes(tool.name));
     const confirmed = manifest.tools.filter((tool: JsonObject) => tool.confirmation);
     for (const tool of confirmed) {
@@ -198,7 +213,7 @@ const operationCases: [string, string, JsonObject, JsonObject][] = [
   ["list_projects", "TODOIST_GET_ALL_PROJECTS", {}, {}],
   ["list_sections", "TODOIST_LIST_SECTIONS", { project_id: "project_1" }, { project_id: "project_1" }],
   ["get_productivity_stats", "TODOIST_GET_PRODUCTIVITY_STATS", {}, {}],
-  ["manage_labels", "TODOIST_LIST_LABELS", { action: "list" }, {}],
+  ["list_labels", "TODOIST_LIST_LABELS", { limit: 2, cursor: "next_labels" }, { limit: 2, cursor: "next_labels" }],
   ["create_label", "TODOIST_CREATE_LABEL_V1", { name: "test_label" }, { name: "test_label" }],
   ["update_label", "TODOIST_UPDATE_LABEL_V1_SECOND", { label_id: "label_1", target_name: "read", name: "renamed", is_favorite: false }, { label_id: "label_1", name: "renamed", is_favorite: false }],
   ["delete_label", "TODOIST_DELETE_LABEL_V1", { label_id: "label_1", target_name: "read" }, { label_id: "label_1" }],
@@ -224,8 +239,8 @@ describe("real server routing through the real Composio SDK", () => {
     expect(operations()[0].body?.arguments).toEqual({ task_id: "task_1", labels: [] });
   });
 
-  test("label lookups accept omitted action without a write notification", async () => {
-    const result = await invoke("manage_labels");
+  test("label lookups need no arguments and send no write notification", async () => {
+    const result = await invoke("list_labels");
     expect(result.isError).toBe(false);
     expect(result.body.labels).toEqual([{ id: "label_1", name: "read" }]);
     expect(operations()[0].body?.arguments).toEqual({});
@@ -256,20 +271,20 @@ describe("validation before executing a Todoist operation", () => {
     ["delete_project", {}],
     ["create_section", { name: "Section" }],
     ["delete_section", { section_id: " " }],
-    ["manage_labels", { action: "create" }],
-    ["manage_labels", { action: "update", label_id: "label_1" }],
-    ["manage_labels", { action: "create", name: "must not create" }],
-    ["manage_labels", { action: "update", label_id: "label_1", name: "must not update" }],
+    ["list_labels", { action: "create" }],
+    ["list_labels", { action: "update", label_id: "label_1" }],
+    ["list_labels", { action: "create", name: "must not create" }],
+    ["list_labels", { action: "update", label_id: "label_1", name: "must not update" }],
     ["create_label", {}],
     ["create_label", { name: " " }],
     ["update_label", { label_id: "label_1" }],
     ["update_label", { label_id: "label_1", target_name: "Display only" }],
     ["update_label", { label_id: " ", name: "renamed" }],
-    ["manage_labels", { action: "delete", label_id: "label_1" }],
+    ["list_labels", { action: "delete", label_id: "label_1" }],
     ["delete_label", {}],
     ["delete_label", { label_id: " " }],
-    ["manage_labels", { action: "list", name: "not a list parameter" }],
-    ["manage_labels", { action: "unsupported" }],
+    ["list_labels", { action: "list" }],
+    ["list_labels", { name: "not a list parameter" }],
   ] satisfies [string, JsonObject][])("%s rejects invalid input %j", async (name, args) => {
     const result = await invoke(name, args);
     expect(result.isError).toBe(true);
@@ -283,11 +298,11 @@ describe("result data and native cards", () => {
     ["list_projects", "projects", "name"],
     ["list_sections", "sections", "name"],
     ["get_active_tasks", "tasks", "content"],
-    ["manage_labels", "labels", "name"],
+    ["list_labels", "labels", "name"],
   ])("%s retains full results and pagination while limiting the card", async (name, entity, titleField) => {
     const items = Array.from({ length: 8 }, (_, index) => ({ id: `id_${index}`, [titleField]: "x".repeat(80) }));
     setScenario({ responseData: { results: items, next_cursor: "page_two" } });
-    const result = await invoke(name, name === "manage_labels" ? { action: "list" } : {});
+    const result = await invoke(name);
     expect(result.isError).toBe(false);
     expect(result.body[entity]).toEqual(items);
     expect(result.body.next_cursor).toBe("page_two");
@@ -473,6 +488,67 @@ describe("account state and explicit OAuth setup", () => {
     expect(browserEvents()[0].url).toBe("https://example.invalid/saved-consent");
     expect(events().some(event => event.path?.includes("tool_router"))).toBe(false);
   });
+
+  test("bounds the first OAuth lookup by the overall polling deadline", async () => {
+    setState({ userId: ACTIVE_STATE.userId });
+    setScenario({ accountStatus: "INITIATED", stallOAuthLookup: true, oauthWaitTimeoutMs: 100 });
+    const result = await invoke("connect_account");
+    expect(result.isError).toBe(true);
+    expect(result.body.code).toBe("AUTH_PENDING");
+    expect(events().filter(event => event.kind === "lookup-aborted")).toHaveLength(1);
+    expect(savedState().pending?.id).toBe("ca_pending");
+    expect(savedState().accountId).toBeUndefined();
+    expect(operations()).toHaveLength(0);
+    // Timing out releases the Connect lock, so a later attempt can recover.
+    setScenario({ accountStatus: "INITIATED", activateAfterBrowser: true });
+    expect((await invoke("connect_account")).body.connected).toBe(true);
+  }, 3000);
+
+  test("the OAuth deadline also cancels the pause between polls", async () => {
+    setState({ userId: ACTIVE_STATE.userId });
+    setScenario({ accountStatus: "INITIATED", oauthWaitTimeoutMs: 100 });
+    const start = performance.now();
+    const result = await invoke("connect_account");
+    expect(performance.now() - start).toBeLessThan(1000);
+    expect(result.body.code).toBe("AUTH_PENDING");
+    expect(savedState().pending?.id).toBe("ca_pending");
+    expect(events().filter(event => event.kind === "request" && event.method === "GET"
+      && event.path?.endsWith("/connected_accounts/ca_pending"))).toHaveLength(1);
+  });
+
+  test("OAuth polling waits through a pending state before saving the active account", async () => {
+    setState({ userId: ACTIVE_STATE.userId });
+    setScenario({ accountStatus: "INITIATED", oauthStatuses: ["PENDING", "ACTIVE"] });
+    const result = await invoke("connect_account");
+    expect(result.body.connected).toBe(true);
+    expect(savedState()).toEqual({ userId: ACTIVE_STATE.userId, accountId: "ca_pending" });
+    expect(events().filter(event => event.kind === "request" && event.method === "GET"
+      && event.path?.endsWith("/connected_accounts/ca_pending"))).toHaveLength(2);
+  });
+
+  test.each(["FAILED", "EXPIRED", "REVOKED"])("OAuth polling stops on %s without saving an active account", async status => {
+    setState({ userId: ACTIVE_STATE.userId });
+    setScenario({ accountStatus: "INITIATED", oauthStatuses: [status] });
+    const result = await invoke("connect_account");
+    expect(result.isError).toBe(true);
+    expect(result.body.error.toLowerCase()).toContain(status.toLowerCase());
+    expect(savedState().accountId).toBeUndefined();
+    expect(savedState().pending?.id).toBe("ca_pending");
+  });
+
+  test("a stalled pending lookup times out and preserves the connection for recovery", async () => {
+    const state = { userId: ACTIVE_STATE.userId, pending: { id: "ca_pending", url: "https://example.invalid/saved-consent" } };
+    setState(state);
+    setScenario({ accountStatus: "INITIATED", stallPendingLookup: true });
+    const result = await invoke("connect_account");
+    expect(result.isError).toBe(true);
+    expect(result.body.error).toMatch(/timeout|timed out|abort/i);
+    expect(events().filter(event => event.kind === "lookup-aborted")).toHaveLength(1);
+    expect(savedState()).toEqual(state);
+    expect(browserEvents()).toHaveLength(0);
+    expect(events().some(event => event.path?.includes("tool_router"))).toBe(false);
+    expect(operations()).toHaveLength(0);
+  }, 15000);
 
   test("a non-HTTPS authorization URL is rejected before opening a browser", async () => {
     setState({ userId: ACTIVE_STATE.userId });

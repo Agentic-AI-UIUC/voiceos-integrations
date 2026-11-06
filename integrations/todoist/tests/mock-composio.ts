@@ -7,6 +7,10 @@ export type Scenario = {
   accountDisabled?: boolean;
   accountToolkit?: string;
   accountHttpStatus?: number;
+  stallPendingLookup?: boolean;
+  stallOAuthLookup?: boolean;
+  oauthWaitTimeoutMs?: number;
+  oauthStatuses?: string[];
   activateAfterBrowser?: boolean;
   browserError?: boolean;
   redirectUrl?: string;
@@ -18,7 +22,7 @@ export type Scenario = {
 };
 
 export type RecordedEvent = {
-  kind: "request" | "browser" | "unexpected";
+  kind: "request" | "browser" | "unexpected" | "version-check" | "lookup-aborted";
   path?: string;
   method?: string;
   body?: Record<string, unknown>;
@@ -35,6 +39,25 @@ const scenario = (): Scenario => JSON.parse(readFileSync(scenarioPath, "utf8"));
 function record(event: RecordedEvent) {
   appendFileSync(eventsPath, JSON.stringify(event) + "\n");
 }
+function recordedEvents(): RecordedEvent[] {
+  return readFileSync(eventsPath, "utf8").trim().split("\n").filter(Boolean).map(line => JSON.parse(line));
+}
+
+// Shorten only the OAuth wait's overall deadline in isolated timeout tests.
+const timeoutSignal = AbortSignal.timeout.bind(AbortSignal);
+AbortSignal.timeout = milliseconds => timeoutSignal(milliseconds === 180000
+  ? scenario().oauthWaitTimeoutMs ?? milliseconds : milliseconds);
+
+function waitForAbort(request: Request): Promise<Response> {
+  return new Promise((_resolve, reject) => {
+    const abort = () => {
+      record({ kind: "lookup-aborted", path: new URL(request.url).pathname });
+      reject(request.signal.reason);
+    };
+    if (request.signal.aborted) abort();
+    else request.signal.addEventListener("abort", abort, { once: true });
+  });
+}
 const respond = (data: unknown, status = 200) => new Response(JSON.stringify(data), {
   status,
   headers: { "content-type": "application/json" },
@@ -42,7 +65,13 @@ const respond = (data: unknown, status = 200) => new Response(JSON.stringify(dat
 
 function rawAccount(id: string) {
   const config = scenario();
-  const opened = readFileSync(eventsPath, "utf8").includes('"kind":"browser"');
+  const events = recordedEvents();
+  const browserIndex = events.findLastIndex(event => event.kind === "browser");
+  const opened = browserIndex !== -1;
+  const polls = events.slice(browserIndex + 1).filter(event => event.kind === "request"
+    && event.method === "GET" && event.path?.endsWith(`/connected_accounts/${id}`)).length;
+  const oauthStatus = opened && config.oauthStatuses?.length
+    ? config.oauthStatuses[Math.min(polls - 1, config.oauthStatuses.length - 1)] : undefined;
   return {
     id,
     auth_config: {
@@ -52,7 +81,7 @@ function rawAccount(id: string) {
       is_disabled: false,
     },
     toolkit: { slug: config.accountToolkit ?? "todoist" },
-    status: config.activateAfterBrowser && opened ? "ACTIVE" : config.accountStatus ?? "ACTIVE",
+    status: oauthStatus ?? (config.activateAfterBrowser && opened ? "ACTIVE" : config.accountStatus ?? "ACTIVE"),
     status_reason: null,
     is_disabled: config.accountDisabled ?? false,
     created_at: "2026-01-01T00:00:00Z",
@@ -93,10 +122,10 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
   const text = await request.text();
   const body = text ? JSON.parse(text) : undefined;
   const config = scenario();
-  // The SDK checks its package version asynchronously. Answer locally without
-  // treating that package-maintenance request as an integration API operation.
+  // A future release must not trigger an SDK notice on the MCP stdout channel.
   if (url.origin === "https://registry.npmjs.org" && path === "/@composio/core/latest") {
-    return respond({ version: "0.27.0" });
+    record({ kind: "version-check", path });
+    return respond({ version: "99.0.0" });
   }
   record({ kind: "request", path, method: request.method, body });
 
@@ -107,6 +136,14 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
 
   const account = path.match(/^\/api\/v3(?:\.1)?\/connected_accounts\/([^/]+)$/);
   if (account && request.method === "GET") {
+    // Connect first checks the saved account, then looks up the pending link.
+    const events = recordedEvents();
+    const lookups = events
+      .filter(event => event.kind === "request" && event.path === path && event.method === "GET");
+    if ((config.stallPendingLookup && account[1] === "ca_pending" && lookups.length === 2)
+      || (config.stallOAuthLookup && events.some(event => event.kind === "browser"))) {
+      return await waitForAbort(request);
+    }
     return config.accountHttpStatus
       ? respond({ message: "Test connected-account lookup failed" }, config.accountHttpStatus)
       : respond(rawAccount(account[1]));
