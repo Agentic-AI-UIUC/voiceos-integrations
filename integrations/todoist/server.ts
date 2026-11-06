@@ -5,10 +5,11 @@ import { z } from "zod";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { readFile, writeFile, rename } from "node:fs/promises";
+import { setTimeout as delay } from "node:timers/promises";
 
 // Composio owns OAuth, token storage/refresh, and Todoist requests.
 // This adapter only saves this installation's identity and connection reference.
-const server = new McpServer({ name: "composio-todoist", version: "1.0.11" });
+const server = new McpServer({ name: "composio-todoist", version: "1.0.12" });
 // BEGIN TOOL CATALOG
 const catalog: any = {
   "version": "20260731_00",
@@ -829,7 +830,8 @@ let disconnecting: Promise<any> | undefined;
 function api() {
   const apiKey = process.env.COMPOSIO_API_KEY?.trim();
   if (!apiKey) throw new Error("Add your Composio API key in Todoist settings first.");
-  return client ??= new Composio({ apiKey, baseURL: "https://backend.composio.dev", allowTracking: false });
+  // SDK upgrade notices go to stdout, which must contain only MCP messages.
+  return client ??= new Composio({ apiKey, baseURL: "https://backend.composio.dev", allowTracking: false, disableVersionCheck: true });
 }
 
 async function save(state: State) {
@@ -999,6 +1001,22 @@ async function requireAccount(state: State) {
   return account;
 }
 
+async function waitForAuthorization(id: string) {
+  // The SDK polling timeout does not cancel an in-flight lookup.
+  const deadline = AbortSignal.timeout(180000);
+  while (true) {
+    deadline.throwIfAborted();
+    const account = await api().connectedAccounts.get(id, {
+      signal: AbortSignal.any([deadline, AbortSignal.timeout(8000)]),
+    });
+    if (account.status === "ACTIVE") return account;
+    if (["FAILED", "EXPIRED", "REVOKED"].includes(account.status)) {
+      throw new Error(`Todoist authorization failed (${account.status.toLowerCase()}). Connect again to authorize.`);
+    }
+    await delay(1000, undefined, { signal: deadline });
+  }
+}
+
 async function connect() {
   const state = await load();
   const existing = await activeAccount(state);
@@ -1011,7 +1029,7 @@ async function connect() {
   }
   if (state.pending) {
     let pending;
-    try { pending = await api().connectedAccounts.get(state.pending.id); }
+    try { pending = await api().connectedAccounts.get(state.pending.id, { signal: AbortSignal.timeout(8000) }); }
     catch (error: any) {
       if (error.status !== 404 && error.cause?.status !== 404) throw error;
     }
@@ -1037,9 +1055,9 @@ async function connect() {
     execFile("/usr/bin/open", [state.pending!.url], { timeout: 8000 }, error => error ? reject(error) : resolve());
   });
   let account;
-  try { account = await api().connectedAccounts.waitForConnection(state.pending.id, 180000); }
+  try { account = await waitForAuthorization(state.pending.id); }
   catch (error: any) {
-    if (/timed?\s*out/i.test(error.message ?? "")) throw new TodoistError("AUTH_PENDING", "Todoist authorization has not finished yet. Complete it in your browser, then refresh the connection status. Your pending link is saved.");
+    if (isTimeout(error)) throw new TodoistError("AUTH_PENDING", "Todoist authorization has not finished yet. Complete it in your browser, then refresh the connection status. Your pending link is saved.");
     throw error;
   }
   if (account.toolkit.slug !== "todoist" || account.status !== "ACTIVE" || account.isDisabled) {

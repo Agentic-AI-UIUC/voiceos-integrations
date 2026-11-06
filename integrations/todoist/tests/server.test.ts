@@ -33,6 +33,7 @@ const eventsPath = join(directory, "events.jsonl");
 let client: Client;
 let transport: StdioClientTransport;
 let stderr = "";
+let protocolErrors: Error[] = [];
 let notifications: FeedbackRequest[] = [];
 let rejectNotification = false;
 
@@ -92,6 +93,7 @@ beforeAll(async () => {
   });
   transport.stderr?.on("data", chunk => { stderr += String(chunk); });
   client = new Client({ name: "todoist-offline-tests", version: "1.0.0" });
+  client.onerror = error => { protocolErrors.push(error); };
   // Emulate the VoiceOS notification request, including its failure mode.
   client.setRequestHandler(z.object({
     method: z.literal("voiceos/reminders/trigger"),
@@ -109,12 +111,15 @@ beforeEach(() => {
   setState();
   writeFileSync(eventsPath, "");
   notifications = [];
+  protocolErrors = [];
   rejectNotification = false;
 });
 
 afterEach(() => {
   // Unexpected SDK requests must fail a test even if the server catches them.
   expect(events().filter(event => event.kind === "unexpected")).toEqual([]);
+  expect(events().filter(event => event.kind === "version-check")).toEqual([]);
+  expect(protocolErrors).toEqual([]);
 });
 
 afterAll(async () => {
@@ -125,6 +130,16 @@ afterAll(async () => {
 });
 
 describe("manifest and MCP contract", () => {
+  test("keeps MCP stdout clean when npm advertises a newer SDK", async () => {
+    expect((await invoke("list_labels")).isError).toBe(false);
+    expect((await invoke("list_projects")).isError).toBe(false);
+    const { tools } = await client.listTools();
+    expect(tools.map(tool => tool.name).sort())
+      .toEqual([...EXPECTED_BUSINESS_TOOLS, ...EXPECTED_SETUP_TOOLS].sort());
+    expect(protocolErrors).toEqual([]);
+    expect(events().filter(event => event.kind === "version-check")).toEqual([]);
+  });
+
   test("registers exactly the business tools and documented setup helpers", async () => {
     const expected = [...EXPECTED_BUSINESS_TOOLS, ...EXPECTED_SETUP_TOOLS].sort();
     const { tools } = await client.listTools();
@@ -473,6 +488,67 @@ describe("account state and explicit OAuth setup", () => {
     expect(browserEvents()[0].url).toBe("https://example.invalid/saved-consent");
     expect(events().some(event => event.path?.includes("tool_router"))).toBe(false);
   });
+
+  test("bounds the first OAuth lookup by the overall polling deadline", async () => {
+    setState({ userId: ACTIVE_STATE.userId });
+    setScenario({ accountStatus: "INITIATED", stallOAuthLookup: true, oauthWaitTimeoutMs: 100 });
+    const result = await invoke("connect_account");
+    expect(result.isError).toBe(true);
+    expect(result.body.code).toBe("AUTH_PENDING");
+    expect(events().filter(event => event.kind === "lookup-aborted")).toHaveLength(1);
+    expect(savedState().pending?.id).toBe("ca_pending");
+    expect(savedState().accountId).toBeUndefined();
+    expect(operations()).toHaveLength(0);
+    // Timing out releases the Connect lock, so a later attempt can recover.
+    setScenario({ accountStatus: "INITIATED", activateAfterBrowser: true });
+    expect((await invoke("connect_account")).body.connected).toBe(true);
+  }, 3000);
+
+  test("the OAuth deadline also cancels the pause between polls", async () => {
+    setState({ userId: ACTIVE_STATE.userId });
+    setScenario({ accountStatus: "INITIATED", oauthWaitTimeoutMs: 100 });
+    const start = performance.now();
+    const result = await invoke("connect_account");
+    expect(performance.now() - start).toBeLessThan(1000);
+    expect(result.body.code).toBe("AUTH_PENDING");
+    expect(savedState().pending?.id).toBe("ca_pending");
+    expect(events().filter(event => event.kind === "request" && event.method === "GET"
+      && event.path?.endsWith("/connected_accounts/ca_pending"))).toHaveLength(1);
+  });
+
+  test("OAuth polling waits through a pending state before saving the active account", async () => {
+    setState({ userId: ACTIVE_STATE.userId });
+    setScenario({ accountStatus: "INITIATED", oauthStatuses: ["PENDING", "ACTIVE"] });
+    const result = await invoke("connect_account");
+    expect(result.body.connected).toBe(true);
+    expect(savedState()).toEqual({ userId: ACTIVE_STATE.userId, accountId: "ca_pending" });
+    expect(events().filter(event => event.kind === "request" && event.method === "GET"
+      && event.path?.endsWith("/connected_accounts/ca_pending"))).toHaveLength(2);
+  });
+
+  test.each(["FAILED", "EXPIRED", "REVOKED"])("OAuth polling stops on %s without saving an active account", async status => {
+    setState({ userId: ACTIVE_STATE.userId });
+    setScenario({ accountStatus: "INITIATED", oauthStatuses: [status] });
+    const result = await invoke("connect_account");
+    expect(result.isError).toBe(true);
+    expect(result.body.error.toLowerCase()).toContain(status.toLowerCase());
+    expect(savedState().accountId).toBeUndefined();
+    expect(savedState().pending?.id).toBe("ca_pending");
+  });
+
+  test("a stalled pending lookup times out and preserves the connection for recovery", async () => {
+    const state = { userId: ACTIVE_STATE.userId, pending: { id: "ca_pending", url: "https://example.invalid/saved-consent" } };
+    setState(state);
+    setScenario({ accountStatus: "INITIATED", stallPendingLookup: true });
+    const result = await invoke("connect_account");
+    expect(result.isError).toBe(true);
+    expect(result.body.error).toMatch(/timeout|timed out|abort/i);
+    expect(events().filter(event => event.kind === "lookup-aborted")).toHaveLength(1);
+    expect(savedState()).toEqual(state);
+    expect(browserEvents()).toHaveLength(0);
+    expect(events().some(event => event.path?.includes("tool_router"))).toBe(false);
+    expect(operations()).toHaveLength(0);
+  }, 15000);
 
   test("a non-HTTPS authorization URL is rejected before opening a browser", async () => {
     setState({ userId: ACTIVE_STATE.userId });

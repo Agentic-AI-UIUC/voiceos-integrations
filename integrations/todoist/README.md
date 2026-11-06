@@ -1,4 +1,4 @@
-# Todoist integration — 1.0.11
+# Todoist integration — 1.0.12
 
 ## Platform and setup
 
@@ -6,9 +6,10 @@ This integration supports macOS only (`supportedPlatforms: ["darwin"]`).
 The bundled `run.cmd` launcher does not imply Windows support; browser authorization
 currently uses macOS’s `/usr/bin/open`.
 
-Enter `COMPOSIO_API_KEY` in VoiceOS’s Todoist integration settings. `.env.example`
-documents the required key; the server reads the environment variable supplied by
-its host and does not automatically load `.env` files.
+Enter `COMPOSIO_API_KEY` in VoiceOS’s Todoist integration settings; VoiceOS stores
+and injects it into the server environment. `.env.example` documents the required
+variable. For direct local development with Bun, an ignored `.env` file can
+supply it automatically.
 
 ## Tools
 
@@ -73,9 +74,16 @@ Coverage includes:
   pagination while retaining full response data.
 - Success/error notifications, notification failures, credential redaction,
   and SDK-wrapped timeouts without repeating writes.
+- MCP stdout remains protocol-only when npm advertises a newer Composio SDK;
+  the SDK version check is disabled so upgrade notices cannot break the connection.
 - Saved, pending, expired, revoked, disabled, and rejected account states;
   mocked OAuth completion and reuse; concurrent connects; disconnect success,
-  unsupported provider revocation, and failure recovery.
+  unsupported provider revocation, and failure recovery. A stalled pending-link
+  lookup aborts after eight seconds and keeps the saved link for recovery.
+- OAuth polling has a three-minute deadline that cancels in-flight requests and
+  pauses between polls. Individual lookups also have an eight-second timeout.
+  Tests shorten only the overall deadline in the isolated child process and
+  verify cancellation, recovery, successful polling, and terminal account states.
 
 These offline tests complement manual checks in VoiceOS and Todoist. They verify
 notification payloads and confirmation definitions, not their visual rendering.
