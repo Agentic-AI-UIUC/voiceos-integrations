@@ -1,4 +1,4 @@
-# Calendly integration
+# Calendly integration — 1.1.0
 
 Check and manage your Calendly by voice: hear your upcoming and recent meetings, find
 open and busy times, book and cancel meetings, change your availability, share booking

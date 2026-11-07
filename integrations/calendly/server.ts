@@ -3,7 +3,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { renderCustom, markHtml, esc, clip } from "./widgetKit.ts";
 
-const server = new McpServer({ name: "calendly", version: "1.0.0" });
+const server = new McpServer({ name: "calendly", version: "1.1.0" });
 const ACCENT = "#006bff"; // Calendly brand blue
 
 // --- Shared SVG Icons (16x16, currentColor) ---

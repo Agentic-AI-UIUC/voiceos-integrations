@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "com.voiceos.generated.calendly",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "name": "Calendly",
   "summary": "View, book, and cancel Calendly meetings, find open and busy times, change your availability, share booking links, mark no-shows, and read meeting recaps.",
   "description": "VoiceOS integration for Calendly. Browse upcoming and recent meetings, view event type booking links, inspect meeting details with invitees and video links, check open slots and busy times across connected calendars, book meetings with invitees, cancel appointments with voice-dictated reasons, view or change weekly and date-specific availability, create single-use booking links and one-off meetings, mark invitees as no-shows, and read Calendly Notetaker meeting recaps.",

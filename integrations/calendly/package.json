@@ -1,6 +1,6 @@
 {
   "name": "calendly",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "description": "View, book, and cancel Calendly meetings, find open and busy times, change your availability, share booking links, mark no-shows, and read meeting recaps.",
   "type": "module",
