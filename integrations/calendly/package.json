@@ -2,7 +2,7 @@
   "name": "calendly",
   "version": "1.0.0",
   "private": true,
-  "description": "View upcoming Calendly meetings, inspect booking types, and cancel scheduled appointments.",
+  "description": "View, book, and cancel Calendly meetings, find open and busy times, change your availability, share booking links, mark no-shows, and read meeting recaps.",
   "type": "module",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.28.0",

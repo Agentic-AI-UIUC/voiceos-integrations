@@ -135,7 +135,8 @@
         "sampleArgs": {
           "event_uuid": "7a8b9c0d-1234-5678-90ab-cdef12345678",
           "event_name": "Product Sync with Alex",
-          "reason": "Rescheduling due to travel conflict"
+          "reason": "Rescheduling due to travel conflict",
+          "start_time": "2025-05-14T15:00:00.000000Z"
         },
         "stressCases": [
           {
@@ -143,7 +144,8 @@
             "sampleArgs": {
               "event_uuid": "7a8b9c0d-1234-5678-90ab-cdef12345678",
               "event_name": "Quarterly Enterprise Architecture, Cloud Migration Strategy, and Multi-Region Resiliency Review Session with External Engineering Staff",
-              "reason": "Emergency customer escalation on our production cluster requiring immediate incident response and root-cause analysis through the afternoon."
+              "reason": "Emergency customer escalation on our production cluster requiring immediate incident response and root-cause analysis through the afternoon.",
+              "start_time": "2025-05-14T15:00:00.000000Z"
             },
             "sampleData": {
               "canceled": true,
