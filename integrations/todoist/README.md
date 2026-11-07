@@ -1,5 +1,12 @@
 # Todoist integration — 1.0.12
 
+A native macOS VoiceOS integration for Todoist powered by Composio OAuth. It enables voice control to manage tasks, projects, sections, and personal labels, monitor productivity stats, and handle account authentication with interactive Mac notch cards and confirmation dialogs.
+
+## Download & Installation
+
+- **Download Link**: [https://api.voiceos.com/integration-share/GZS8H9CtoVvI/page](https://api.voiceos.com/integration-share/GZS8H9CtoVvI/page)
+
+
 ## Platform and setup
 
 This integration supports macOS only (`supportedPlatforms: ["darwin"]`).
@@ -13,37 +20,54 @@ supply it automatically.
 
 ## Tools
 
-- Connect Todoist
-- Todoist account (status, Connect/Disconnect/Refresh controls)
-- Disconnect Todoist
-- Create task
-- Update task
-- Close task (recurring tasks advance to their next occurrence)
-- Get active tasks (filters, task IDs, pagination)
-- Create project
-- Delete project
-- Create section
-- Delete section
-- List Todoist labels (`list_labels`, read-only)
-- Create label
-- Update label
-- Delete label (confirmation required; removes the label from all tasks)
-- Get productivity stats
-- List projects (read-only lookup with pagination)
-- List sections (read-only lookup, optional project filter, pagination)
+The integration exposes **18 tools: 15 business tools and 3 account/setup helpers**:
 
-## Confirmation cards
+### Account & Setup
+- **Connect Todoist** (`connect_account`): Prompts user confirmation and launches the Composio OAuth flow in the default browser to link Todoist.
+- **Todoist account** (`connection_status`): Displays the current connection status (active, pending, disconnected, or expired) with interactive Connect, Disconnect, and Refresh controls in the notch.
+- **Disconnect Todoist** (`disconnect_account`): Unlinks the active Todoist account, revokes access, and clears cached state (requires confirmation).
 
-All actions use native cards with the same spacing and Cancel/action footer.
-Task, project, section, and label creation share an editable Name field followed
-by a details summary. Updates show the selected name and ID plus the requested
-changes; fields absent from the request stay unchanged. Deletions always show
-Name, ID, and the consequence of deleting that entity. Read-only lookups never
-ask for confirmation by default.
+### Tasks
+- **Create task** (`create_task`): Creates a new task with editable name, optional project, section, priority, due date/string, and labels (requires confirmation).
+- **Update task** (`update_task`): Updates an existing task's name, priority, due date, project, or labels (requires confirmation).
+- **Complete task** (`close_task`): Completes/closes a task; recurring tasks automatically advance to their next occurrence (requires confirmation).
+- **Get active tasks** (`get_active_tasks`): Read-only lookup with filters (project, section, label, priority, due date ranges), task ID resolution, and pagination.
 
-`list_labels` only lists labels and accepts optional `limit` and `cursor` arguments.
-Use `create_label`, `update_label`, and `delete_label` for changes.
-There are **18 exposed tools: 15 business tools and 3 account/setup helpers**.
+### Projects & Sections
+- **List Todoist projects** (`list_projects`): Read-only lookup listing projects with pagination.
+- **Create project** (`create_project`): Creates a new project with name, color, and favorite flag (requires confirmation).
+- **Delete project** (`delete_project`): Deletes a project along with all nested sections and tasks (requires confirmation).
+- **List Todoist sections** (`list_sections`): Read-only lookup of sections, with optional project filtering and pagination.
+- **Create section** (`create_section`): Creates a new section within a project (requires confirmation).
+- **Delete section** (`delete_section`): Deletes a section and its contained tasks (requires confirmation).
+
+### Labels
+- **List Todoist labels** (`list_labels`): Read-only lookup of personal labels with name resolution, limit, and cursor pagination.
+- **Create label** (`create_label`): Creates a new personal label with name, color, order, and favorite flag (requires confirmation).
+- **Update label** (`update_label`): Renames a label or updates color, order, or favorite status (requires confirmation).
+- **Delete label** (`delete_label`): Deletes a personal label and removes it from all associated tasks (requires confirmation).
+
+### Productivity
+- **Get productivity stats** (`get_productivity_stats`): Read-only lookup returning completed tasks count, daily/weekly goals, and karma.
+
+## Native Notch UI & Confirmation Cards
+
+All actions use native macOS notch cards styled with consistent spacing and a Cancel/Action footer.
+
+| Connect Account | Create Task | Delete Confirmation |
+| :---: | :---: | :---: |
+| ![Connect Todoist card](ui_images/connect.png) | ![Create task confirmation card](ui_images/creation.png) | ![Delete project confirmation card](ui_images/deletion.png) |
+
+- **State modifications**: Task, project, section, and label creation share an editable `Name` field followed by a details summary. Updates display the selected entity name and ID alongside requested changes; untouched fields remain unmodified.
+- **Destructive actions**: Deletions clearly display Name, ID, and an explicit warning explaining the consequences (e.g. deleting a project also deletes all containing sections and tasks).
+- **Read-only lookups**: Never prompt for confirmation and return 2-second scannable glance cards to the Mac notch with structured data.
+- **Label operations**: `list_labels` reads labels with optional `limit` and `cursor`. Modifying labels is handled cleanly by dedicated `create_label`, `update_label`, and `delete_label` tools.
+
+## Architecture & Reliability
+
+- **SDK & Protocol Safety**: Built with `@composio/core` (0.28.0) and `@modelcontextprotocol/sdk`. The Composio SDK automatic version check is disabled to ensure stdout contains only valid MCP JSON-RPC protocol messages and prevents upgrade notices from disrupting communication.
+- **Bounded OAuth Polling**: Connection polling enforces a 3-minute overall deadline that cancels in-flight requests, pauses between polls, and uses an 8-second per-request timeout.
+- **Resilient Recovery**: Stalled pending-link lookups abort safely after 8 seconds while caching the saved pending link, allowing users to resume authorization without lost state.
 
 ## Automated tests
 
