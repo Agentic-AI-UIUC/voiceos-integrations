@@ -24,7 +24,7 @@ The integration exposes **18 tools: 15 business tools and 3 account/setup helper
 
 ### Account & Setup
 - **Connect Todoist** (`connect_account`): opens browser authorization and immediately returns its pending state and link, or verifies a saved active connection.
-- **Todoist account** (`connection_status`): Displays the current connection status (active, pending, disconnected, or expired) with interactive Connect, Disconnect, and Refresh controls in the notch.
+- **Todoist account** (`connection_status`): Displays the current connection status (active, pending, disconnected, or expired) with an account status card in the notch.
 - **Disconnect Todoist** (`disconnect_account`): Unlinks the active Todoist account, revokes access, and clears cached state (requires confirmation).
 
 ### Tasks
@@ -96,15 +96,15 @@ Coverage includes:
 - Exact Composio operations and arguments, partial updates, and invalid inputs.
 - Action confirmation definitions, read-only confirmation exclusions, result-card limits, empty responses, and
   pagination while retaining full response data.
-- Success/error notifications, notification failures, credential redaction,
-  and SDK-wrapped timeouts without repeating writes.
+- Background OAuth success/failure notifications, credential redaction,
+  and SDK-wrapped timeouts without repeating writes (per-write toasts removed per UIUC-17).
 - MCP stdout remains protocol-only when npm advertises a newer Composio SDK;
   the SDK version check is disabled so upgrade notices cannot break the connection.
 - Saved, pending, expired, revoked, disabled, and rejected account states;
   mocked OAuth completion and reuse; concurrent connects; disconnect success,
   unsupported provider revocation, and failure recovery. A stalled pending-link
   lookup aborts after eight seconds and keeps the saved link for recovery.
-- Connect is a short, synchronous browser handoff; it does not wait for browser approval or schedule a later sidebar result. This avoids long OAuth waits outliving VoiceOS's MCP request and leaving the agent saying a result would appear later. A pending result means approval still needs to be verified, not that the account is connected. If authorization is still pending or the browser cannot open, retry Connect to reuse the saved pending link. Expired, revoked, failed, removed, or disabled connections start a new authorization flow. Concurrent Connect calls share a single authorization attempt; Connect and Disconnect cannot run at the same time.
+- Connect is a short, synchronous browser handoff; it returns pending immediately and relies on a non-blocking background watcher to surface completion notifications when browser authorization finishes. Stale or unapproved pending links are safely replaced with fresh sessions on reconnect. Status verification is checked via connection_status without reopening the browser. Concurrent Connect calls share a single authorization attempt; Connect and Disconnect cannot run at the same time.
 
 These offline tests complement manual checks in VoiceOS and Todoist. They verify
 notification payloads and confirmation definitions, not their visual rendering.

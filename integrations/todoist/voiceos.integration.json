@@ -4,7 +4,7 @@
   "version": "1.0.13",
   "name": "Todoist",
   "summary": "Manage Todoist tasks, projects, sections, and labels through Composio OAuth.",
-  "description": "Todoist account controls, task/project/section/label actions, and productivity statistics. Actions show consistent confirmation cards; lookups run without confirmation. Writes report success or failure using VoiceOS notifications.",
+  "description": "Todoist account controls, task/project/section/label actions, and productivity statistics. Actions show consistent confirmation cards; lookups run without confirmation.",
   "icon": "icon.png",
   "categories": [
     "Productivity"
@@ -51,7 +51,7 @@
     "blocks": [
       {
         "type": "text",
-        "text": "Save your Composio API key. Say \u201cshow my Todoist connection\u201d for Connect/Disconnect controls, or say \u201cconnect me to Todoist\u201d to authorize in your browser. Say \u201cdisconnect Todoist\u201d to unlink this installation\u2019s connection."
+        "text": "Save your Composio API key. Say \u201cshow my Todoist connection\u201d to view your account status, or say \u201cconnect me to Todoist\u201d to authorize in your browser. Say \u201cdisconnect Todoist\u201d to unlink this installation\u2019s connection."
       }
     ]
   },
@@ -59,7 +59,7 @@
     {
       "name": "connect_account",
       "title": "Connect Todoist",
-      "description": "Connect Todoist using Composio OAuth. Use when asked to connect or authorize Todoist. Verify a saved active connection; otherwise open browser authorization and immediately return pending with its link. After browser approval, run Connect again to verify. Only report connected when connected=true; no background sidebar result is scheduled.",
+      "description": "Connect Todoist using Composio OAuth. Use when asked to connect or authorize Todoist. Verify a saved active connection; otherwise open browser authorization and immediately return pending with its link. To check or verify connection status without opening another tab, use connection_status.",
       "inputSchema": {
         "type": "object",
         "properties": {}
@@ -79,7 +79,7 @@
               "direction": "vertical",
               "gap": "md",
               "children": [
-                { "type": "text", "text": "Continue in your browser to securely link Todoist through Composio, then run Connect again to verify. If you’re already connected, we’ll verify your connection now.", "color": "muted" }
+                { "type": "text", "text": "Continue in your browser to securely link Todoist through Composio. If you’re already connected, we’ll verify your connection now.", "color": "muted" }
               ]
             }
           ],
@@ -99,7 +99,7 @@
     {
       "name": "connection_status",
       "title": "Todoist account",
-      "description": "Show Todoist connection status with Connect, Disconnect, and Refresh controls. Use when asked about Todoist account settings, connection status, expired authorization, or account linking. Read only; does not start OAuth.",
+      "description": "Show Todoist connection status with an account status card. Use when asked about Todoist account settings, connection status, expired authorization, or account linking. Read only; does not start OAuth.",
       "inputSchema": {
         "type": "object",
         "properties": {}

@@ -981,6 +981,7 @@ function startBackgroundConnectWatcher(connectionId: string) {
           break;
         }
         if (["FAILED", "EXPIRED", "REVOKED"].includes(account?.status)) {
+          await notifyWrite(`Todoist — Authorization ${account?.status?.toLowerCase() || "failed"}. Say "connect me to Todoist" to try again.`);
           break;
         }
       } catch {
@@ -1069,8 +1070,8 @@ async function connect() {
   const session = await api().sessions.create(state.userId, {
     toolkits: ["todoist"],
     tools: { todoist: { enable: catalog.tools.map((tool: any) => tool.slug) } },
-  });
-  const request = await session.authorize("todoist");
+  }, { signal });
+  const request = await session.authorize("todoist", undefined, { signal });
   if (!request.redirectUrl || new URL(request.redirectUrl).protocol !== "https:") {
     throw new Error("Composio did not return a valid authorization link.");
   }
@@ -1084,14 +1085,14 @@ async function connect() {
   return accountResult(
     false,
     "Authorization pending",
-    "Todoist authorization opened in your browser. Finish approval there, then run Connect again to verify the connection.",
+    "Todoist authorization opened in your browser. Finish approval there, then check connection status to verify.",
     { authorizationUrl: state.pending.url },
   );
 }
 
 server.registerTool("connect_account", {
   title: "Connect Todoist",
-  description: "Connect Todoist using Composio OAuth. Use when asked to connect or authorize Todoist. Verify a saved active connection; otherwise open browser authorization and immediately return pending with its link. After browser approval, run Connect again to verify. Only report connected when connected=true; no background sidebar result is scheduled.",
+  description: "Connect Todoist using Composio OAuth. Use when asked to connect or authorize Todoist. Verify a saved active connection; otherwise open browser authorization and immediately return pending with its link. To check or verify connection status without opening another tab, use connection_status.",
   inputSchema: {}, annotations: { readOnlyHint: false, destructiveHint: false },
 }, async (_input, extra) => withFeedback("Connect Todoist", true, extra, async () => {
     if (disconnecting) throw new Error("A Todoist disconnect is still running. Wait for it to finish before connecting.");
@@ -1100,7 +1101,7 @@ server.registerTool("connect_account", {
 }));
 
 server.registerTool("connection_status", {
-  title: "Todoist account", description: "Show Todoist connection status and Connect/Disconnect controls. Use for account settings, connection status, or expired authorization. Does not start OAuth.",
+  title: "Todoist account", description: "Show Todoist connection status with an account status card. Use for account settings, connection status, or expired authorization. Does not start OAuth.",
   inputSchema: {}, annotations: { readOnlyHint: true, destructiveHint: false },
 }, async (_input, extra) => withFeedback("Check connection", false, extra, async () => {
   const state = await load();

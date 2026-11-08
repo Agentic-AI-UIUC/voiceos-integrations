@@ -382,6 +382,15 @@ describe("failures, notifications, and credential redaction", () => {
     expect(savedState()).toEqual({ userId: ACTIVE_STATE.userId, accountId: "ca_pending" });
   });
 
+  test("background watcher surfaces failure notification when authorization fails", async () => {
+    setState({ userId: ACTIVE_STATE.userId });
+    setScenario({ accountStatus: "INITIATED", oauthStatuses: ["FAILED"], watchBackgroundConnect: true, pollIntervalMs: 20 });
+    const started = await invoke("connect_account");
+    expect(started.body.connected).toBe(false);
+    await Bun.sleep(100);
+    expect(notifications).toEqual([{ message: "Todoist — Authorization failed. Say \"connect me to Todoist\" to try again.", speak: false }]);
+  });
+
   test("a timed-out write has an uncertain outcome and sends no per-write notification", async () => {
     setScenario({ operationTimeout: true });
     const result = await invoke("create_task", { content: "Buy milk" });
@@ -539,7 +548,7 @@ describe("account state and explicit OAuth setup", () => {
       status: "Authorization pending",
       authorizationUrl: "https://example.invalid/authorize",
     });
-    expect(result.body.message).toContain("Connect again");
+    expect(result.body.message).toContain("check connection status");
     expect(savedState().pending.id).toBe("ca_pending");
     expect(events().filter(event => /\/connected_accounts\//.test(event.path ?? ""))).toEqual([]);
     expect(manifest.tools.find((tool: JsonObject) => tool.name === "connect_account").execution.mode).toBe("sync");
