@@ -19,6 +19,8 @@ export type Scenario = {
   operationError?: string | { message: string };
   operationTimeout?: boolean;
   responseData?: unknown;
+  watchBackgroundConnect?: boolean;
+  pollIntervalMs?: number;
 };
 
 export type RecordedEvent = {
@@ -140,7 +142,7 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
     const events = recordedEvents();
     const lookups = events
       .filter(event => event.kind === "request" && event.path === path && event.method === "GET");
-    if ((config.stallPendingLookup && account[1] === "ca_pending" && lookups.length === 2)
+    if ((config.stallPendingLookup && account[1] === "ca_pending" && lookups.length === 1)
       || (config.stallOAuthLookup && events.some(event => event.kind === "browser"))) {
       return await waitForAbort(request);
     }

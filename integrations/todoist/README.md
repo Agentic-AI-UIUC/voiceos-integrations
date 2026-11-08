@@ -1,4 +1,4 @@
-# Todoist integration — 1.0.12
+# Todoist integration — 1.0.13
 
 A native macOS VoiceOS integration for Todoist powered by Composio OAuth. It enables voice control to manage tasks, projects, sections, and personal labels, monitor productivity stats, and handle account authentication with interactive Mac notch cards and confirmation dialogs.
 
@@ -23,7 +23,7 @@ supply it automatically.
 The integration exposes **18 tools: 15 business tools and 3 account/setup helpers**:
 
 ### Account & Setup
-- **Connect Todoist** (`connect_account`): Prompts user confirmation and launches the Composio OAuth flow in the default browser to link Todoist.
+- **Connect Todoist** (`connect_account`): opens browser authorization and immediately returns its pending state and link, or verifies a saved active connection.
 - **Todoist account** (`connection_status`): Displays the current connection status (active, pending, disconnected, or expired) with interactive Connect, Disconnect, and Refresh controls in the notch.
 - **Disconnect Todoist** (`disconnect_account`): Unlinks the active Todoist account, revokes access, and clears cached state (requires confirmation).
 
@@ -66,7 +66,7 @@ All actions use native macOS notch cards styled with consistent spacing and a Ca
 ## Architecture & Reliability
 
 - **SDK & Protocol Safety**: Built with `@composio/core` (0.28.0) and `@modelcontextprotocol/sdk`. The Composio SDK automatic version check is disabled to ensure stdout contains only valid MCP JSON-RPC protocol messages and prevents upgrade notices from disrupting communication.
-- **Bounded OAuth Polling**: Connection polling enforces a 3-minute overall deadline that cancels in-flight requests, pauses between polls, and uses an 8-second per-request timeout.
+- **Synchronous OAuth Handoff & Background Status Notification**: Connect is a short, synchronous browser handoff; it opens browser authorization and immediately returns a pending status with its link rather than blocking VoiceOS or scheduling an orphaned sidebar task. A non-blocking background watcher monitors Composio for browser approval and surfaces a single completion notification once active. Normal task and project writes omit sticky toast notifications to keep the UI clean (UIUC-17).
 - **Resilient Recovery**: Stalled pending-link lookups abort safely after 8 seconds while caching the saved pending link, allowing users to resume authorization without lost state.
 
 ## Automated tests
@@ -104,10 +104,7 @@ Coverage includes:
   mocked OAuth completion and reuse; concurrent connects; disconnect success,
   unsupported provider revocation, and failure recovery. A stalled pending-link
   lookup aborts after eight seconds and keeps the saved link for recovery.
-- OAuth polling has a three-minute deadline that cancels in-flight requests and
-  pauses between polls. Individual lookups also have an eight-second timeout.
-  Tests shorten only the overall deadline in the isolated child process and
-  verify cancellation, recovery, successful polling, and terminal account states.
+- Connect is a short, synchronous browser handoff; it does not wait for browser approval or schedule a later sidebar result. This avoids long OAuth waits outliving VoiceOS's MCP request and leaving the agent saying a result would appear later. A pending result means approval still needs to be verified, not that the account is connected. If authorization is still pending or the browser cannot open, retry Connect to reuse the saved pending link. Expired, revoked, failed, removed, or disabled connections start a new authorization flow. Concurrent Connect calls share a single authorization attempt; Connect and Disconnect cannot run at the same time.
 
 These offline tests complement manual checks in VoiceOS and Todoist. They verify
 notification payloads and confirmation definitions, not their visual rendering.

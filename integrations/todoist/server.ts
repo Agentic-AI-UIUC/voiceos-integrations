@@ -5,11 +5,12 @@ import { z } from "zod";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { readFile, writeFile, rename } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import { setTimeout as delay } from "node:timers/promises";
 
 // Composio owns OAuth, token storage/refresh, and Todoist requests.
 // This adapter only saves this installation's identity and connection reference.
-const server = new McpServer({ name: "composio-todoist", version: "1.0.12" });
+const server = new McpServer({ name: "composio-todoist", version: "1.0.13" });
 // BEGIN TOOL CATALOG
 const catalog: any = {
   "version": "20260731_00",
@@ -919,55 +920,92 @@ async function withFeedback(title: string, write: boolean, extra: any, run: () =
   let output: any;
   try { output = await run(); } catch (error) { output = failure(error); }
   await progress(extra, `${title}: ${output.isError ? "failed" : "finished"}`, true);
-  if (write) {
-    const payload = JSON.parse(output.content.find((block: any) => block.type === "text").text);
-    payload.notificationQueued = await notifyWrite(output.isError
-      ? `Todoist — ${title} ${payload.code === "OUTCOME_UNKNOWN" ? "outcome unconfirmed" : "failed"}: ${payload.error ?? "Request failed."}`
-      : `Todoist — ${title} completed.`);
-    output.content.find((block: any) => block.type === "text").text = JSON.stringify(payload);
-  }
   return output;
+}
+
+let activeConnectWatcher: AbortController | undefined;
+
+function stopBackgroundConnectWatcher() {
+  if (activeConnectWatcher) {
+    activeConnectWatcher.abort();
+    activeConnectWatcher = undefined;
+  }
+}
+
+function shouldWatchBackgroundConnect(): boolean {
+  if (!process.env.TODOIST_TEST_SCENARIO) return true;
+  try {
+    const scenario = JSON.parse(readFileSync(process.env.TODOIST_TEST_SCENARIO, "utf8"));
+    return Boolean(scenario.watchBackgroundConnect);
+  } catch {
+    return false;
+  }
+}
+
+function getPollIntervalMs(): number {
+  if (!process.env.TODOIST_TEST_SCENARIO) return 2000;
+  try {
+    const scenario = JSON.parse(readFileSync(process.env.TODOIST_TEST_SCENARIO, "utf8"));
+    return scenario.pollIntervalMs ?? 50;
+  } catch {
+    return 50;
+  }
+}
+
+function startBackgroundConnectWatcher(connectionId: string) {
+  if (!shouldWatchBackgroundConnect()) return;
+  stopBackgroundConnectWatcher();
+  const controller = new AbortController();
+  activeConnectWatcher = controller;
+  const pollIntervalMs = getPollIntervalMs();
+
+  (async () => {
+    const startTime = Date.now();
+    // Poll for up to 180 seconds (3 minutes)
+    while (!controller.signal.aborted && Date.now() - startTime < 180000) {
+      await delay(pollIntervalMs);
+      if (controller.signal.aborted) break;
+      try {
+        const account = await api().connectedAccounts.get(connectionId, {
+          signal: AbortSignal.timeout(5000),
+        });
+        if (account?.status === "ACTIVE" && !account.isDisabled) {
+          const state = await load();
+          if (state.pending?.id === connectionId) {
+            state.accountId = connectionId;
+            delete state.pending;
+            delete state.needsReauthorization;
+            await save(state);
+            await notifyWrite("Todoist — Connected successfully. Your account is ready to use.");
+          }
+          break;
+        }
+        if (["FAILED", "EXPIRED", "REVOKED"].includes(account?.status)) {
+          break;
+        }
+      } catch {
+        // Continue polling until timeout or aborted
+      }
+    }
+  })().catch(() => {});
 }
 
 function accountResult(connected: boolean, status: string, message: string, extraData: object = {}) {
   const data = { connected, status, message, ...extraData };
-  const initial = JSON.stringify(data).replace(/</g, "\\u003c");
-  // This small result widget is needed for account controls. It never touches
-  // credentials: calls go through VoiceOS's uiCallable tool bridge.
-  const html = `<!doctype html><html><meta charset="utf-8"><style>
-    *{box-sizing:border-box;scrollbar-width:none}::-webkit-scrollbar{display:none}
-    :root{--k-radius:26px;--ink:#fff;--muted:#b5b5b5;--line:#ffffff26}
-    html[data-theme=light]{--ink:#171717;--muted:#555;--line:#0002}
-    body{margin:0;padding:20px;color:var(--ink);font:15px/1.5 -apple-system,BlinkMacSystemFont,sans-serif;background:transparent}
-    h3{margin:0 0 8px;font-size:18px}p{margin:0 0 18px;color:var(--muted)}
-    .buttons{display:flex;gap:12px;flex-wrap:wrap}button{min-height:44px;border:1px solid var(--line);border-radius:12px;padding:10px 18px;background:transparent;color:var(--ink);font:inherit;cursor:pointer}
-    button.primary{background:#db4035;border-color:#db4035;color:white}button:disabled{opacity:.5;cursor:default}
-    [aria-busy=true] #status:before{content:"";display:inline-block;width:10px;height:10px;border:2px solid var(--line);border-top-color:#db4035;border-radius:50%;animation:spin .8s linear infinite;margin-right:7px}
-    @keyframes spin{to{transform:rotate(360deg)}}
-    </style><body><h3>Todoist account</h3><p id="status" role="status" aria-live="polite"></p>
-    <div class="buttons"><button id="account" class="primary" disabled></button><button id="refresh" disabled>Refresh</button></div>
-    <script>(()=>{
-      let data=${initial},capable=false,pending=null;
-      const account=document.getElementById('account'),refresh=document.getElementById('refresh'),status=document.getElementById('status');
-      function paint(){status.textContent=data.message;account.textContent=data.connected?'Disconnect':'Connect';account.disabled=refresh.disabled=!capable||!!pending;document.body.setAttribute('aria-busy',String(!!pending));resize()}
-      function resize(){if(!document.hidden&&document.documentElement.offsetWidth){const height=Math.ceil(document.documentElement.getBoundingClientRect().height);if(height>=8)parent.postMessage({type:'voiceos:resize',height},'*')}}
-      function call(name){if(!capable||pending)return;const bytes=new Uint32Array(4);crypto.getRandomValues(bytes);const id=Array.from(bytes,n=>n.toString(16)).join('_');
-        const timer=setTimeout(()=>{if(pending&&pending.id===id){pending=null;data.message='No final response received. Refresh status before trying again.';paint()}},210000);
-        pending={id,timer};data.message=name==='connect_account'?'Waiting for browser authorization…':name==='disconnect_account'?'Disconnecting Todoist…':'Checking connection…';paint();
-        parent.postMessage({type:'voiceos:invokeTool',name,args:{},requestId:id},'*')}
-      addEventListener('message',event=>{if(event.source!==parent||!event.data)return;const m=event.data;
-        if(m.type==='voiceos:init'){capable=!!(m.capabilities&&m.capabilities.invokeTool);document.documentElement.dataset.theme=m.theme&&m.theme.mode||'dark';if(typeof m.radius==='number')document.documentElement.style.setProperty('--k-radius',Math.max(0,Math.min(48,m.radius))+'px');if(!capable)data.message+=' Use voice commands to connect or disconnect on this VoiceOS version.';paint()}
-        if(m.type==='voiceos:toolResult'&&pending&&m.requestId===pending.id&&['completed','failed','cancelled','unknown'].includes(m.status)){
-          clearTimeout(pending.timer);pending=null;let payload;try{const block=m.result&&m.result.content&&m.result.content.find(x=>x.type==='text');if(block)payload=JSON.parse(block.text)}catch{}
-          if(payload&&typeof payload.connected==='boolean')data=payload;
-          else data.message=payload&&payload.error||m.error||(m.status==='cancelled'?'Cancelled.':m.status==='completed'?'Request finished. Refresh to verify connection status.':'Could not verify the outcome. Refresh status before retrying.');paint()}
-      });
-      account.onclick=()=>call(data.connected?'disconnect_account':'connect_account');refresh.onclick=()=>call('connection_status');
-      if(window.ResizeObserver)new ResizeObserver(resize).observe(document.documentElement);paint();
-    })()</script></body></html>`;
-  return { content: [{ type: "text" as const, text: JSON.stringify({
-    ...data, _voiceos_glance: { blocks: [{ type: "widget", html, height: 210, label: "Todoist account controls", data }] },
-  }) }] };
+  return {
+    content: [{
+      type: "text" as const,
+      text: JSON.stringify({
+        ...data,
+        _voiceos_glance: {
+          blocks: [
+            { type: "header", title: "Todoist", trailing: connected ? "Connected" : status },
+            { type: "keyValue", pairs: [["Status", message]] },
+          ],
+        },
+      }),
+    }],
+  };
 }
 
 async function savedAccount(state: State) {
@@ -986,7 +1024,17 @@ async function savedAccount(state: State) {
 
 async function activeAccount(state: State) {
   const account = await savedAccount(state);
-  return account?.status === "ACTIVE" && !account.isDisabled ? account : undefined;
+  if (account?.status === "ACTIVE" && !account.isDisabled) {
+    if (state.pending?.id && state.pending.id === account.id) {
+      stopBackgroundConnectWatcher();
+      state.accountId = account.id;
+      delete state.pending;
+      delete state.needsReauthorization;
+      await save(state);
+    }
+    return account;
+  }
+  return undefined;
 }
 
 async function requireAccount(state: State) {
@@ -1001,78 +1049,49 @@ async function requireAccount(state: State) {
   return account;
 }
 
-async function waitForAuthorization(id: string) {
-  // The SDK polling timeout does not cancel an in-flight lookup.
-  const deadline = AbortSignal.timeout(180000);
-  while (true) {
-    deadline.throwIfAborted();
-    const account = await api().connectedAccounts.get(id, {
-      signal: AbortSignal.any([deadline, AbortSignal.timeout(8000)]),
-    });
-    if (account.status === "ACTIVE") return account;
-    if (["FAILED", "EXPIRED", "REVOKED"].includes(account.status)) {
-      throw new Error(`Todoist authorization failed (${account.status.toLowerCase()}). Connect again to authorize.`);
-    }
-    await delay(1000, undefined, { signal: deadline });
-  }
-}
-
 async function connect() {
+  // Connect is a short browser handoff, not a task that waits for user consent.
+  // Bound the whole handoff so it finishes before VoiceOS's MCP request timeout.
+  const signal = AbortSignal.timeout(12000);
   const state = await load();
   const existing = await activeAccount(state);
   if (existing && (!state.needsReauthorization || state.pending?.id === existing.id)) {
+    stopBackgroundConnectWatcher();
     state.accountId = existing.id;
     delete state.pending;
     delete state.needsReauthorization;
     await save(state);
-    return accountResult(true, "Connected", "Todoist authorization verified.");
+    return accountResult(true, "Connected", "Todoist authorization verified. Your saved connection is ready to use.");
   }
-  if (state.pending) {
-    let pending;
-    try { pending = await api().connectedAccounts.get(state.pending.id, { signal: AbortSignal.timeout(8000) }); }
-    catch (error: any) {
-      if (error.status !== 404 && error.cause?.status !== 404) throw error;
-    }
-    if (!pending || !["INITIATED", "INITIALIZING", "PENDING"].includes(pending.status)) {
-      delete state.pending;
-      await save(state);
-    }
+  // If not active, create a fresh authorization session with a valid redirect link.
+  // Reopening a previously launched link fails because Composio link sessions expire once visited.
+  delete state.pending;
+  const session = await api().sessions.create(state.userId, {
+    toolkits: ["todoist"],
+    tools: { todoist: { enable: catalog.tools.map((tool: any) => tool.slug) } },
+  });
+  const request = await session.authorize("todoist");
+  if (!request.redirectUrl || new URL(request.redirectUrl).protocol !== "https:") {
+    throw new Error("Composio did not return a valid authorization link.");
   }
-  if (!state.pending) {
-    const session = await api().sessions.create(state.userId, {
-      toolkits: ["todoist"],
-      tools: { todoist: { enable: catalog.tools.map((tool: any) => tool.slug) } },
-    });
-    const request = await session.authorize("todoist");
-    if (!request.redirectUrl || new URL(request.redirectUrl).protocol !== "https:") {
-      throw new Error("Composio did not return a valid authorization link.");
-    }
-    state.pending = { id: request.id, url: request.redirectUrl };
-    await save(state);
-  }
+  state.pending = { id: request.id, url: request.redirectUrl };
+  await save(state);
   // Only an explicit Connect request opens the OAuth consent page.
   await new Promise<void>((resolve, reject) => {
-    execFile("/usr/bin/open", [state.pending!.url], { timeout: 8000 }, error => error ? reject(error) : resolve());
+    execFile("/usr/bin/open", [state.pending!.url], { timeout: 8000, signal }, error => error ? reject(error) : resolve());
   });
-  let account;
-  try { account = await waitForAuthorization(state.pending.id); }
-  catch (error: any) {
-    if (isTimeout(error)) throw new TodoistError("AUTH_PENDING", "Todoist authorization has not finished yet. Complete it in your browser, then refresh the connection status. Your pending link is saved.");
-    throw error;
-  }
-  if (account.toolkit.slug !== "todoist" || account.status !== "ACTIVE" || account.isDisabled) {
-    throw new Error("Todoist authorization is not active.");
-  }
-  state.accountId = account.id;
-  delete state.pending;
-  delete state.needsReauthorization;
-  await save(state);
-  return accountResult(true, "Connected", "Todoist authorization verified. Your saved connection is ready to use.");
+  startBackgroundConnectWatcher(request.id);
+  return accountResult(
+    false,
+    "Authorization pending",
+    "Todoist authorization opened in your browser. Finish approval there, then run Connect again to verify the connection.",
+    { authorizationUrl: state.pending.url },
+  );
 }
 
 server.registerTool("connect_account", {
   title: "Connect Todoist",
-  description: "Connect Todoist using Composio OAuth. Use when the user says connect me to Todoist or authorize Todoist. Reuse this installation's verified connection; otherwise open browser authorization and wait. This does not read or change tasks.",
+  description: "Connect Todoist using Composio OAuth. Use when asked to connect or authorize Todoist. Verify a saved active connection; otherwise open browser authorization and immediately return pending with its link. After browser approval, run Connect again to verify. Only report connected when connected=true; no background sidebar result is scheduled.",
   inputSchema: {}, annotations: { readOnlyHint: false, destructiveHint: false },
 }, async (_input, extra) => withFeedback("Connect Todoist", true, extra, async () => {
     if (disconnecting) throw new Error("A Todoist disconnect is still running. Wait for it to finish before connecting.");
@@ -1098,6 +1117,7 @@ server.registerTool("connection_status", {
 }));
 
 async function disconnect() {
+  stopBackgroundConnectWatcher();
   if (connecting) throw new Error("Todoist authorization is still running. Finish or wait for it before disconnecting.");
   const state = await load();
   let providerRevoked = true;

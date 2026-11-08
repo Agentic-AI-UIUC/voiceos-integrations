@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "com.voiceos.generated.composio-todoist",
-  "version": "1.0.12",
+  "version": "1.0.13",
   "name": "Todoist",
   "summary": "Manage Todoist tasks, projects, sections, and labels through Composio OAuth.",
   "description": "Todoist account controls, task/project/section/label actions, and productivity statistics. Actions show consistent confirmation cards; lookups run without confirmation. Writes report success or failure using VoiceOS notifications.",
@@ -59,14 +59,14 @@
     {
       "name": "connect_account",
       "title": "Connect Todoist",
-      "description": "Connect Todoist using Composio OAuth. Use when asked to connect or authorize Todoist. Reuse a verified saved connection; otherwise confirm opening browser authorization and wait for consent.",
+      "description": "Connect Todoist using Composio OAuth. Use when asked to connect or authorize Todoist. Verify a saved active connection; otherwise open browser authorization and immediately return pending with its link. After browser approval, run Connect again to verify. Only report connected when connected=true; no background sidebar result is scheduled.",
       "inputSchema": {
         "type": "object",
         "properties": {}
       },
       "execution": {
-        "mode": "background",
-        "estimatedDurationMs": 180000
+        "mode": "sync",
+        "estimatedDurationMs": 5000
       },
       "confirmation": {
         "schemaVersion": 1,
@@ -79,7 +79,7 @@
               "direction": "vertical",
               "gap": "md",
               "children": [
-                { "type": "text", "text": "Continue in your browser to securely link Todoist through Composio. If you’re already connected, we’ll verify your connection instead.", "color": "muted" }
+                { "type": "text", "text": "Continue in your browser to securely link Todoist through Composio, then run Connect again to verify. If you’re already connected, we’ll verify your connection now.", "color": "muted" }
               ]
             }
           ],

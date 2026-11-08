@@ -160,7 +160,7 @@ describe("manifest and MCP contract", () => {
     expect(manifest.preferences).toContainEqual(expect.objectContaining({ name: "COMPOSIO_API_KEY", type: "password", required: true }));
     expect(manifest.summary.length).toBeLessThanOrEqual(140);
     expect(manifest.version).toMatch(/^\d+\.\d+\.\d+$/);
-    expect(manifest.tools.find((tool: JsonObject) => tool.name === "connect_account").execution.mode).toBe("background");
+    expect(manifest.tools.find((tool: JsonObject) => tool.name === "connect_account").execution.mode).toBe("sync");
   });
 
   test("documents each required secret without committing a value", () => {
@@ -251,7 +251,7 @@ describe("real server routing through the real Composio SDK", () => {
     const result = await invoke("update_label", { label_id: "label_1", is_favorite: false, order: 0 });
     expect(result.isError).toBe(false);
     expect(operations()[0].body?.arguments).toEqual({ label_id: "label_1", is_favorite: false, order: 0 });
-    expect(notifications).toEqual([{ message: "Todoist — Update label completed.", speak: false }]);
+    expect(notifications).toHaveLength(0);
   });
 });
 
@@ -346,41 +346,50 @@ describe("result data and native cards", () => {
 });
 
 describe("failures, notifications, and credential redaction", () => {
-  test("reports provider failure and sends an error notification", async () => {
+  test("reports provider failure without per-write notification", async () => {
     setScenario({ operationError: "Todoist rejected this project name" });
     const result = await invoke("create_project", { name: "Test project" });
     expect(result.isError).toBe(true);
     expect(result.body.error).toContain("Todoist rejected");
     expect(result.body.success).toBeUndefined();
-    expect(notifications).toHaveLength(1);
-    expect(notifications[0].message).toContain("failed");
-    expect(result.body.notificationQueued).toBe(true);
+    expect(notifications).toHaveLength(0);
   });
 
-  test("successful writes send one success notification", async () => {
+  test("successful writes send no per-write notification", async () => {
     const result = await invoke("create_task", { content: "Buy milk" });
     expect(result.isError).toBe(false);
-    expect(notifications).toEqual([{ message: "Todoist — Create task completed.", speak: false }]);
-    expect(result.body.notificationQueued).toBe(true);
+    expect(notifications).toHaveLength(0);
   });
 
-  test("notification failure preserves a successful write", async () => {
+  test("background watcher surfaces connect completion notification when browser approval finishes", async () => {
+    setState({ userId: ACTIVE_STATE.userId });
+    setScenario({ accountStatus: "INITIATED", activateAfterBrowser: true, watchBackgroundConnect: true, pollIntervalMs: 20 });
+    const started = await invoke("connect_account");
+    expect(started.body.connected).toBe(false);
+    expect(started.body.status).toBe("Authorization pending");
+    await Bun.sleep(100);
+    expect(notifications).toEqual([{ message: "Todoist — Connected successfully. Your account is ready to use.", speak: false }]);
+    expect(savedState()).toEqual({ userId: ACTIVE_STATE.userId, accountId: "ca_pending" });
+  });
+
+  test("notification failure preserves background connect completion", async () => {
+    setState({ userId: ACTIVE_STATE.userId });
+    setScenario({ accountStatus: "INITIATED", activateAfterBrowser: true, watchBackgroundConnect: true, pollIntervalMs: 20 });
     rejectNotification = true;
-    const result = await invoke("create_task", { content: "Buy milk" });
-    expect(result.isError).toBe(false);
-    expect(result.body.success).toBe(true);
-    expect(result.body.notificationQueued).toBe(false);
-    expect(operations()).toHaveLength(1);
+    const started = await invoke("connect_account");
+    expect(started.body.connected).toBe(false);
+    await Bun.sleep(100);
+    expect(savedState()).toEqual({ userId: ACTIVE_STATE.userId, accountId: "ca_pending" });
   });
 
-  test("a timed-out write has an uncertain outcome and is never replayed", async () => {
+  test("a timed-out write has an uncertain outcome and sends no per-write notification", async () => {
     setScenario({ operationTimeout: true });
     const result = await invoke("create_task", { content: "Buy milk" });
     expect(result.isError).toBe(true);
     expect(result.body.code).toBe("OUTCOME_UNKNOWN");
     expect(result.body.error).toContain("check Todoist before retrying");
     expect(operations()).toHaveLength(1);
-    expect(notifications[0].message).toContain("outcome unconfirmed");
+    expect(notifications).toHaveLength(0);
     expect(browserEvents()).toHaveLength(0);
   });
 
@@ -461,79 +470,79 @@ describe("account state and explicit OAuth setup", () => {
 
   test("explicit connect completes mocked OAuth and stores only connection references", async () => {
     setState({ userId: ACTIVE_STATE.userId });
-    setScenario({ accountStatus: "INITIATED", activateAfterBrowser: true });
+    setScenario({ accountStatus: "INITIATED" });
     const result = await invoke("connect_account");
-    expect(result.body).toMatchObject({ connected: true });
-    expect(result.body.connected).toBe(true);
+    expect(result.body.connected).toBe(false);
+    expect(result.body.status).toBe("Authorization pending");
+    expect(result.body.authorizationUrl).toBe("https://example.invalid/authorize");
     expect(browserEvents()).toEqual([{ kind: "browser", url: "https://example.invalid/authorize" }]);
-    expect(savedState()).toEqual({ userId: ACTIVE_STATE.userId, accountId: "ca_pending" });
+    expect(savedState()).toEqual({ userId: ACTIVE_STATE.userId, pending: { id: "ca_pending", url: "https://example.invalid/authorize" } });
     const link = events().find(event => event.path?.endsWith("/link"));
     expect(link?.body).toEqual({ toolkit: "todoist" });
   });
 
-  test("concurrent connects share one browser authorization attempt", async () => {
+  test("verifies browser approval on the next Connect without reopening authorization", async () => {
     setState({ userId: ACTIVE_STATE.userId });
     setScenario({ accountStatus: "INITIATED", activateAfterBrowser: true });
-    const results = await Promise.all([invoke("connect_account"), invoke("connect_account")]);
-    expect(results.every(result => !result.isError && result.body.connected)).toBe(true);
+    const started = await invoke("connect_account");
+    expect(started.body.connected).toBe(false);
+    expect(started.body.status).toBe("Authorization pending");
+    const verified = await invoke("connect_account");
+    expect(verified.isError).toBe(false);
+    expect(verified.body.connected).toBe(true);
+    expect(savedState()).toEqual({ userId: ACTIVE_STATE.userId, accountId: "ca_pending" });
     expect(browserEvents()).toHaveLength(1);
     expect(events().filter(event => event.path?.endsWith("/link"))).toHaveLength(1);
   });
 
-  test("pending authorization is reused instead of creating another session", async () => {
-    setState({ userId: ACTIVE_STATE.userId, pending: { id: "ca_pending", url: "https://example.invalid/saved-consent" } });
-    setScenario({ accountStatus: "INITIATED", activateAfterBrowser: true });
-    const result = await invoke("connect_account");
-    expect(result.body).toMatchObject({ connected: true });
-    expect(browserEvents()[0].url).toBe("https://example.invalid/saved-consent");
-    expect(events().some(event => event.path?.includes("tool_router"))).toBe(false);
+  test("concurrent connects share one browser authorization attempt", async () => {
+    setState({ userId: ACTIVE_STATE.userId });
+    setScenario({ accountStatus: "INITIATED" });
+    const results = await Promise.all([invoke("connect_account"), invoke("connect_account")]);
+    expect(results.every(result => !result.isError && !result.body.connected && result.body.status === "Authorization pending")).toBe(true);
+    expect(browserEvents()).toHaveLength(1);
+    expect(events().filter(event => event.path?.endsWith("/link"))).toHaveLength(1);
   });
 
-  test("bounds the first OAuth lookup by the overall polling deadline", async () => {
-    setState({ userId: ACTIVE_STATE.userId });
-    setScenario({ accountStatus: "INITIATED", stallOAuthLookup: true, oauthWaitTimeoutMs: 100 });
+  test("creates a fresh authorization link if unapproved pending authorization is reconnected", async () => {
+    setState({ userId: ACTIVE_STATE.userId, pending: { id: "ca_old", url: "https://example.invalid/old-consumed-consent" } });
+    setScenario({ accountStatus: "INITIATED" });
     const result = await invoke("connect_account");
-    expect(result.isError).toBe(true);
-    expect(result.body.code).toBe("AUTH_PENDING");
-    expect(events().filter(event => event.kind === "lookup-aborted")).toHaveLength(1);
+    expect(result.body.connected).toBe(false);
+    expect(result.body.status).toBe("Authorization pending");
+    expect(result.body.authorizationUrl).toBe("https://example.invalid/authorize");
+    expect(browserEvents()[0].url).toBe("https://example.invalid/authorize");
     expect(savedState().pending?.id).toBe("ca_pending");
-    expect(savedState().accountId).toBeUndefined();
-    expect(operations()).toHaveLength(0);
-    // Timing out releases the Connect lock, so a later attempt can recover.
-    setScenario({ accountStatus: "INITIATED", activateAfterBrowser: true });
-    expect((await invoke("connect_account")).body.connected).toBe(true);
-  }, 3000);
+    expect(events().some(event => event.path?.endsWith("/link"))).toBe(true);
+  });
 
-  test("the OAuth deadline also cancels the pause between polls", async () => {
+  test.each(["FAILED", "EXPIRED", "REVOKED"])("starts a new authorization when pending state is %s", async status => {
+    setState({ userId: ACTIVE_STATE.userId, pending: { id: "ca_old", url: "https://example.invalid/old" } });
+    setScenario({ accountStatus: status });
+    const result = await invoke("connect_account");
+    expect(result.isError).toBe(false);
+    expect(result.body.connected).toBe(false);
+    expect(result.body.status).toBe("Authorization pending");
+    expect(savedState().pending?.id).toBe("ca_pending");
+    expect(events().some(event => event.path?.endsWith("/link"))).toBe(true);
+  });
+
+  test("new authorization returns an actionable pending result without waiting for browser approval", async () => {
     setState({ userId: ACTIVE_STATE.userId });
-    setScenario({ accountStatus: "INITIATED", oauthWaitTimeoutMs: 100 });
+    setScenario({ accountStatus: "INITIATED" });
     const start = performance.now();
     const result = await invoke("connect_account");
     expect(performance.now() - start).toBeLessThan(1000);
-    expect(result.body.code).toBe("AUTH_PENDING");
-    expect(savedState().pending?.id).toBe("ca_pending");
-    expect(events().filter(event => event.kind === "request" && event.method === "GET"
-      && event.path?.endsWith("/connected_accounts/ca_pending"))).toHaveLength(1);
-  });
-
-  test("OAuth polling waits through a pending state before saving the active account", async () => {
-    setState({ userId: ACTIVE_STATE.userId });
-    setScenario({ accountStatus: "INITIATED", oauthStatuses: ["PENDING", "ACTIVE"] });
-    const result = await invoke("connect_account");
-    expect(result.body.connected).toBe(true);
-    expect(savedState()).toEqual({ userId: ACTIVE_STATE.userId, accountId: "ca_pending" });
-    expect(events().filter(event => event.kind === "request" && event.method === "GET"
-      && event.path?.endsWith("/connected_accounts/ca_pending"))).toHaveLength(2);
-  });
-
-  test.each(["FAILED", "EXPIRED", "REVOKED"])("OAuth polling stops on %s without saving an active account", async status => {
-    setState({ userId: ACTIVE_STATE.userId });
-    setScenario({ accountStatus: "INITIATED", oauthStatuses: [status] });
-    const result = await invoke("connect_account");
-    expect(result.isError).toBe(true);
-    expect(result.body.error.toLowerCase()).toContain(status.toLowerCase());
-    expect(savedState().accountId).toBeUndefined();
-    expect(savedState().pending?.id).toBe("ca_pending");
+    expect(result.isError).toBe(false);
+    expect(result.body).toMatchObject({
+      connected: false,
+      status: "Authorization pending",
+      authorizationUrl: "https://example.invalid/authorize",
+    });
+    expect(result.body.message).toContain("Connect again");
+    expect(savedState().pending.id).toBe("ca_pending");
+    expect(events().filter(event => /\/connected_accounts\//.test(event.path ?? ""))).toEqual([]);
+    expect(manifest.tools.find((tool: JsonObject) => tool.name === "connect_account").execution.mode).toBe("sync");
   });
 
   test("a stalled pending lookup times out and preserves the connection for recovery", async () => {
