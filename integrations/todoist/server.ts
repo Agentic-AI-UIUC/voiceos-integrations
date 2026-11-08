@@ -10,7 +10,7 @@ import { setTimeout as delay } from "node:timers/promises";
 
 // Composio owns OAuth, token storage/refresh, and Todoist requests.
 // This adapter only saves this installation's identity and connection reference.
-const server = new McpServer({ name: "composio-todoist", version: "1.0.13" });
+const server = new McpServer({ name: "composio-todoist", version: "1.0.14" });
 // BEGIN TOOL CATALOG
 const catalog: any = {
   "version": "20260731_00",

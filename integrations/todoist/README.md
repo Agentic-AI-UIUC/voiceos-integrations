@@ -1,4 +1,4 @@
-# Todoist integration — 1.0.13
+# Todoist integration — 1.0.14
 
 A native macOS VoiceOS integration for Todoist powered by Composio OAuth. It enables voice control to manage tasks, projects, sections, and personal labels, monitor productivity stats, and handle account authentication with interactive Mac notch cards and confirmation dialogs.
 
