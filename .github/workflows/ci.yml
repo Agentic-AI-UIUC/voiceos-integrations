@@ -2,11 +2,14 @@ name: ci
 
 on:
   pull_request:
+    # labeled/unlabeled so adding or removing macos-only-approved re-runs the platform check
+    types: [opened, synchronize, reopened, labeled, unlabeled]
   push:
     branches: [main]
 
 permissions:
   contents: read
+  issues: read
 
 jobs:
   ci:
@@ -30,9 +33,20 @@ jobs:
       - name: Test changed integrations
         env:
           EVENT: ${{ github.event_name }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
         run: |
+          mac_only_ok=""
           if [ "$EVENT" = pull_request ]; then
             changed=$(git diff --name-only HEAD^1 HEAD -- integrations/ | cut -d/ -f1-2 | sort -u)
+            # A Mac-only exception counts only if the latest macos-only-approved label event is
+            # an add by an approver.
+            # ponytail: approvers hardcoded; move to a repo variable if the list changes often
+            approver=$(gh api --paginate "repos/$REPO/issues/$PR/events" | jq -rs \
+              'add | map(select(.label.name? == "macos-only-approved")) | last
+               | if .event == "labeled" then .actor.login else empty end')
+            case "$approver" in syafino|kidskoding) mac_only_ok="$approver" ;; esac
           else
             changed=$(find integrations -mindepth 1 -maxdepth 1 -type d | sort)
           fi
@@ -46,13 +60,16 @@ jobs:
                 echo "::error::$dir has no tests - add *.test.ts files for your integration"
                 exit 1
               fi
-              # VoiceOS ships for Mac and Windows; a Mac-only integration must say why in its README.
-              if ! jq -e '.supportedPlatforms | index("win32")' voiceos.integration.json >/dev/null 2>&1 \
-                && ! grep -qi 'macos only' README.md 2>/dev/null; then
-                msg="$dir doesn't support Windows - add \"win32\" to supportedPlatforms in voiceos.integration.json, or say \"macOS only\" and why in its README.md"
+              # VoiceOS ships for Mac and Windows, so integrations must support both.
+              if ! jq -e '.supportedPlatforms as $p | ($p | index("darwin")) and ($p | index("win32"))' \
+                  voiceos.integration.json >/dev/null 2>&1; then
+                msg="$dir must list both \"darwin\" and \"win32\" in supportedPlatforms (voiceos.integration.json). Mac-only needs syafino or kidskoding to add the macos-only-approved label."
+                if [ -n "$mac_only_ok" ]; then
+                  echo "::notice::$dir is not cross-platform; allowed by macos-only-approved from $mac_only_ok"
                 # ponytail: warn on main so existing Mac-only integrations don't turn main red; PRs must fix it
-                if [ "$EVENT" = pull_request ]; then echo "::error::$msg"; exit 1; fi
-                echo "::warning::$msg"
+                elif [ "$EVENT" = pull_request ]; then echo "::error::$msg"; exit 1
+                else echo "::warning::$msg"
+                fi
               fi
               if [ -f package.json ]; then bun install || exit 1; fi
               bun test
