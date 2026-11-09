@@ -20,6 +20,7 @@ function cardHarness(html: string) {
   const document = {
     hidden: true,
     documentElement: { setAttribute() {}, style: { setProperty() {} } },
+    querySelector: () => ({ scrollHeight: 500, clientHeight: 300, hidden: false }),
     querySelectorAll: () => [...fields.values()],
     addEventListener: (name: string, callback: Function) => { documentListeners[name] = callback; },
   };
@@ -103,7 +104,14 @@ test('all confirmation forms bound their scroll area above a separate footer ban
   for (const write of writes) {
     const root = write.confirmation.root;
     expect(root.height).toBeLessThanOrEqual(420);
-    expect(root.html).toContain('height:100%;display:flex;flex-direction:column;overflow:hidden;padding-bottom:112px');
+    expect(root.html).toContain('height:100%;display:flex;flex-direction:column;overflow:hidden;padding-bottom:'+64+'px');
     expect(root.html).toContain('flex:1 1 auto;min-height:0;overflow-y:auto');
   }
 });
+test('overflow is discoverable and long cards use available height', () => { for(const write of writes){expect(write.confirmation.root.html).not.toContain('cf-scroll-hint');expect(write.confirmation.root.html).toContain('scrollbar-width:thin!important');expect(write.confirmation.root.height).toBeLessThanOrEqual(380);} });
+
+test('MCP advertised version matches release metadata', () => {const pkg=JSON.parse(readFileSync(new URL('./package.json',import.meta.url),'utf8'));expect(manifest.version).toBe(pkg.version);expect(readFileSync(new URL('./server.ts',import.meta.url),'utf8')).toContain('name: "microsoft-excel", version: "'+pkg.version+'"');});
+
+test('every confirmation has an opaque noninteractive button backdrop', () => {for(const write of writes){expect(write.confirmation.root.html).toContain('class="cf-button-backdrop" aria-hidden="true"');expect(write.confirmation.root.html).toContain('background:#111;z-index:30;pointer-events:none');}});
+
+test('confirmation forms scroll only on overflow and use a compact consistent footer',()=>{for(const write of writes){expect(write.confirmation.root.html).toContain('overflow-y:auto;scrollbar-width:auto!important');expect(write.confirmation.root.html).toContain('bottom:0;height:64px;background:#111');expect(write.confirmation.root.height).toBeLessThanOrEqual(350);}});

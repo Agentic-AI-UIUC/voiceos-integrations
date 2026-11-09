@@ -4,9 +4,16 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { Composio } from "@composio/core";
-import { renderCustom, markHtml, esc, clip } from "./widgetKit.ts";
+import { renderCustom as renderBaseCustom, markHtml, esc, clip } from "./widgetKit.ts";
 
-const server = new McpServer({ name: "microsoft-excel", version: "1.0.0" });
+
+// Shared result rendering entry point; confirmations keep their separate layout.
+export function renderCustom(options: Parameters<typeof renderBaseCustom>[0]) {
+  const card = renderBaseCustom(options);
+  return card;
+}
+
+const server = new McpServer({ name: "microsoft-excel", version: "1.0.4" });
 const ACCENT = "#107c41"; // Microsoft Excel brand green
 const COMPOSIO_BASE_URL = "https://backend.composio.dev";
 const BUILD_ID = "excel-review-fixed-v9-footer-layout";
@@ -92,8 +99,55 @@ const CSS = `
 .xr-more{display:block;margin-top:6px;font-size:11px;color:var(--ink-4);text-align:right;font-style:italic}
 
 .xl-chart-box{margin-top:8px;padding:12px;border-radius:6px;border:1px solid var(--line);background:var(--fill-1);display:flex;align-items:center;justify-content:center}
+
+/* Result cards keep returned content reachable at the host height limit. */
+.xl{max-height:400px;overflow:auto;scrollbar-width:thin!important;scrollbar-color:#777 transparent}
+.xr-wrap,.xl-list{max-height:280px;overflow:auto;scrollbar-width:thin!important;scrollbar-color:#777 transparent}
+.xl-tabs{scrollbar-width:thin!important}
+.xl::-webkit-scrollbar,.xr-wrap::-webkit-scrollbar,.xl-list::-webkit-scrollbar,.xl-tabs::-webkit-scrollbar{display:block!important;width:7px;height:7px}
+.xl::-webkit-scrollbar-thumb,.xr-wrap::-webkit-scrollbar-thumb,.xl-list::-webkit-scrollbar-thumb,.xl-tabs::-webkit-scrollbar-thumb{background:#777;border-radius:4px}
+.xr-tbl{table-layout:auto;width:max-content;min-width:100%}
+.xr-th{position:sticky;top:0;z-index:2;background:#242424}
+.xr-cell{min-width:110px;max-width:260px;white-space:normal;overflow-wrap:anywhere}
+.xr-idx{position:sticky;left:0;z-index:1;background:#242424}
+
 `;
 
+
+export function renderRangeGrid(values: any[][], startRowIdx: number, startColIdx: number, totalCols: number): string {
+ const colCount = Math.max(1, totalCols, ...values.map(row => Array.isArray(row) ? row.length : 1));
+      let gridHtml = "";
+      if (values.length === 0) {
+        gridHtml = `<div class="xl-empty">Empty range (no cell data)</div>`;
+      } else {
+        const headerThs = Array.from({ length: colCount }, (_, i) => `<th class="xr-th">${esc(idxToColStr(startColIdx + i))}</th>`).join("");
+        const rowsHtml = values.map((rowVals, rIdx) => {
+          const rowNum = startRowIdx + rIdx;
+          const safeRow = Array.isArray(rowVals) ? rowVals : [rowVals];
+          const cellsHtml = Array.from({ length: colCount }, (_, cIdx) => {
+            const val = safeRow[cIdx];
+            if (val === null || val === undefined || val === "") return `<td class="xr-cell"><span class="xr-blank">—</span></td>`;
+            const strVal = String(val).trim();
+            const isNum = !isNaN(Number(strVal.replace(/[$,%]/g, ""))) && strVal !== "";
+            return `<td class="xr-cell ${isNum ? "xr-num" : "xr-txt"}">${esc(strVal)}</td>`;
+          }).join("");
+          return `<tr class="xr-rw"><td class="xr-idx">${rowNum}</td>${cellsHtml}</tr>`;
+        }).join("");
+
+        gridHtml = `
+          <div class="xr-wrap" tabindex="0" role="region" aria-label="Cell values; scroll for additional rows and columns">
+            <table class="xr-tbl">
+              <thead><tr><th class="xr-corner"></th>${headerThs}</tr></thead>
+              <tbody>${rowsHtml}</tbody>
+            </table>
+          </div>
+
+        `;
+      }
+
+
+ return gridHtml;
+}
 const ICON_ERR = `<svg class="xl-err-ico" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6.2"/><path d="M8 5.2v3.6M8 11.2h.01"/></svg>`;
 
 export function cleanSheetName(rawName: string): string {
@@ -1285,7 +1339,7 @@ server.registerTool(
       let cardHeight = 155;
 
       if (worksheets.length > 0) {
-        const tabsHtml = worksheets.slice(0, 6).map((w, i) => `
+        const tabsHtml = worksheets.map((w, i) => `
           <div class="xl-tab${i === 0 ? " active" : ""}">
             ${i === 0 ? '<span class="xl-dot"></span>' : ""}
             <span>${esc(clip(w.name, 20))}</span>
@@ -1486,43 +1540,8 @@ server.registerTool(
       const totalCols = data?.columnCount ?? (values.length > 0 && Array.isArray(values[0]) ? values[0].length : 0);
       const { startColIdx, startRowIdx } = parseRangeStart(address);
 
-      const MAX_ROWS = 5;
-      const MAX_COLS = 4;
-      const displayRows = values.slice(0, MAX_ROWS);
-      const colCount = Math.min(totalCols || 1, MAX_COLS);
-
-      let gridHtml = "";
-      if (values.length === 0) {
-        gridHtml = `<div class="xl-empty">Empty range (no cell data)</div>`;
-      } else {
-        const headerThs = Array.from({ length: colCount }, (_, i) => `<th class="xr-th">${esc(idxToColStr(startColIdx + i))}</th>`).join("");
-        const rowsHtml = displayRows.map((rowVals, rIdx) => {
-          const rowNum = startRowIdx + rIdx;
-          const safeRow = Array.isArray(rowVals) ? rowVals : [rowVals];
-          const cellsHtml = Array.from({ length: colCount }, (_, cIdx) => {
-            const val = safeRow[cIdx];
-            if (val === null || val === undefined || val === "") return `<td class="xr-cell"><span class="xr-blank">—</span></td>`;
-            const strVal = String(val).trim();
-            const isNum = !isNaN(Number(strVal.replace(/[$,%]/g, ""))) && strVal !== "";
-            return `<td class="xr-cell ${isNum ? "xr-num" : "xr-txt"}">${esc(clip(strVal, 22))}</td>`;
-          }).join("");
-          return `<tr class="xr-rw"><td class="xr-idx">${rowNum}</td>${cellsHtml}</tr>`;
-        }).join("");
-
-        const moreRow = totalRows > MAX_ROWS || totalCols > MAX_COLS
-          ? `<div class="xr-more">+${Math.max(0, totalRows - MAX_ROWS)} more row${totalRows - MAX_ROWS === 1 ? "" : "s"}</div>`
-          : "";
-
-        gridHtml = `
-          <div class="xr-wrap">
-            <table class="xr-tbl">
-              <thead><tr><th class="xr-corner"></th>${headerThs}</tr></thead>
-              <tbody>${rowsHtml}</tbody>
-            </table>
-          </div>
-          ${moreRow}
-        `;
-      }
+      const displayRows = values;
+      const gridHtml = renderRangeGrid(values, startRowIdx, startColIdx, totalCols);
 
       const dimLabel = `${totalRows} row${totalRows === 1 ? "" : "s"} × ${totalCols} col${totalCols === 1 ? "" : "s"}`;
       const body = `
@@ -1610,7 +1629,7 @@ server.registerTool(
         visibility: typeof s === "object" ? s.visibility ?? "Visible" : "Visible",
       }));
 
-      const rows = worksheets.slice(0, 5).map((w) => `
+      const rows = worksheets.map((w) => `
         <div class="xl-rw">
           <span class="xl-rw-idx">#${w.position + 1}</span>
           <div class="xl-rw-m"><span class="xl-rw-title">${esc(clip(w.name, 28))}</span></div>

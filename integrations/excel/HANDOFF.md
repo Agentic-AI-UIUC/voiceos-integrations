@@ -8,7 +8,7 @@
 - SDK: @composio/core pinned to 0.28.0; toolkit: 20261029_00.
 - Published November 6, 2026, 12:33:07 America/Chicago.
 - Share: https://api.voiceos.com/integration-share/09SN91amuePp/page
-- Local verification: 154 tests, 443 assertions across six files (including
+- Local verification: 160 tests, 607 assertions across six files (including
   headless Chrome geometry). See REVIEW-STATUS.md and docs/live-qa-2026-11-06.md.
 
 ## Implemented scope
@@ -17,7 +17,7 @@ Exactly ten public tools: get workbook, get worksheet, read range, list sheets,
 create/rename/delete worksheet, update range, append table rows, create chart.
 All six writes require a confirmation-button click. The [current gallery](docs/screenshots/README.md)
 contains all six confirmation cards plus results and lower-field/option views.
-The final November 6 captures show the new target fields and footer clearance.
+The November 8 gallery shows the current target fields and scrollbar behavior.
 
 ## Connection setup
 
@@ -83,3 +83,7 @@ Tests run on demand, never on MCP startup. Keep generated launchers unchanged.
 A GitHub push does not republish VoiceOS. Never ship the one-time reload stub or
 local recovery backups. No credentials, real .env, private raw logs or node_modules
 belong in Git. The Pictures originals remain unchanged.
+
+## November 8 follow-up
+
+See [current changes and evidence](docs/review-follow-up-2026-11-08.md). MCP, package, and manifest versions now all report 1.0.4. The latest local confirmation layout uses conditional scrollbars and a 64px opaque button footer. The previous published 1.0.4 evidence remains historical; republishing the latest changes is pending.

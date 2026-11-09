@@ -66,7 +66,11 @@ Publish through VoiceOS separately from uploading this source to GitHub. Verify 
 
 ## CI regression tests
 
-Run `bun install --frozen-lockfile` and `bun test`. There are 154 tests across six files, covering account validation, ten-tool parity, explicit mappings, complete lookups, write timeouts, SDK stdout protection, confirmation input coverage, edit round-trips and footer geometry. The headless layout test requires Chrome/Chromium (`CHROME_BIN` may specify its path); it skips if unavailable. Fake-client tests do not call Composio. The browser test loads local HTML only. Importing the server does not open the MCP transport.
+Run `bun install --frozen-lockfile` and `bun test`. There are 160 tests across six files, covering account validation, ten-tool parity, explicit mappings, complete lookups, write timeouts, SDK stdout protection, confirmation input coverage, edit round-trips and footer geometry. The headless layout test requires Chrome/Chromium (`CHROME_BIN` may specify its path); it skips if unavailable. Fake-client tests do not call Composio. The browser test loads local HTML only. Importing the server does not open the MCP transport.
 
 Read [IMPLEMENTATION-NOTES.md](IMPLEMENTATION-NOTES.md) before modifying the working
 flow. Keep the SDK pinned to 0.28.0, including after Studio regenerates an export.
+
+## November 8 follow-up
+
+See [current changes and evidence](docs/review-follow-up-2026-11-08.md). MCP, package, and manifest versions now all report 1.0.4. The latest local confirmation layout uses conditional scrollbars and a 64px opaque button footer. The previous published 1.0.4 evidence remains historical; republishing the latest changes is pending.
