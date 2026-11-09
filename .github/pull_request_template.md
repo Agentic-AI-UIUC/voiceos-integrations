@@ -29,6 +29,7 @@ Published link: https://api.voiceos.com/integration-share/<slug>/page
 - [ ] The integration is published on VoiceOS and its share link is included above
 - [ ] Everything lives in `integrations/<name>/` and nothing outside it changed
 - [ ] `voiceos.integration.json` has a unique `id`, a `version`, and the right `permissions.domains`
+- [ ] `supportedPlatforms` includes both `darwin` and `win32`, and I tested on Windows (or the README says "macOS only" and why)
 - [ ] No API keys or `.env` files committed; every key is listed in `.env.example`
 - [ ] `bun install` and `bun test` pass locally
 - [ ] Destructive actions (delete, overwrite) ask the user to confirm first

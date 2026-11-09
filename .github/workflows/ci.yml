@@ -46,6 +46,14 @@ jobs:
                 echo "::error::$dir has no tests - add *.test.ts files for your integration"
                 exit 1
               fi
+              # VoiceOS ships for Mac and Windows; a Mac-only integration must say why in its README.
+              if ! jq -e '.supportedPlatforms | index("win32")' voiceos.integration.json >/dev/null 2>&1 \
+                && ! grep -qi 'macos only' README.md 2>/dev/null; then
+                msg="$dir doesn't support Windows - add \"win32\" to supportedPlatforms in voiceos.integration.json, or say \"macOS only\" and why in its README.md"
+                # ponytail: warn on main so existing Mac-only integrations don't turn main red; PRs must fix it
+                if [ "$EVENT" = pull_request ]; then echo "::error::$msg"; exit 1; fi
+                echo "::warning::$msg"
+              fi
               if [ -f package.json ]; then bun install || exit 1; fi
               bun test
             ); then
