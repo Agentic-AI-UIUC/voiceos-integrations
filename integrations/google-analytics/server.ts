@@ -8,9 +8,9 @@
  * voiceos.integration.json, package.json and icon.png. Every runtime line
  * must live in those files, so the sections below stand in for modules:
  *
- *   1. .env loading        3. GA queries
- *   2. Composio client     4. Errors in plain words
- *                          5. Tools (MCP wiring, entry point)
+ *   1. .env loading        4. Errors in plain words
+ *   2. Composio client     5. Glance cards
+ *   3. GA queries          6. Tools (MCP wiring, entry point)
  *
  * Composio setup (credentials are the developer's, never VoiceOS setup fields):
  *   - Create a `.env` next to this file with
@@ -31,6 +31,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { readFileSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
+import { renderWidget, setIntegrationMark, vEmpty, vHeader, vList, vNote, vStats, type RenderedWidget, type Tone } from "./widgetKit.ts";
 
 // ============================================================================
 // 1. .env loading
@@ -367,7 +368,123 @@ export async function describeError(err: any, linkStatus: () => Promise<string>)
 }
 
 // ============================================================================
-// 5. Tools (MCP wiring, entry point)
+// 5. Glance cards
+// Minimal on purpose: only the Widget Kit's stock blocks, no custom CSS, no
+// accent. A header names the period, GA's totals are the stats, then up to 5
+// top rows. Empty data and errors each look different from a normal result.
+// Everything on a card is also in the JSON beside it.
+// ============================================================================
+
+const MAX_CARD_ROWS = 5;
+
+const LABELS: Record<string, string> = {
+  screenPageViews: "Views", activeUsers: "Active users", newUsers: "New users", totalUsers: "Total users",
+  sessions: "Sessions", eventCount: "Events", keyEvents: "Key events", engagementRate: "Engagement rate",
+  bounceRate: "Bounce rate", averageSessionDuration: "Avg. session",
+};
+
+/** A metric's name as people say it; unknown names are split from camelCase ("userEngagementDuration" → "User engagement duration"). */
+const label = (field: string) =>
+  LABELS[field] ?? field.charAt(0).toUpperCase() + field.slice(1).replace(/([A-Z])/g, " $1").toLowerCase();
+
+/** Compact counts (12.3k, 2.5M); GA rates are fractions, shown as %; durations are seconds, shown as 2m 5s. */
+export function fmtMetric(field: string, n: number): string {
+  if (/Rate$/.test(field)) return `${+(n * 100).toFixed(1)}%`;
+  if (/Duration$/.test(field)) {
+    const s = Math.round(n);
+    return s >= 60 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${s}s`;
+  }
+  const abs = Math.abs(n);
+  if (abs >= 1e6) return `${+(n / 1e6).toFixed(1)}M`;
+  if (abs >= 1e3) return `${+(n / 1e3).toFixed(1)}k`;
+  return String(+n.toFixed(2));
+}
+
+/** Change from the previous period as a signed percent; up is good, except for bounce rate. No baseline, no percent. */
+export function change(field: string, current: number, previous: number): { delta?: string; tone?: Tone } {
+  if (!previous) return {};
+  const pct = Math.round(((current - previous) / previous) * 100);
+  const better = field === "bounceRate" ? pct < 0 : pct > 0;
+  return { delta: `${pct > 0 ? "+" : pct < 0 ? "−" : ""}${Math.abs(pct)}%`, tone: pct === 0 ? "neutral" : better ? "good" : "bad" };
+}
+
+const dateWord = (d: string) => (/^\d+daysAgo$/.test(d) ? `${parseInt(d)} days ago` : d);
+
+/** GA's date words spelled out: "7daysAgo"/"today" → "7 days ago – today"; one day → "Yesterday". */
+export function periodLabel(start: string, end: string): string {
+  if (start !== end) return `${dateWord(start)} – ${dateWord(end)}`;
+  const w = dateWord(start);
+  return w.charAt(0).toUpperCase() + w.slice(1);
+}
+
+type Totals = Record<string, number>;
+type Row = Record<string, string | number>;
+
+const card = (blocks: Parameters<typeof renderWidget>[0]["blocks"]) => renderWidget({ blocks, label: "Google Analytics" });
+
+/** The result key VoiceOS shows in the notch. */
+export const glance = (c: RenderedWidget) => ({ blocks: [{ type: "widget", html: c.html, height: c.height }] });
+
+/** Up to three totals as stats, with their change when there is a previous period. */
+const statsOf = (totals: Totals, previous?: Totals) =>
+  vStats(Object.entries(totals).slice(0, 3).map(([f, v]) => ({ label: label(f), value: fmtMetric(f, v), ...(previous ? change(f, v, previous[f] ?? 0) : {}) })));
+
+/** Top rows: dimension values as the title, the first metric on the right. */
+const rowsList = (rows: Row[], metric: string) =>
+  vList(rows.slice(0, MAX_CARD_ROWS).map((r) => ({
+    title: Object.entries(r).filter(([k, v]) => typeof v === "string" && k !== "dateRange").map(([, v]) => v).join(" · ") || "(not set)",
+    trailing: fmtMetric(metric, Number(r[metric] ?? 0)),
+  })));
+
+const allZero = (...totals: (Totals | undefined)[]) => totals.every((t) => !t || Object.values(t).every((v) => !v));
+
+export interface ReportResult {
+  start_date: string;
+  end_date: string;
+  compare_start_date?: string;
+  compare_end_date?: string;
+  totals: any;
+  rows: Row[];
+}
+
+export function reportCard(r: ReportResult): RenderedWidget {
+  const compare = !!r.compare_start_date;
+  const totals: Totals = compare ? r.totals.current : r.totals;
+  const previous: Totals | undefined = compare ? r.totals.previous : undefined;
+  // The kit draws title as a small eyebrow and subtitle large: kind above, period below.
+  const header = vHeader({ title: "Report", subtitle: periodLabel(r.start_date, r.end_date), trailing: compare ? "vs previous" : undefined });
+  if (r.rows.length === 0 && allZero(totals, previous)) {
+    return card([header, vEmpty({ title: "No data for this period", hint: "A new property can take a day to show reports." })]);
+  }
+  const rows = compare ? r.rows.filter((x) => x.dateRange === "current") : r.rows;
+  return card([header, statsOf(totals, previous), rows.length > 0 && rowsList(rows, Object.keys(totals)[0])]);
+}
+
+export function realtimeCard(r: { totals: Totals; rows: Row[] }): RenderedWidget {
+  const header = vHeader({ title: "Right now", subtitle: "Last 30 minutes" });
+  if (r.rows.length === 0 && allZero(r.totals)) return card([header, vEmpty({ title: "No one on the site right now" })]);
+  return card([header, statsOf(r.totals), r.rows.length > 0 && rowsList(r.rows, Object.keys(r.totals)[0])]);
+}
+
+export function metadataCard(r: { dimensions: Record<string, string[]>; metrics: Record<string, string[]> }, a: MetadataArgs): RenderedWidget {
+  const metrics = Object.values(r.metrics).flat();
+  const dimensions = Object.values(r.dimensions).flat();
+  const header = vHeader({ title: "Fields", subtitle: a.category || (a.search ? `Matching “${a.search}”` : "All") });
+  if (metrics.length + dimensions.length === 0) return card([header, vEmpty({ title: "No matching fields" })]);
+  const names = [...metrics.map((n) => [n, "Metric"]), ...dimensions.map((n) => [n, "Dimension"])].slice(0, MAX_CARD_ROWS);
+  return card([
+    header,
+    vStats([{ label: "Metrics", value: String(metrics.length) }, { label: "Dimensions", value: String(dimensions.length) }]),
+    vList(names.map(([title, kind]) => ({ title, trailing: kind }))),
+  ]);
+}
+
+export function errorCard(error: string, reconnect: boolean): RenderedWidget {
+  return card([vHeader({ title: "Google Analytics", trailing: reconnect ? "Reconnect needed" : undefined }), vNote(error)]);
+}
+
+// ============================================================================
+// 6. Tools (MCP wiring, entry point)
 // createServer registers the three tools; tests drive it over an in-memory
 // transport. main() only runs when this file is the program (VoiceOS /
 // run.sh), not when tests import it. import.meta.main is missing under tsx,
@@ -402,15 +519,31 @@ export function createServer(ga: ReturnType<typeof createGa>, linkStatus: () => 
     content: [{ type: "text" as const, text: JSON.stringify(payload) }],
   });
 
-  /** Wraps a tool body: its return value becomes the result; a failure is logged and turned into plain words. */
-  const guarded = <A,>(tool: string, body: (args: A) => Promise<unknown>) => async (args: A) => {
+  /** A card must never cost the user their answer: if rendering fails, the data goes out without one. */
+  const withCard = (payload: object, render: () => RenderedWidget) => {
     try {
-      return textResult(await body(args));
+      return { ...payload, _voiceos_glance: glance(render()) };
     } catch (err) {
-      console.error(`${tool} failed:`, err);
-      return textResult(await describeError(err, linkStatus), true);
+      console.error("card failed:", err);
+      return payload;
     }
   };
+
+  /**
+   * Wraps a tool body: its result goes out with its glance card; a failure is
+   * logged and turned into plain words, with an error card.
+   */
+  const guarded = <A, R extends object>(tool: string, body: (args: A) => Promise<R>, render: (result: R, args: A) => RenderedWidget) =>
+    async (args: A) => {
+      try {
+        const result = await body(args);
+        return textResult(withCard(result, () => render(result, args)));
+      } catch (err) {
+        console.error(`${tool} failed:`, err);
+        const described = await describeError(err, linkStatus);
+        return textResult(withCard(described, () => errorCard(described.error, described.reconnect)), true);
+      }
+    };
 
   server.registerTool(
     "run_report",
@@ -435,7 +568,7 @@ export function createServer(ga: ReturnType<typeof createGa>, linkStatus: () => 
         ...sortArgs,
       } as any,
     },
-    guarded("run_report", (args: ReportArgs) => ga.runReport(args)),
+    guarded("run_report", (args: ReportArgs) => ga.runReport(args), reportCard),
   );
 
   server.registerTool(
@@ -455,7 +588,7 @@ export function createServer(ga: ReturnType<typeof createGa>, linkStatus: () => 
         ...sortArgs,
       } as any,
     },
-    guarded("run_realtime_report", (args: RealtimeArgs) => ga.runRealtimeReport(args)),
+    guarded("run_realtime_report", (args: RealtimeArgs) => ga.runRealtimeReport(args), realtimeCard),
   );
 
   server.registerTool(
@@ -469,7 +602,7 @@ export function createServer(ga: ReturnType<typeof createGa>, linkStatus: () => 
         search: z.string().optional().describe("Only fields whose API or display name contains these words, e.g. \"view\"."),
       } as any,
     },
-    guarded("get_metadata", (args: MetadataArgs) => ga.getMetadata(args)),
+    guarded("get_metadata", (args: MetadataArgs) => ga.getMetadata(args), metadataCard),
   );
 
   return server;
@@ -477,6 +610,8 @@ export function createServer(ga: ReturnType<typeof createGa>, linkStatus: () => 
 
 async function main(): Promise<void> {
   loadEnvFile(fileURLToPath(new URL(".env", import.meta.url)));
+  // The cards' logo comes from icon.png, so it can never drift from the icon VoiceOS shows.
+  setIntegrationMark(`data:image/png;base64,${readFileSync(new URL("icon.png", import.meta.url)).toString("base64")}`);
 
   const userId = process.env.COMPOSIO_USER_ID?.trim() || "default";
   const composio = createComposio({ apiKey: process.env.COMPOSIO_API_KEY?.trim(), userId });

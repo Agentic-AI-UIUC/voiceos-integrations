@@ -39,39 +39,31 @@
     {
       "name": "GA4_PROPERTY_ID",
       "title": "Default GA4 property ID",
-      "description": "Digits only, e.g. 123456789. In Google Analytics: Admin → Property settings. Not the G-… Measurement ID.",
+      "description": "Digits only, e.g. 123456789.",
       "type": "text",
       "required": false,
       "placeholder": "123456789"
     }
   ],
   "setupGuide": {
-    "title": "Set up Google Analytics",
+    "title": "Setup",
     "collapsedByDefault": false,
     "blocks": [
       {
         "type": "heading",
-        "text": "1. Use a Google account that can see your property"
+        "text": "Find your property ID"
       },
       {
         "type": "text",
-        "text": "VoiceOS reads Google Analytics through Composio with your Google sign-in (OAuth2). Viewer access to the GA4 property is enough; VoiceOS never changes anything."
+        "text": "Google Analytics → Admin → Property settings. Digits only — not the G-… ID."
       },
       {
         "type": "heading",
-        "text": "2. Find your GA4 property ID"
+        "text": "Access"
       },
       {
         "type": "text",
-        "text": "In Google Analytics, open Admin → Property settings and copy the Property ID (digits only, e.g. 123456789). The G-… code on your data stream is the Measurement ID — that one won't work here."
-      },
-      {
-        "type": "heading",
-        "text": "3. Paste it below"
-      },
-      {
-        "type": "text",
-        "text": "It becomes the default for every question. You can still name another property when you ask."
+        "text": "Viewer access is enough. VoiceOS only reads data."
       }
     ]
   },

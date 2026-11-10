@@ -45,20 +45,28 @@ route to the right tool in one call.
 approved tools, none with a confirmation card; Actions panel descriptions ≤80 chars; network
 permission is only backend.composio.dev; totals, filter and comparison request/response shapes
 (taken from real GA responses).
-**Status**: In Progress. Code, tests (34) and real MCP calls are done. Waiting on the user to
-check visually in VoiceOS that the Actions panel descriptions fit in two lines and that the
-test questions take one call each.
+**Status**: Complete. The user checked VoiceOS: the Actions panel fits, and all 4 voice tests
+took one call each. The Setup guide was then shortened to two short sections at the user's request.
 
 ## Stage 3: Glance cards (UI)
 
 **Goal**: Result cards for report / realtime / metadata, empty-data state, error and
-reconnect cards (designed with the user).
-**Context**: With no card returned, the VoiceOS agent improvises its own ```ui list block
-(seen for get_metadata), so our cards must read better than that. widgetKit.ts's
-INTEGRATION_MARK still embeds the old icon; update it to match icon.png.
-**Success Criteria**: Each card reads in 2 seconds; empty and error states are distinct.
-**Tests**: card renders for normal, empty and error results.
-**Status**: Not Started
+reconnect cards. Minimalist style (user's choice).
+**Design**: Only the Widget Kit's stock blocks (vHeader, vStats, vList, vEmpty, vNote), with
+no custom CSS and no accent. vHeader draws `title` as a small eyebrow and `subtitle` large, so
+the eyebrow names the card type (Report / Right now / Fields / Google Analytics) and the large
+line names the period or scope. Each card has at most 3 blocks: header, GA's totals as stats
+(up to 3, with the change vs the previous period when comparing), and up to 5 top rows.
+Counts are compact (12.3k), rates shown as %, durations as 2m 5s. Empty data uses vEmpty and an
+error uses vNote plus "Reconnect needed" when relevant, so neither looks like a normal result.
+The card logo is set from icon.png at startup (setIntegrationMark), so INTEGRATION_MARK in
+widgetKit.ts no longer matters. If rendering a card fails, the data still goes out, without a card.
+**Unverified**: each card is ~19.5K chars of HTML inside the result. Per AGENTS.md VoiceOS
+shows `_voiceos_glance` and does not pass it to the model, but the logs can't confirm that.
+**Tests**: number/rate/duration formatting, change vs previous, period labels; the text each
+card shows for normal, comparison, empty, metadata and error results (cards.test.ts).
+**Status**: In Progress. Code and tests (44) are done, and previews were checked in a browser.
+Waiting on the user's visual check in the VoiceOS notch.
 
 ## Stage 4: Connection and token UX
 
