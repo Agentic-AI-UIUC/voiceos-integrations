@@ -119,7 +119,7 @@ describe("Monday read tools", () => {
   const executions = () => events().filter(event => event.path?.includes("/tools/execute/"));
 
   test("lists boards with filters, saved identity, pinned version, metadata, and progress", async () => {
-    const board = { id: "123", name: "Roadmap", workspace: { id: "45" }, owners: [{ id: "67" }] };
+    const board = { id: "123", name: "Roadmap", workspace: { id: "45", name: "Product" }, owners: [{ id: "67" }] };
     scenario({ toolData: { data: { boards: [board] } } });
     const progress: number[] = [];
     const result = await client.callTool({ name: "get_boards", arguments: {
@@ -130,6 +130,11 @@ describe("Monday read tools", () => {
     if (!block || block.type !== "text") throw new Error("Missing read result");
     const body = JSON.parse(block.text);
     expect(body.records).toEqual([board]);
+    expect(body.message).toBe("Found 1 board.");
+    expect(body._voiceos_glance.blocks).toEqual([
+      { type: "header", title: "Monday.com boards" },
+      { type: "list", rows: [{ title: "Roadmap", subtitle: "Product" }] },
+    ]);
     expect(body.pagination).toEqual({ page: 1, limit: 1, nextPage: 2 });
     expect(progress).toEqual([0, 100]);
     expect(executions()[0]).toMatchObject({
@@ -147,6 +152,10 @@ describe("Monday read tools", () => {
     const result = await invoke("get_boards", { ids: [123], page: 2, limit: 10, state: "all" });
     expect(result.isError).toBe(false);
     expect(result.body.records).toEqual([]);
+    expect(result.body._voiceos_glance.blocks).toEqual([
+      { type: "header", title: "Monday.com boards" },
+      { type: "keyValue", pairs: [["Results", "No matching boards found."]] },
+    ]);
     expect(result.body.pagination).toEqual({ page: 2, limit: 10, nextPage: null });
     expect(executions()[0].body?.arguments).toEqual({ ids: [123], page: 2, limit: 10, state: "all" });
   });
@@ -209,9 +218,11 @@ describe("Monday read tools", () => {
     const boards = await invoke("get_boards");
     expect(boards.isError).toBe(false);
     expect(boards.body.resultType).toBe("boards");
-    expect(boards.body.message).toBe("Boards found: Voiceos test.");
-    expect(boards.body._voiceos_glance.blocks[0].trailing).toBe("Boards found");
-    expect(boards.body._voiceos_glance.blocks[1].pairs).toEqual([["Boards", "Voiceos test."]]);
+    expect(boards.body.message).toBe("Found 1 board.");
+    expect(boards.body._voiceos_glance.blocks).toEqual([
+      { type: "header", title: "Monday.com boards" },
+      { type: "list", rows: [{ title: "Voiceos test" }] },
+    ]);
     expect(boards.body.records[0].id).toBe("123");
 
     const tasks = Array.from({ length: 25 }, (_, i) => ({
@@ -259,22 +270,23 @@ describe("Monday read tools", () => {
     ["get_boards", {}],
     ["get_items", { ids: [1, 2, 3, 4, 5, 6, 7] }],
     ["get_items", { board_id: 123 }],
-  ])("%s summarizes names without displaying IDs and retains full records for follow-up calls", async (name, args) => {
+  ])("%s caps the list without displaying IDs and retains full records for follow-up calls", async (name, args) => {
     const entries = Array.from({ length: 7 }, (_, i) => ({ id: `internal-id-${i + 1}`, name: `Task ${i + 1}` }));
     const toolData = name === "get_boards" ? { boards: entries } : { items: entries, cursor: null };
     scenario({ toolData });
     const result = await invoke(name as string, args as Record<string, unknown>);
     expect(result.isError).toBe(false);
     const isBoards = name === "get_boards";
-    expect(result.body.message).toBe(isBoards ? "Boards found: Task 1, Task 2, Task 3, and 4 more." : "Here are the first few items.");
+    expect(result.body.message).toBe(isBoards ? "Here are the first few boards." : "Here are the first few items.");
     expect(result.body.resultType).toBe(name === "get_boards" ? "boards" : "tasks");
     expect(result.body.records).toEqual(entries);
-    const displayed = JSON.stringify(result.body._voiceos_glance);
-    expect(displayed).toContain(isBoards ? "Task 1, Task 2, Task 3, and 4 more." : "and 2 more");
-    expect(displayed).not.toContain("internal-id");
-    expect(displayed).not.toContain(isBoards ? "Task 4" : "Task 6");
-    expect(displayed).not.toContain("Ask for the next page");
-    expect(result.body._voiceos_glance.blocks.length).toBeLessThanOrEqual(3);
+    expect(result.body._voiceos_glance.blocks).toEqual([
+      { type: "header", title: isBoards ? "Monday.com boards" : "Monday.com items" },
+      { type: "list", rows: [
+        ...entries.slice(0, 5).map(entry => ({ title: entry.name })),
+        { title: "and 2 more" },
+      ] },
+    ]);
   });
 
   test.each([

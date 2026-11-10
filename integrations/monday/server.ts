@@ -332,40 +332,38 @@ function records(value: unknown): Record<string, unknown>[] {
   return parsed.data;
 }
 
-function readNames(entries: Record<string, unknown>[]): string {
-  const names = entries.slice(0, 3).map(entry => String(entry.name));
-  if (entries.length > 3) names.push(`${entries.length - 3} more`);
-  return new Intl.ListFormat("en", { type: "conjunction" }).format(names);
-}
+const readPreviewLimit = 6;
 
-const itemPreviewLimit = 6;
-const itemCount = (count: number) => `${count} ${count === 1 ? "item" : "items"}`;
-
-function itemSummary(count: number, boardName?: string): string {
+function readSummary(count: number, noun: "board" | "item", boardName?: string): string {
   const scope = boardName ? ` on "${boardName}"` : "";
-  if (count === 0) return `No matching items found${scope}.`;
-  if (count > itemPreviewLimit) return `Here are the first few items${scope}.`;
-  return `Found ${itemCount(count)}${scope}.`;
+  if (count === 0) return `No matching ${noun}s found${scope}.`;
+  if (count > readPreviewLimit) return `Here are the first few ${noun}s${scope}.`;
+  return `Found ${count} ${count === 1 ? noun : `${noun}s`}${scope}.`;
 }
 
 function displayText(value: unknown): string | undefined {
   return typeof value === "string" ? value.trim() || undefined : undefined;
 }
 
-function itemGlance(data: ReadOutput) {
+function itemSubtitle(item: Record<string, unknown>, groupName?: string): string | undefined {
+  const columns = Array.isArray(item.column_values) ? item.column_values : [];
+  const status = columns.map(record).find(column =>
+    displayText(column?.text) && (
+      column?.type === "status" || column?.type === "color" ||
+      (column?.type == null && column?.id === "status")
+    ),
+  );
+  return displayText(status?.text) ?? displayText(record(item.group)?.title) ?? groupName;
+}
+
+function readGlance(data: ReadOutput) {
+  const isBoards = data.resultType === "boards";
   const count = data.records.length;
-  const visibleCount = count > itemPreviewLimit ? itemPreviewLimit - 1 : count;
-  const rows = data.records.slice(0, visibleCount).map(item => {
-    const columns = Array.isArray(item.column_values) ? item.column_values : [];
-    const status = columns.map(record).find(column =>
-      displayText(column?.text) && (
-        column?.type === "status" || column?.type === "color" ||
-        (column?.type == null && column?.id === "status")
-      ),
-    );
-    const subtitle = displayText(status?.text) ?? displayText(record(item.group)?.title) ?? data.groupName;
+  const visibleCount = count > readPreviewLimit ? readPreviewLimit - 1 : count;
+  const rows = data.records.slice(0, visibleCount).map(entry => {
+    const subtitle = isBoards ? displayText(record(entry.workspace)?.name) : itemSubtitle(entry, data.groupName);
     return {
-      title: (displayText(item.name) ?? "Untitled item").slice(0, 60),
+      title: (displayText(entry.name) ?? (isBoards ? "Untitled board" : "Untitled item")).slice(0, 60),
       ...(subtitle ? { subtitle: subtitle.slice(0, 60) } : {}),
     };
   });
@@ -373,7 +371,7 @@ function itemGlance(data: ReadOutput) {
   return [
     {
       type: "header",
-      title: (data.boardName ?? "Monday.com items").slice(0, 60),
+      title: (isBoards ? "Monday.com boards" : data.boardName ?? "Monday.com items").slice(0, 60),
     },
     rows.length ? { type: "list", rows } : { type: "keyValue", pairs: [["Results", data.message]] },
   ];
@@ -389,9 +387,7 @@ async function getBoards(
   return {
     resultType: "boards",
     status: "Boards found",
-    message: boards.length
-      ? `Boards found: ${readNames(boards)}.${boards.length === limit ? " More results may be available on the next page." : ""}`
-      : "No matching boards found.",
+    message: readSummary(boards.length, "board"),
     records: boards,
     pagination: {
       page,
@@ -445,7 +441,7 @@ async function getItems(
     return {
       resultType: "tasks",
       status: "Tasks",
-      message: itemSummary(items.length),
+      message: readSummary(items.length, "item"),
       records: items,
       pagination: {
         page,
@@ -489,7 +485,7 @@ async function getItems(
     status: "Tasks",
     ...(boardName ? { boardName } : {}),
     ...(groupName ? { groupName } : {}),
-    message: itemSummary(items.length, boardName),
+    message: readSummary(items.length, "item", boardName),
     records: items,
     pagination: { limit, nextCursor: page.cursor },
   };
@@ -671,7 +667,7 @@ async function feedback(
           ...data,
           notificationQueued,
           _voiceos_glance: {
-            blocks: "records" in data && data.resultType === "tasks" ? itemGlance(data) : [
+            blocks: "records" in data ? readGlance(data) : [
               {
                 type: "header",
                 title: "Monday.com",
@@ -679,10 +675,7 @@ async function feedback(
               },
               {
                 type: "keyValue",
-                pairs: "records" in data ? [
-                  ["Boards", data.records.length ? `${readNames(data.records)}.` : data.message],
-                  ...(data.pagination.nextPage ? [["More pages", "May be available"]] : []),
-                ] : [["Status", "error" in data ? data.error : data.message]],
+                pairs: [["Status", "error" in data ? data.error : data.message]],
               },
             ],
           },
@@ -793,7 +786,7 @@ server.registerTool(
   {
     title: "Get Monday.com boards",
     description:
-      "Find Monday.com boards, not tasks, with optional ID, workspace, state, and visibility filters. When the user asks for tasks on a named board, this is an intermediate lookup: do not announce board names as tasks or present this summary as the task answer. Prefer an exact board-name match; use a unique clear partial match automatically, and ask when multiple boards could match. Then call get_items with the resolved board_id and exact board_name before answering. When the user asks for boards themselves, present the Boards found summary. Keep raw IDs internal unless explicitly requested. Pagination starts at page 1; nextPage is a possible next page, not a guaranteed result. Read only; does not start OAuth or send notifications.",
+      "Find Monday.com boards with optional ID, workspace, state, and visibility filters. When the user asks for tasks on a named board, use this as an intermediate lookup. Prefer an exact board-name match, use a unique clear partial match automatically, and ask when multiple boards could match. Then call get_items with the resolved board_id and exact board_name before answering. For a general board list request, use the short message and let the glance card show the names. Use the full records from the current page for board-specific follow-ups, including boards outside the preview. Pagination starts at page 1. When pagination.nextPage is available, offer to check for more boards and use that page with the previous filters and limit if asked. Counts describe the returned page. Keep IDs internal unless explicitly requested. Read only; does not start OAuth or send notifications.",
     inputSchema: getBoardsSchema,
     annotations: {
       readOnlyHint: true,
