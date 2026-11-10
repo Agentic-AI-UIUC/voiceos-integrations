@@ -1,0 +1,129 @@
+{
+  "schemaVersion": 1,
+  "id": "com.voiceos.generated.composio-monday",
+  "version": "0.1.1",
+  "name": "Monday.com",
+  "summary": "Connect Monday.com and read boards and items through Composio OAuth.",
+  "description": "Link Monday.com in your browser, browse boards and items, or disconnect this installation's account. Reads show progress and results without notifications. Account actions show confirmation cards and report success or failure in VoiceOS.",
+  "icon": "icon.svg",
+  "categories": ["Productivity"],
+  "supportedPlatforms": ["darwin"],
+  "publisher": { "id": "pub_user", "name": "Made in VoiceOS" },
+  "runtime": { "kind": "local-mcp", "command": "/bin/zsh", "args": ["run.sh"] },
+  "permissions": [
+    { "kind": "network", "domains": ["backend.composio.dev"] },
+    { "kind": "background" },
+    { "kind": "notify" }
+  ],
+  "preferences": [
+    {
+      "name": "COMPOSIO_API_KEY",
+      "title": "Composio API key",
+      "description": "Your project API key from the Composio dashboard. Monday credentials are managed by Composio.",
+      "type": "password",
+      "required": true
+    }
+  ],
+  "setupGuide": {
+    "title": "Connect Monday.com",
+    "blocks": [
+      { "type": "text", "text": "Save your Composio API key, then say ‘connect me to Monday.com’ to authorize in your browser. Say ‘disconnect Monday.com’ to unlink this installation. Connecting again verifies an existing active connection." },
+      { "type": "text", "text": "If Monday says ‘App is not installed’, an admin must first install Composio's Monday app using the link in this integration's README. Then retry Connect. Once connected, ask to list your Monday boards or read items from a board." }
+    ]
+  },
+  "tools": [
+    {
+      "name": "connect_account",
+      "title": "Connect Monday.com",
+      "description": "Connect Monday.com through Composio OAuth. Use when asked to connect, authorize, reconnect, or verify the saved Monday.com connection. Verify an active saved account; otherwise open browser authorization and immediately return pending with its link. After browser approval, run Connect again to verify. Only report connected when connected=true; no background sidebar result is scheduled.",
+      "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false },
+      "execution": { "mode": "sync", "estimatedDurationMs": 5000 },
+      "uiCallable": true,
+      "confirmation": {
+        "schemaVersion": 1,
+        "root": {
+          "type": "card",
+          "title": "Connect Monday.com",
+          "children": [
+            { "type": "text", "text": "Continue in your browser to link Monday.com through Composio, then run Connect again to verify. If already connected, we will verify your saved connection now.", "color": "muted" }
+          ],
+          "footer": [{ "type": "actions", "items": [
+            { "label": "Cancel", "role": "cancel" },
+            { "label": "Continue", "role": "confirm", "color": "accent" }
+          ] }]
+        }
+      }
+    },
+    {
+      "name": "connection_status",
+      "title": "Monday.com account",
+      "description": "Show Monday.com connection status with Connect, Disconnect, and Refresh controls. Use when asked about Monday.com account settings, connection status, expired authorization, or account linking. Read only; does not start OAuth.",
+      "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false },
+      "uiCallable": true
+    },
+    {
+      "name": "disconnect_account",
+      "title": "Disconnect Monday.com",
+      "description": "Disconnect this installation's Monday.com account. Use only when asked to disconnect or unlink Monday.com. Revoke authorization when supported; otherwise disable the Composio connection. Does not delete boards, items, or users.",
+      "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false },
+      "execution": { "mode": "background", "estimatedDurationMs": 30000 },
+      "uiCallable": true,
+      "confirmation": {
+        "schemaVersion": 1,
+        "root": {
+          "type": "card",
+          "title": "Disconnect Monday.com",
+          "children": [
+            { "type": "text", "text": "Disconnect this installation's saved Monday.com account. You can reconnect later.", "color": "muted" },
+            { "type": "text", "text": "Your boards, items, comments, and board memberships will remain.", "color": "muted" }
+          ],
+          "footer": [{ "type": "actions", "items": [
+            { "label": "Cancel", "role": "cancel" },
+            { "label": "Disconnect Monday.com", "role": "confirm", "color": "accent" }
+          ] }]
+        }
+      }
+    },
+    {
+      "name": "get_boards",
+      "title": "Get Monday.com boards",
+      "description": "Find Monday.com boards, not tasks, with optional ID, workspace, state, and visibility filters. When the user asks for tasks on a named board, this is an intermediate lookup: do not announce board names as tasks or present this summary as the task answer. Prefer an exact board-name match; use a unique clear partial match automatically, and ask when multiple boards could match. Then call get_items with the resolved board_id and exact board_name before answering. When the user asks for boards themselves, present the Boards found summary. Keep raw IDs internal unless explicitly requested. Pagination starts at page 1; nextPage is a possible next page, not a guaranteed result. Read only; does not start OAuth or send notifications.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "ids": { "type": "array", "items": { "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991 }, "minItems": 1, "maxItems": 100 },
+          "page": { "type": "integer", "exclusiveMinimum": 0 },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 100 },
+          "state": { "type": "string", "enum": ["active", "archived", "deleted", "all"] },
+          "board_kind": { "type": "string", "enum": ["private", "public", "share"] },
+          "workspace_ids": { "type": "array", "items": { "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991 }, "minItems": 1, "maxItems": 100 }
+        },
+        "additionalProperties": false
+      },
+      "uiCallable": true,
+      "execution": { "mode": "sync", "estimatedDurationMs": 5000 }
+    },
+    {
+      "name": "get_items",
+      "title": "Get Monday.com items",
+      "description": "Retrieve Monday.com tasks/items using exactly one of ids, board_id, or cursor. For a named board, first resolve its ID with get_boards: prefer an exact match, otherwise use a unique clear partial match; ask if ambiguous. Pass the exact resolved board_name for display and name that board in the final task answer. Never present get_boards results as tasks; wait for this call to succeed before listing tasks, or report its error. Item-ID reads support page, newest_first, and exclude_nonactive. Board reads include column values and optionally group_id; continue using pagination.nextCursor with optional board_name display context. Use actual IDs internally; never invent IDs or names. Present the Tasks summary: the first three task names and how many more were returned. Do not display or speak raw IDs unless explicitly requested; provide more names/details if asked. Remainder counts cover the returned page only; mention when more pages may exist. Read only; does not start OAuth or send notifications.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "ids": { "type": "array", "items": { "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991 }, "minItems": 1, "maxItems": 100 },
+          "board_id": { "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991 },
+          "board_name": { "type": "string", "minLength": 1, "maxLength": 256, "description": "Exact board name from a prior get_boards result, for display only. Never invent a name or use it instead of board_id. May be carried forward with a cursor." },
+          "cursor": { "type": "string", "minLength": 1 },
+          "group_id": { "type": "string", "minLength": 1 },
+          "page": { "type": "integer", "exclusiveMinimum": 0 },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 100 },
+          "newest_first": { "type": "boolean" },
+          "exclude_nonactive": { "type": "boolean" }
+        },
+        "additionalProperties": false
+      },
+      "uiCallable": true,
+      "execution": { "mode": "sync", "estimatedDurationMs": 5000 }
+    }
+  ]
+}

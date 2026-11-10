@@ -1,0 +1,16 @@
+{
+  "name": "composio-monday",
+  "version": "0.1.1",
+  "private": true,
+  "description": "Connect Monday.com and read boards and items through Composio OAuth in VoiceOS.",
+  "type": "module",
+  "scripts": {
+    "build": "bun build server.ts --target=bun --packages=external --outdir=dist"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.28.0",
+    "@composio/core": "0.28.0",
+    "tsx": "^4.20.2",
+    "zod": "^3.24.0"
+  }
+}
