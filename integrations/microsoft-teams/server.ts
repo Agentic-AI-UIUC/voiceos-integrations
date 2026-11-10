@@ -24,14 +24,17 @@ async function withTimeout<T>(promise: Promise<T>, ms = 8000): Promise<T> {
   }
 }
 
-// Open redirect URL in the default browser using macOS `open`
+// Opens a link in the default browser. Windows has no `open`; rundll32 opens the
+// link without going through cmd, which would split it at every "&".
 function openBrowser(url: string): void {
+  const [command, args]: [string, string[]] =
+    process.platform === "win32" ? ["rundll32", ["url.dll,FileProtocolHandler", url]] : ["open", [url]];
   try {
-    execFile("open", [url], (err) => {
-      if (err) console.error("Failed to open browser with macOS open:", err);
+    execFile(command, args, (err) => {
+      if (err) console.error(`Failed to open the browser with ${command}:`, err);
     });
   } catch (err) {
-    console.error("Failed to execute open command:", err);
+    console.error(`Failed to run ${command}:`, err);
   }
 }
 

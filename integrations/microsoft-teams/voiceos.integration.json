@@ -1,11 +1,12 @@
 {
   "schemaVersion": 1,
   "id": "com.voiceos.generated.microsoft-teams",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "name": "Microsoft Teams",
   "summary": "Chat, reply, schedule meetings, and create channels in Microsoft Teams via Composio.",
   "supportedPlatforms": [
-    "darwin"
+    "darwin",
+    "win32"
   ],
   "publisher": {
     "id": "pub_user",
