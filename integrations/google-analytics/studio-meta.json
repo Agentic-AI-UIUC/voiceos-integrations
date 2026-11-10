@@ -1,0 +1,206 @@
+{
+  "originalPrompt": "## Context & Goal\n\nIntegrate the Google Analytics toolkit into VoiceOS via Composio using OAuth2. This enables the VoiceOS agent to run analytics reports and retrieve metadata on behalf of authenticated users.\n\n## Implementation Requirements\n\n- Use **Composio** as the MCP provider for all Google Analytics tool calls\n- Auth method: **OAuth2** — implement the Composio OAuth2 connection flow for Google Analytics\n- Expose only the following **approved tools** (no others):\n    - `Run report`\n    - `Run realtime report`\n    - `Get metadata`\n- UX/UI requirements:\n    - OAuth2 connect/disconnect UI for Google Analytics account linking\n    - Loading states during report queries\n    - Success/error toast notifications for failed queries\n    - Clear error messaging if OAuth token expires or is revoked\n\n## Relevant Files / Code Paths\n\n- Composio SDK integration layer\n- OAuth2 connection flow component\n- Tool execution handler\n\n## Acceptance Criteria\n\n- [ ]  Google Analytics OAuth2 connection flow works end-to-end via Composio\n- [ ]  All 3 approved tools are callable by the VoiceOS agent\n- [ ]  No unapproved tools are exposed\n- [ ]  Loading states render correctly during report queries\n- [ ]  OAuth token refresh is handled gracefully\n\naction descriptions in the Actions panel get cut off after two lines with no way to expand. Keep them short and user-facing (agent instructions don't need to be shown there)",
+  "preview": {
+    "utterances": [
+      "How many active users visited this week?",
+      "Show realtime visitors on Google Analytics",
+      "What dimensions and metrics are in my GA4 property?"
+    ],
+    "toolPreviews": [
+      {
+        "tool": "run_report",
+        "sampleArgs": {
+          "metric": "sessions",
+          "dimension": "pagePath",
+          "date_range": "7daysAgo",
+          "limit": 4
+        },
+        "stressCases": [
+          {
+            "state": "empty",
+            "sampleArgs": {
+              "date_range": "today",
+              "metric": "conversions"
+            },
+            "sampleData": {
+              "rows": [],
+              "rowCount": 0
+            },
+            "expected": "Zero results state displaying 'No data recorded for this period' with date expansion guidance."
+          },
+          {
+            "state": "single",
+            "sampleArgs": {
+              "metric": "sessions",
+              "limit": 1
+            },
+            "sampleData": {
+              "rows": [
+                {
+                  "dimensionValues": [
+                    {
+                      "value": "/home"
+                    }
+                  ],
+                  "metricValues": [
+                    {
+                      "value": "2450"
+                    }
+                  ]
+                }
+              ],
+              "rowCount": 1
+            },
+            "expected": "Single result row displaying 100% proportion bar with 2.5k sessions."
+          },
+          {
+            "state": "long-text",
+            "sampleArgs": {
+              "dimension": "pagePath"
+            },
+            "sampleData": {
+              "rows": [
+                {
+                  "dimensionValues": [
+                    {
+                      "value": "/enterprise-solutions/cloud-infrastructure/data-analytics-and-machine-learning-platform/customer-case-studies/2024-global-financial-services-transformation-overview"
+                    }
+                  ],
+                  "metricValues": [
+                    {
+                      "value": "18400"
+                    }
+                  ]
+                }
+              ]
+            },
+            "expected": "Truncates the long URL path with ellipsis at 160px with min-width:0 without expanding card width."
+          },
+          {
+            "state": "error",
+            "sampleArgs": {
+              "property_id": "invalid"
+            },
+            "sampleData": {
+              "error": "User does not have sufficient permissions for GA4 property",
+              "code": 403
+            },
+            "expected": "Displays clean error callout showing error code and Google Analytics permission guidance."
+          }
+        ]
+      },
+      {
+        "tool": "run_realtime_report",
+        "sampleArgs": {
+          "dimension": "pagePath",
+          "limit": 4
+        },
+        "stressCases": [
+          {
+            "state": "empty",
+            "sampleArgs": {},
+            "sampleData": {
+              "rows": [],
+              "rowCount": 0,
+              "totals": [
+                {
+                  "metricValues": [
+                    {
+                      "value": "0"
+                    }
+                  ]
+                }
+              ]
+            },
+            "expected": "Focal shows '0' with 'No active visitors in the last 30 minutes' and static muted dot."
+          },
+          {
+            "state": "single",
+            "sampleArgs": {},
+            "sampleData": {
+              "rows": [
+                {
+                  "dimensionValues": [
+                    {
+                      "value": "/pricing"
+                    }
+                  ],
+                  "metricValues": [
+                    {
+                      "value": "14"
+                    }
+                  ]
+                }
+              ],
+              "totals": [
+                {
+                  "metricValues": [
+                    {
+                      "value": "14"
+                    }
+                  ]
+                }
+              ]
+            },
+            "expected": "Live concurrent user count of 14 with amber pulse dot and 1 active path row without filler."
+          },
+          {
+            "state": "error",
+            "sampleArgs": {},
+            "sampleData": {
+              "error": "OAuth connection expired or revoked",
+              "status": "FAILED"
+            },
+            "expected": "Amber-tinted badge explaining stream disconnection or OAuth permission lapses with Composio link."
+          }
+        ]
+      },
+      {
+        "tool": "get_metadata",
+        "sampleArgs": {},
+        "stressCases": [
+          {
+            "state": "empty",
+            "sampleArgs": {},
+            "sampleData": {
+              "dimensions": [],
+              "metrics": []
+            },
+            "expected": "Empty schema state indicating inaccessible property schema."
+          },
+          {
+            "state": "single",
+            "sampleArgs": {},
+            "sampleData": {
+              "dimensions": [
+                {
+                  "apiName": "country",
+                  "uiName": "Country"
+                }
+              ],
+              "metrics": [
+                {
+                  "apiName": "activeUsers",
+                  "uiName": "Active users"
+                }
+              ]
+            },
+            "expected": "Dual column showing 1 Dimension and 1 Metric with individual chip."
+          },
+          {
+            "state": "error",
+            "sampleArgs": {
+              "property_id": "999999999"
+            },
+            "sampleData": {
+              "error": "Property not found or invalid credentials",
+              "code": 404
+            },
+            "expected": "Error card prompting property verification or Composio re-authentication."
+          }
+        ]
+      }
+    ]
+  },
+  "updatedAt": "2026-11-10T20:04:25.650Z"
+}
