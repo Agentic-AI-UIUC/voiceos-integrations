@@ -1,0 +1,277 @@
+{
+  "schemaVersion": 1,
+  "id": "com.voiceos.generated.granola-composio",
+  "version": "1.0.2",
+  "name": "Granola",
+  "summary": "Ask about your Granola meetings: recent meetings, notes, transcripts and search, via Composio.",
+  "description": "Read your Granola meeting notes and transcripts by voice, list recent meetings, and ask questions across them. Runs through Composio, so the integration never handles your Granola sign-in.",
+  "supportedPlatforms": [
+    "darwin",
+    "win32"
+  ],
+  "publisher": {
+    "id": "pub_user",
+    "name": "Made in VoiceOS"
+  },
+  "runtime": {
+    "kind": "local-mcp",
+    "command": "/bin/zsh",
+    "args": [
+      "run.sh"
+    ]
+  },
+  "permissions": [
+    {
+      "kind": "network",
+      "domains": [
+        "backend.composio.dev"
+      ]
+    },
+    {
+      "kind": "background"
+    },
+    {
+      "kind": "notify"
+    }
+  ],
+  "preferences": [
+    {
+      "name": "COMPOSIO_API_KEY",
+      "title": "Composio API key",
+      "description": "API key from your Composio dashboard (Settings, API Keys). Needs session and connected-account access.",
+      "type": "password",
+      "required": true
+    },
+    {
+      "name": "COMPOSIO_AUTH_CONFIG_ID",
+      "title": "Auth config ID",
+      "description": "ID (ac_...) of your Granola MCP auth config in the Composio dashboard, set to Dynamic Client Registration.",
+      "type": "text",
+      "required": true
+    }
+  ],
+  "tools": [
+    {
+      "name": "list_recent_meetings",
+      "title": "List recent meetings",
+      "description": "List the user's Granola meetings with their IDs, titles, dates and participants, newest first. Use when the user asks what meetings they had, wants to pick a meeting, or you need a meeting ID for get_meeting_notes or get_transcript. Defaults to the last 30 days.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "time_range": {
+            "type": "string",
+            "enum": [
+              "this_week",
+              "last_week",
+              "last_30_days",
+              "custom"
+            ],
+            "description": "this_week, last_week, last_30_days (default) or custom. Custom needs start_date and end_date."
+          },
+          "start_date": {
+            "type": "string",
+            "description": "First day of a custom range, as YYYY-MM-DD"
+          },
+          "end_date": {
+            "type": "string",
+            "description": "Last day of a custom range, as YYYY-MM-DD"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 20,
+            "description": "Most meetings to return, 1-20 (default 10)"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_meeting_notes",
+      "title": "Get meeting notes",
+      "description": "Get Granola's notes for specific meetings: the AI summary, the user's own notes, participants and date. Use when the user asks for a meeting's notes, summary, decisions or action items and you have its ID from list_recent_meetings or search_meetings. Takes up to 10 meeting IDs.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "meeting_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "maxItems": 10,
+            "description": "Granola meeting IDs (UUIDs) from list_recent_meetings or search_meetings, up to 10"
+          }
+        },
+        "required": [
+          "meeting_ids"
+        ]
+      }
+    },
+    {
+      "name": "get_transcript",
+      "title": "Get transcript",
+      "description": "Get the word-for-word transcript of one Granola meeting. Use only when the user wants exact wording or what someone literally said; for summaries use get_meeting_notes or search_meetings. Needs a meeting ID from list_recent_meetings or search_meetings. Very long transcripts are cut short.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "meeting_id": {
+            "type": "string",
+            "description": "Granola meeting ID (UUID) from list_recent_meetings or search_meetings"
+          }
+        },
+        "required": [
+          "meeting_id"
+        ]
+      }
+    },
+    {
+      "name": "search_meetings",
+      "title": "Search meetings",
+      "description": "Ask Granola a question about the user's meetings and get an answer with numbered citations to the meetings it came from. Use for open questions such as what was decided, who owns an action item, or what was said about a topic. The cited meeting IDs come back in sources. Takes about 10 seconds.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The question or topic, in the user's words"
+          },
+          "meeting_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 10,
+            "description": "Optional meeting IDs (UUIDs) to limit the search to"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "connect_account",
+      "title": "Connect Granola",
+      "description": "Connect the user's Granola account by signing in through Composio in the browser. Use when the user asks to connect, link, or sign in to Granola, or after a Granola tool says the connection is missing or expired. If Granola is already connected, it only verifies that.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      },
+      "execution": {
+        "mode": "background",
+        "estimatedDurationMs": 120000
+      },
+      "confirmation": {
+        "schemaVersion": 1,
+        "root": {
+          "type": "card",
+          "title": "Connect Granola",
+          "children": [
+            {
+              "type": "stack",
+              "direction": "vertical",
+              "gap": "md",
+              "children": [
+                {
+                  "type": "text",
+                  "text": "Continue in your browser to sign in to Granola. If you're already connected, this only checks the connection.",
+                  "color": "muted"
+                }
+              ]
+            }
+          ],
+          "footer": [
+            {
+              "type": "actions",
+              "items": [
+                {
+                  "label": "Cancel",
+                  "role": "cancel"
+                },
+                {
+                  "label": "Continue",
+                  "role": "confirm",
+                  "color": "accent"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "uiCallable": true
+    },
+    {
+      "name": "connection_status",
+      "title": "Granola account",
+      "description": "Show whether Granola is connected, with Connect, Disconnect and Refresh controls. Use when the user asks about their Granola account, connection status, or an expired or revoked sign-in. Read only: it never starts a sign-in.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      },
+      "uiCallable": true
+    },
+    {
+      "name": "disconnect_account",
+      "title": "Disconnect Granola",
+      "description": "Disconnect the user's Granola account: revokes access where Composio supports it and removes the connection. Use only when the user explicitly asks to disconnect, unlink or sign out of Granola. Never changes anything in Granola.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      },
+      "uiCallable": true,
+      "confirmation": {
+        "schemaVersion": 1,
+        "root": {
+          "type": "card",
+          "title": "Disconnect Granola",
+          "children": [
+            {
+              "type": "stack",
+              "direction": "vertical",
+              "gap": "md",
+              "children": [
+                {
+                  "type": "text",
+                  "text": "VoiceOS will lose access to your Granola meetings until you connect again.",
+                  "color": "muted"
+                },
+                {
+                  "type": "text",
+                  "text": "Your notes and transcripts in Granola stay as they are.",
+                  "color": "muted"
+                }
+              ]
+            }
+          ],
+          "footer": [
+            {
+              "type": "actions",
+              "items": [
+                {
+                  "label": "Cancel",
+                  "role": "cancel"
+                },
+                {
+                  "label": "Disconnect",
+                  "role": "confirm",
+                  "color": "accent"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "icon": "icon.png",
+  "setupGuide": {
+    "title": "Granola account",
+    "blocks": [
+      {
+        "type": "text",
+        "text": "Save your setup fields. Say \u201cconnect Granola\u201d to sign in from your browser, \u201cshow my Granola connection\u201d for Connect and Disconnect controls, or \u201cdisconnect Granola\u201d to unlink your account."
+      }
+    ]
+  }
+}
