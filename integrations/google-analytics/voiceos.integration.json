@@ -55,15 +55,7 @@
       },
       {
         "type": "text",
-        "text": "Google Analytics → Admin → Property settings. Digits only — not the G-… ID."
-      },
-      {
-        "type": "heading",
-        "text": "Access"
-      },
-      {
-        "type": "text",
-        "text": "Viewer access is enough. VoiceOS only reads data."
+        "text": "Google Analytics → Admin → Property → Property details → PROPERTY ID. (Digits only. Not the G-… Measurement ID.)"
       }
     ]
   },

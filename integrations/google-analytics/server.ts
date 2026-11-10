@@ -31,7 +31,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { readFileSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
-import { renderWidget, setIntegrationMark, vEmpty, vHeader, vList, vNote, vStats, type RenderedWidget, type Tone } from "./widgetKit.ts";
+import { esc, renderWidget, setIntegrationMark, vEmpty, vHeader, vList, vNote, vStats, type Block, type RenderedWidget, type Tone } from "./widgetKit.ts";
 
 // ============================================================================
 // 1. .env loading
@@ -436,6 +436,21 @@ const rowsList = (rows: Row[], metric: string) =>
     trailing: fmtMetric(metric, Number(r[metric] ?? 0)),
   })));
 
+/**
+ * Every row in a scrollable window. vList stops at 5 rows by design, which is
+ * too few for "what can I query"; the kit hides scrollbars but keeps wheel and
+ * trackpad scrolling inside the card.
+ * shortcut: reuses vList's row classes (k-list, k-rw, …) for an identical look; if the kit renames them, rows lose their style — switch to a kit scroll block if one is added.
+ */
+const SCROLL_ROW_H = 32;
+const SCROLL_MAX_H = 8 * SCROLL_ROW_H;
+function scrollList(rows: { title: string; trailing: string }[]): Block {
+  const h = Math.min(rows.length * SCROLL_ROW_H, SCROLL_MAX_H);
+  const html = rows.map((r) =>
+    `<div class="k-rw"><div class="k-rw-m"><div class="k-rw-t">${esc(r.title)}</div></div><div class="k-rw-tr"><span class="k-num">${esc(r.trailing)}</span></div></div>`).join("");
+  return { html: `<div class="k-list" style="max-height:${h}px;overflow-y:auto;overscroll-behavior:contain">${html}</div>`, h };
+}
+
 const allZero = (...totals: (Totals | undefined)[]) => totals.every((t) => !t || Object.values(t).every((v) => !v));
 
 export interface ReportResult {
@@ -471,11 +486,10 @@ export function metadataCard(r: { dimensions: Record<string, string[]>; metrics:
   const dimensions = Object.values(r.dimensions).flat();
   const header = vHeader({ title: "Fields", subtitle: a.category || (a.search ? `Matching “${a.search}”` : "All") });
   if (metrics.length + dimensions.length === 0) return card([header, vEmpty({ title: "No matching fields" })]);
-  const names = [...metrics.map((n) => [n, "Metric"]), ...dimensions.map((n) => [n, "Dimension"])].slice(0, MAX_CARD_ROWS);
   return card([
     header,
     vStats([{ label: "Metrics", value: String(metrics.length) }, { label: "Dimensions", value: String(dimensions.length) }]),
-    vList(names.map(([title, kind]) => ({ title, trailing: kind }))),
+    scrollList([...metrics.map((title) => ({ title, trailing: "Metric" })), ...dimensions.map((title) => ({ title, trailing: "Dimension" }))]),
   ]);
 }
 

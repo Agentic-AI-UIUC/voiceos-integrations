@@ -79,7 +79,7 @@ test("an empty realtime card says nobody is on the site", () => {
     .toContain("No one on the site right now");
 });
 
-test("a metadata card counts the fields and names the first few metrics", () => {
+test("a metadata card counts the fields and lists every one of them, metrics first, in a scrollable list", () => {
   const t = text(metadataCard({
     property_id: "1",
     dimensions: { "Page / Screen": ["pagePath", "pageTitle"] },
@@ -88,7 +88,8 @@ test("a metadata card counts the fields and names the first few metrics", () => 
   expect(t).toContain("Page / Screen");
   expect(t).toContain("6");
   expect(t).toContain("screenPageViews");
-  expect(t).not.toContain("views6");
+  expect(t).toContain("views6");
+  expect(t.indexOf("views6")).toBeLessThan(t.indexOf("pageTitle"));
 });
 
 test("an error card carries the plain-words message, and says when reconnecting is the fix", () => {
