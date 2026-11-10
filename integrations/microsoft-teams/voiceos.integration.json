@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "com.voiceos.generated.microsoft-teams",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "name": "Microsoft Teams",
   "summary": "Chat, reply, schedule meetings, and create channels in Microsoft Teams via Composio.",
   "supportedPlatforms": [
@@ -36,7 +36,7 @@
     {
       "name": "COMPOSIO_API_KEY",
       "title": "Composio API key",
-      "description": "API key from Settings -> API Keys in your Composio dashboard (app.composio.dev/settings/api-keys).",
+      "description": "API key from Settings -> API Keys in your Composio dashboard (app.composio.dev/settings/api-keys). A scoped key needs the Proxy execute permission to schedule meetings.",
       "type": "password",
       "required": true
     },
@@ -180,7 +180,7 @@
     {
       "name": "create_online_meeting",
       "title": "Create online meeting",
-      "description": "Schedule a new Microsoft Teams online meeting with start and end times. Use when the user asks to schedule a Teams meeting, set up a Teams call, or create an online calendar meeting.",
+      "description": "Schedule a Microsoft Teams meeting on the user's calendar, with a join link. It appears on their Teams and Outlook calendars. No one else is invited. Use when the user asks to schedule a Teams meeting, set up a Teams call, or create an online calendar meeting.",
       "inputSchema": {
         "type": "object",
         "properties": {

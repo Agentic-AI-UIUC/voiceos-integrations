@@ -32,7 +32,6 @@ const WRITE_TOOLS = [
 const APPROVED_SLUGS = [
   "MICROSOFT_TEAMS_CHATS_GET_ALL_CHATS",
   "MICROSOFT_TEAMS_CREATE_CHANNEL",
-  "MICROSOFT_TEAMS_CREATE_MEETING",
   "MICROSOFT_TEAMS_GET_MY_PROFILE",
   "MICROSOFT_TEAMS_LIST_USER_CHAT_MESSAGES",
   "MICROSOFT_TEAMS_POST_MESSAGE_REPLY",
@@ -62,6 +61,7 @@ const mockCalls = (server: Server) =>
 const executed = (server: Server) =>
   mockCalls(server).filter((c) => c.path.endsWith("/execute")).map((c) => c.body as { tool_slug: string; arguments: any });
 const lastArguments = (server: Server, slug: string) => executed(server).filter((c) => c.tool_slug === slug).at(-1)?.arguments;
+const proxyRequests = (server: Server) => mockCalls(server).filter((c) => c.path.endsWith("/proxy_execute"));
 const linkRequests = (server: Server) => mockCalls(server).filter((c) => c.path.endsWith("/link"));
 const accountRequests = (server: Server, method: string, suffix = "") =>
   mockCalls(server).filter((c) => c.method === method && /^\/connected_accounts\/[^/]+/.test(c.path) && c.path.endsWith(suffix));
@@ -295,13 +295,70 @@ describe("connected account", () => {
     expect(executed(server).length).toBe(before);
   });
 
-  test("create_online_meeting passes the times as given and returns the join link", async () => {
+  test("create_online_meeting creates a Teams calendar event with no attendees and returns the join link", async () => {
     const args = { subject: "Sync", start_date_time: "2026-11-02T15:00:00-06:00", end_date_time: "2026-11-02T15:30:00-06:00" };
+    const before = executed(server).length;
     const r = await run(server, "create_online_meeting", args);
     expect(r.isError).toBe(false);
-    expect(lastArguments(server, "MICROSOFT_TEAMS_CREATE_MEETING")).toEqual(args);
-    expect(r.body.joinWebUrl).toBe("https://teams.microsoft.com/l/meetup-join/test");
+    expect(proxyRequests(server).at(-1).body).toEqual({
+      toolkit_slug: "microsoft_teams",
+      endpoint: "https://graph.microsoft.com/v1.0/me/events",
+      method: "POST",
+      body: {
+        subject: "Sync",
+        start: { dateTime: "2026-11-02T21:00:00", timeZone: "UTC" },
+        end: { dateTime: "2026-11-02T21:30:00", timeZone: "UTC" },
+        isOnlineMeeting: true,
+        onlineMeetingProvider: "teamsForBusiness",
+      },
+    });
+    expect(executed(server).length).toBe(before);
+    expect(r.body).toMatchObject({
+      success: true,
+      id: "evt-1",
+      subject: "Sync",
+      joinWebUrl: "https://teams.microsoft.com/l/meetup-join/test",
+      webLink: "https://outlook.office365.com/owa/?itemid=evt-1",
+      start_date_time: args.start_date_time,
+      end_date_time: args.end_date_time,
+    });
+    expect(r.body.message).toBeUndefined();
     expect(r.html).toContain("Meeting Created");
+    expect(r.html).toContain("On calendar");
+    expect(r.html).toContain('href="https://teams.microsoft.com/l/meetup-join/test"');
+  });
+
+  test("create_online_meeting converts any offset to the same moment in UTC", async () => {
+    await run(server, "create_online_meeting", {
+      subject: "Across midnight",
+      start_date_time: "2026-07-04T23:30:00-05:00",
+      end_date_time: "2026-07-05T00:15:00-05:00",
+    });
+    const { start, end } = proxyRequests(server).at(-1).body.body;
+    expect(start).toEqual({ dateTime: "2026-07-05T04:30:00", timeZone: "UTC" });
+    expect(end).toEqual({ dateTime: "2026-07-05T05:15:00", timeZone: "UTC" });
+  });
+
+  test("create_online_meeting refuses times it can't read, or that end first, without calling Composio", async () => {
+    const before = mockCalls(server).length;
+
+    const unreadable = await run(server, "create_online_meeting", {
+      subject: "Sync",
+      start_date_time: "next Tuesday",
+      end_date_time: "2026-11-02T15:30:00-06:00",
+    });
+    expect(unreadable.isError).toBe(true);
+    expect(unreadable.text).toContain("couldn't read the meeting time");
+
+    const backwards = await run(server, "create_online_meeting", {
+      subject: "Sync",
+      start_date_time: "2026-11-02T15:30:00-06:00",
+      end_date_time: "2026-11-02T15:00:00-06:00",
+    });
+    expect(backwards.isError).toBe(true);
+    expect(backwards.text).toBe("The meeting's end time has to be after its start time.");
+
+    expect(mockCalls(server).length).toBe(before);
   });
 
   test("create_channel explains that it needs admin approval", async () => {
@@ -325,6 +382,93 @@ describe("connected account", () => {
   // The SDK prints its "Upgrade available" notice to stdout, which is the MCP channel.
   test("never runs the SDK's npm version check", () => {
     expect(mockCalls(server).filter((c) => c.host === "registry.npmjs.org")).toEqual([]);
+  });
+});
+
+describe("scheduling a meeting", () => {
+  const MEETING = { subject: "Sync", start_date_time: "2026-11-02T15:00:00-06:00", end_date_time: "2026-11-02T15:30:00-06:00" };
+  const started: Server[] = [];
+  const scheduleWith = async (mock: Record<string, string>, args: Record<string, unknown> = MEETING) => {
+    const server = await startServer({ ...SETUP_ENV, ...mock });
+    started.push(server);
+    return { server, r: await run(server, "create_online_meeting", args) };
+  };
+
+  afterAll(async () => {
+    await Promise.all(started.map((server) => server.client.close()));
+  });
+
+  test("a time with no offset is read as local time, the same way the confirmation card reads it", async () => {
+    const { server, r } = await scheduleWith(
+      { TZ: "America/Chicago" },
+      { subject: "Sync", start_date_time: "2026-12-04T17:00:00", end_date_time: "2026-12-04T17:30:00" }
+    );
+    expect(proxyRequests(server)[0].body.body.start).toEqual({ dateTime: "2026-12-04T23:00:00", timeZone: "UTC" });
+    expect(r.html.replace(/\s+/g, " ")).toContain("Dec 4 · 5:00 PM – 5:30 PM");
+  });
+
+  test("goes through Composio and never calls Microsoft directly, so no new network permission is needed", async () => {
+    const { server } = await scheduleWith({});
+    expect(proxyRequests(server).map((c) => c.host)).toEqual(["backend.composio.dev"]);
+    expect(mockCalls(server).filter((c) => c.host.endsWith("microsoft.com"))).toEqual([]);
+  });
+
+  test("still tells the truth when Microsoft creates the event but returns no join link", async () => {
+    const { r } = await scheduleWith({ MOCK_CALENDAR: "no_join_link" });
+    expect(r.isError).toBe(false);
+    expect(r.body.joinWebUrl).toBe("");
+    expect(r.body.message).toContain("didn't return a join link");
+    expect(r.html).toContain('href="https://outlook.office365.com/owa/?itemid=evt-1"');
+    expect(r.html).toContain("Open in calendar");
+    expect(r.html).not.toContain("Join Teams meeting");
+  });
+
+  test("a sign-in without calendar access says how to replace it, and doesn't open another sign-in", async () => {
+    const { server, r } = await scheduleWith({ MOCK_CALENDAR: "no_scope" });
+    expect(r.isError).toBe(true);
+    expect(r.text).toBe('Your Teams sign-in doesn\'t include calendar access yet. Say "disconnect Teams", then "connect me to Teams", and try again.');
+    expect(linkRequests(server)).toHaveLength(0);
+  });
+
+  test("a token Microsoft rejects asks the user to reconnect and opens one sign-in", async () => {
+    const { server, r } = await scheduleWith({ MOCK_CALENDAR: "expired" });
+    expect(r.isError).toBe(true);
+    expect(r.text).toBe("Your Teams connection expired or was revoked. Reconnect in your browser, then try again.");
+    expect(linkRequests(server)).toHaveLength(1);
+  });
+
+  test("a key without Proxy execute is reported as a key problem, not a Teams sign-in problem", async () => {
+    const { server, r } = await scheduleWith({ MOCK_CALENDAR: "key_denied" });
+    expect(r.isError).toBe(true);
+    expect(r.text).toContain("Proxy execute");
+    expect(linkRequests(server)).toHaveLength(0);
+  });
+
+  test("a request Composio refuses passes on its reason", async () => {
+    const { r } = await scheduleWith({ MOCK_CALENDAR: "rejected" });
+    expect(r.isError).toBe(true);
+    expect(r.text).toContain("Composio couldn't schedule the meeting");
+    expect(r.text).toContain("Endpoint isn't allowed");
+  });
+
+  test("any other Microsoft error is passed on, not reported as success", async () => {
+    const { r } = await scheduleWith({ MOCK_CALENDAR: "graph_error" });
+    expect(r.isError).toBe(true);
+    expect(r.text).toBe("Microsoft couldn't create the meeting: Your request can't be completed.");
+  });
+
+  test("a lost answer says to check the calendar, and isn't retried, so it can't make a duplicate", async () => {
+    const { server, r } = await scheduleWith({ MOCK_CALENDAR: "network" });
+    expect(r.isError).toBe(true);
+    expect(r.text).toBe("I couldn't confirm the meeting was created. Check your calendar before trying again.");
+    expect(proxyRequests(server)).toHaveLength(1);
+  });
+
+  test("runs nothing when Teams isn't connected", async () => {
+    const { server, r } = await scheduleWith({ MOCK_CONNECTION: "none" });
+    expect(r.isError).toBe(true);
+    expect(r.text).toBe("Connect Microsoft Teams in your browser, then try again.");
+    expect(proxyRequests(server)).toHaveLength(0);
   });
 });
 

@@ -592,11 +592,77 @@ html[data-k-theme=dark] .mm-join{color:#ffffff}
 html[data-k-theme=light] .mm-join{color:#ffffff}
 `;
 
+const GRAPH_EVENTS_URL = "https://graph.microsoft.com/v1.0/me/events";
+
+// Read the same way the confirmation card reads it, so the event lands on the time the user approved.
+function parseMeetingTime(value: unknown): Date {
+  const date = new Date(String(value));
+  if (isNaN(date.getTime())) {
+    throw new Error(`I couldn't read the meeting time "${value}". Try again with a specific date and time.`);
+  }
+  return date;
+}
+
+// Graph takes a time plus a zone, not an offset.
+const toGraphTime = (date: Date) => ({ dateTime: date.toISOString().slice(0, 19), timeZone: "UTC" });
+
+// Composio's create-meeting tool makes a standalone meeting that never reaches the calendar, and
+// the Teams toolkit has no tool for a user's calendar event, so this goes through Composio's proxy.
+async function createCalendarEvent(session: any, subject: string, start: Date, end: Date): Promise<any> {
+  let res: any;
+  try {
+    res = await withTimeout(
+      session.proxyExecute(
+        {
+          toolkit: "microsoft_teams",
+          endpoint: GRAPH_EVENTS_URL,
+          method: "POST",
+          body: {
+            subject,
+            start: toGraphTime(start),
+            end: toGraphTime(end),
+            isOnlineMeeting: true,
+            onlineMeetingProvider: "teamsForBusiness",
+          },
+        },
+        { signal: AbortSignal.timeout(8000) } as any
+      ),
+      8000
+    );
+  } catch (err: any) {
+    console.error("Calendar event request failed:", err?.message);
+    const status = httpStatus(err) ?? 0;
+    // Not a Teams sign-in problem, so reconnecting wouldn't help.
+    if (status === 401 || status === 403) {
+      throw new Error("Your Composio API key can't schedule meetings. Create a key with the Proxy execute permission and update it in the Microsoft Teams settings in VoiceOS.");
+    }
+    if (status >= 400 && status < 500) throw new Error(`Composio couldn't schedule the meeting: ${err?.message}`);
+    // Composio sends a proxied call only once, but the event may exist if the answer never came back.
+    throw new Error("I couldn't confirm the meeting was created. Check your calendar before trying again.");
+  }
+
+  if (res?.resultType !== "completed") throw new Error(res?.message || "Composio blocked this request.");
+  const { status, data } = res;
+  if (status >= 200 && status < 300) return data ?? {};
+
+  console.error("Microsoft rejected the calendar event:", status, data?.error?.code);
+  if (status === 401) {
+    await handleReauth(session);
+    throw new Error("Your Teams connection expired or was revoked. Reconnect in your browser, then try again.");
+  }
+  // A sign-in from before calendar access was added. Opening another sign-in here would leave
+  // the old connection active, so the user has to replace it.
+  if (status === 403) {
+    throw new Error('Your Teams sign-in doesn\'t include calendar access yet. Say "disconnect Teams", then "connect me to Teams", and try again.');
+  }
+  throw new Error(`Microsoft couldn't create the meeting: ${data?.error?.message || `status ${status}`}`);
+}
+
 server.registerTool(
   "create_online_meeting",
   {
     title: "Create online meeting",
-    description: "Schedule a new Microsoft Teams online meeting with start and end times. Use when the user asks to schedule a Teams meeting, set up a Teams call, or create an online calendar meeting.",
+    description: "Schedule a Microsoft Teams meeting on the user's calendar, with a join link. It appears on their Teams and Outlook calendars. No one else is invited. Use when the user asks to schedule a Teams meeting, set up a Teams call, or create an online calendar meeting.",
     inputSchema: {
       subject: z.string().describe("Meeting topic or subject"),
       start_date_time: z.string().describe("Meeting start time in ISO 8601 with local offset (e.g. 2025-03-20T15:00:00-04:00)"),
@@ -604,21 +670,23 @@ server.registerTool(
     } as any,
   },
   async (args: any) => {
-    const { session } = await getTeamsSession();
-    const res = await executeTeamsAction(session, "MICROSOFT_TEAMS_CREATE_MEETING", {
-      subject: args.subject,
-      start_date_time: args.start_date_time,
-      end_date_time: args.end_date_time,
-    });
+    const start = parseMeetingTime(args.start_date_time);
+    const end = parseMeetingTime(args.end_date_time);
+    if (end <= start) throw new Error("The meeting's end time has to be after its start time.");
 
-    const data = res?.data?.response_data || res?.response_data || res?.data || {};
-    const joinWebUrl = data?.joinWebUrl || data?.join_web_url || data?.webUrl || "";
-    const meetingId = data?.id || "created";
-    const subject = data?.subject || args.subject;
+    const { session } = await getTeamsSession();
+    const event = await createCalendarEvent(session, args.subject, start, end);
+
+    const joinWebUrl = String(event?.onlineMeeting?.joinUrl || "");
+    const webLink = String(event?.webLink || "");
+    const meetingId = event?.id || "created";
+    const subject = event?.subject || args.subject;
     const timeFormatted = formatMeetingTime(args.start_date_time, args.end_date_time);
     const joinLinkHtml = joinWebUrl
       ? `<a class="mm-join" href="${esc(joinWebUrl)}">Join Teams meeting</a>`
-      : `<span class="mm-join">Meeting scheduled</span>`;
+      : webLink
+        ? `<a class="mm-join" href="${esc(webLink)}">Open in calendar</a>`
+        : `<span class="mm-join">Meeting scheduled</span>`;
 
     const card = renderCustom({
       accent: ACCENT,
@@ -628,7 +696,7 @@ server.registerTool(
           <div class="mm-hd">
             ${markHtml()}
             <span class="mm-title">Meeting Created</span>
-            <span class="mm-badge">Created</span>
+            <span class="mm-badge">On calendar</span>
           </div>
           <div class="mm-subj">${esc(subject)}</div>
           <div class="mm-time">${esc(timeFormatted)}</div>
@@ -643,6 +711,8 @@ server.registerTool(
       id: meetingId,
       subject,
       joinWebUrl,
+      webLink,
+      ...(joinWebUrl ? {} : { message: "The meeting is on the user's calendar, but Microsoft didn't return a join link. It may be available from the calendar entry." }),
       start_date_time: args.start_date_time,
       end_date_time: args.end_date_time,
       _voiceos_glance: { blocks: [{ type: "widget", html: card.html, height: card.height }] },

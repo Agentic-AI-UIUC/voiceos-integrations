@@ -14,10 +14,12 @@ Exactly the six tools approved in the ticket. The two reads run immediately; the
 | `get_chat_messages` | Read | `MICROSOFT_TEAMS_LIST_USER_CHAT_MESSAGES` |
 | `send_chat_message` | Write, confirms first | `MICROSOFT_TEAMS_TEAMS_POST_CHAT_MESSAGE` |
 | `reply_to_message` | Write, confirms first | `MICROSOFT_TEAMS_POST_MESSAGE_REPLY` |
-| `create_online_meeting` | Write, confirms first | `MICROSOFT_TEAMS_CREATE_MEETING` |
+| `create_online_meeting` | Write, confirms first | None. Calls Microsoft Graph's `POST /me/events` through Composio's proxy |
 | `create_channel` | Write, confirms first | `MICROSOFT_TEAMS_CREATE_CHANNEL` |
 
 `get_chat_messages` also calls `MICROSOFT_TEAMS_GET_MY_PROFILE` internally to look up the signed-in user's ID, because the message-listing tool rejects `"me"`. It is not exposed to the agent.
+
+`create_online_meeting` doesn't use `MICROSOFT_TEAMS_CREATE_MEETING`, because that tool makes a standalone meeting that never shows on the calendar, and the Teams toolkit has no tool for a user's calendar event. The server still never handles Microsoft tokens: Composio makes the call with the user's Teams connection.
 
 ### Account tools
 
@@ -32,8 +34,9 @@ Integration Studio has no native account linking, so these three follow Todoist'
 ## Setup
 
 1. In the Composio dashboard (Platform view), create an auth config for **Microsoft Teams** with **OAuth2** and **Composio managed** credentials, and set these 7 scopes:
-   `Chat.ReadBasic`, `Chat.Read`, `ChatMessage.Send`, `ChannelMessage.Send`, `OnlineMeetings.ReadWrite`, `offline_access`, `User.Read`
-2. Create a Composio API key with **Session management** (read and write) and **Session tool execution** (write), plus read access to Tools, Toolkits and Auth configs, and read and write access to Connected accounts (disconnecting needs write).
+   `Chat.ReadBasic`, `Chat.Read`, `ChatMessage.Send`, `ChannelMessage.Send`, `Calendars.ReadWrite`, `offline_access`, `User.Read`
+   `Calendars.ReadWrite` isn't in Composio's scope list for Teams: type it in the scope search and choose **Add scope**.
+2. Create a Composio API key with **Session management** (read and write), **Session tool execution** (write) and **Proxy execute** (write; scheduling meetings needs it), plus read access to Tools, Toolkits and Auth configs, and read and write access to Connected accounts (disconnecting needs write). Key permissions can't be changed later, so a key missing one has to be replaced.
 3. Install the folder in VoiceOS and fill in the setup fields:
 
 | Field | Value |
@@ -52,7 +55,7 @@ Say "connect me to Teams", or say "show my Teams connection" and use the Connect
 
 ## Testing
 
-`bun install && bun test` runs 50 offline tests. They start the real server over MCP with `tests/mock-composio.ts` preloaded, which replaces `fetch` with a fake Composio, so no keys or network are needed. They cover the manifest (the six tools plus the account tools, confirmations only on writes, card fields bound to real inputs, declared env vars, the network allowlist), every tool's arguments and results (including reading IDs from a post's link), the not-connected, expired, revoked-token and missing-setup paths, and connecting and disconnecting (finished, unfinished and failed sign-in, duplicate connections, a key without write access).
+`bun install && bun test` runs 62 offline tests. They start the real server over MCP with `tests/mock-composio.ts` preloaded, which replaces `fetch` with a fake Composio, so no keys or network are needed. They cover the manifest (the six tools plus the account tools, confirmations only on writes, card fields bound to real inputs, declared env vars, the network allowlist), every tool's arguments and results (including reading IDs from a post's link), scheduling (the calendar event sent, times converted to UTC, a sign-in without calendar access, a key without Proxy execute, no join link returned, a lost response), the not-connected, expired, revoked-token and missing-setup paths, and connecting and disconnecting (finished, unfinished and failed sign-in, duplicate connections, a key without write access).
 
 Tested live on Nov 1, 2026 with a UIUC Microsoft 365 account:
 
@@ -67,13 +70,21 @@ Tested live on Nov 4, 2026, on version 1.1.0:
 - The account card, and Disconnect up to the clear error for a key without write access
 - Reply to message, after rewording its description so the agent uses it instead of VoiceOS's built-in draft
 
-A successful disconnect and the Connect button's sign-in haven't been tested live, because they need a key with write access to Connected accounts. So far they've only run against the fake Composio.
+Tested live on Nov 7, 2026, on version 1.2.0:
+
+- Create online meeting puts the meeting on both the Teams and Outlook calendars at the time on the card (5:00–5:30 PM CST), with a Teams join link and no attendees
+- Before signing in again, the old sign-in got the clear "doesn't include calendar access" error
+- Upgrading an existing setup: editing the auth config's scopes, deleting the old connection, then signing in with `connect_account` by voice. UIUC didn't ask for admin approval for `Calendars.ReadWrite`
+
+A successful disconnect hasn't been tested live, because it needs a key with write access to Connected accounts. So far it has only run against the fake Composio.
 
 ## Known limitations
 
 - **Create channel needs admin approval.** Microsoft always requires an org admin to approve `Channel.Create`, and including it blocked sign-in for everyone, so it is left out of the scopes. The tool returns a clear "needs admin approval" error until an admin approves it.
 - **Reply needs the post's link.** The user copies it with Copy link on the post in Teams, and the server reads the team, channel and post IDs from it. Finding the post by name or author would need `ChannelMessage.Read.All`, which always requires admin approval, and integrations don't get screen context from VoiceOS. Create channel still needs a team ID.
-- **Scheduled meetings don't appear on the calendar.** Create online meeting makes the Teams meeting and a working join link, but no calendar entry shows up. This will be fixed separately.
+- **Scheduling needs full calendar access.** `Calendars.ReadWrite` is the only delegated permission Microsoft lists for creating an event, so the consent screen also covers reading and changing the rest of the user's calendar. The integration only creates events.
+- **Scheduled meetings have no other attendees.** The tool has no attendee input, so no invitations go out. The user shares the join link themselves.
+- **Upgrading from an earlier version takes three steps.** Replace `OnlineMeetings.ReadWrite` with `Calendars.ReadWrite` in the auth config, switch to a key with Proxy execute, then say "disconnect Teams" and "connect me to Teams". If the key can't change connections, delete the Teams connection in the Composio dashboard instead of saying "disconnect Teams". Until then, scheduling returns a clear error saying what's missing.
 - **Some old meeting chats still appear in Get all chats.** Chats hidden by the user are skipped, but Teams also hides inactive meeting chats in its own UI without marking them hidden in Microsoft's data. They show up below the recent chats, since the list is sorted newest first.
 - **Personal Microsoft accounts don't work.** Microsoft's Teams API only supports licensed work or school accounts.
 - **Don't use the Studio's refine on this folder.** It regenerates `server.ts` and would undo the hand fixes to the sign-in check and message lookup.
