@@ -21,12 +21,32 @@ card** declared in the manifest, which the user can edit and approve.
   registered in server.ts with the same name, and vice versa. Keep
   `runtime` exactly as generated — VoiceOS resolves it to the launcher for
   the user's OS.
-- `server.ts` — standard MCP stdio server (@modelcontextprotocol/sdk + zod).
+- `server.ts` — the whole runtime in one file (MCP server, Composio client,
+  GA queries, errors), in numbered sections. **Publish ships only server.ts,
+  widgetKit.ts, voiceos.integration.json, package.json and icon.png**, so
+  runtime code must not move to other files. Tool descriptions here are the
+  agent's routing rules; the manifest's are the short lines users see in the
+  Actions panel (cut off after two lines), so the two differ on purpose.
+- `tests/` — `bun test` (local only, not shipped). `manifest.test.ts` fails
+  when the manifest's tool names or input schemas drift from server.ts.
+- `IMPLEMENTATION_PLAN.md` — stages, scope and design decisions (handoff).
 - `run.sh` / `run.cmd` — the launchers VoiceOS invokes (macOS / Windows);
   leave them alone.
 - `package.json` — add dependencies here, then `bun install`.
 - `icon.png` / `studio-meta.json` — the Studio's icon and preview fixtures;
   safe to leave untouched.
+
+## Composio setup
+
+Composio credentials belong to whoever runs this integration, not to the end
+user, so they are **not** VoiceOS setup fields:
+
+1. Copy `.env.example` to `.env` and set `COMPOSIO_API_KEY` (and
+   `COMPOSIO_USER_ID` if not `default`). `server.ts` loads it on start.
+2. Connect Google Analytics (OAuth2, Composio-managed) for that user_id **in
+   the same Composio project as the key**. `composio link` uses the CLI's own
+   project, which may be a different one; if tools say "isn't connected", list
+   the key's connected accounts to check.
 
 ## Rules that make integrations feel native
 
@@ -70,9 +90,12 @@ bun install        # once, and after adding dependencies
 bun server.ts      # starts the MCP server; Ctrl-C when it idles cleanly
 ```
 
-Then in VoiceOS: Dashboard → Agent tab → Integration Studio → My
-Integrations → open **Google Analytics** → **Reload**. The agent sees your
-changes on its next turn — just talk to it.
+VoiceOS runs its own copy of an installed folder
+(~/Library/Application Support/VoiceOS/custom-mcps/<name>-<hash>) and caches
+the manifest, confirmTools, Setup values and icon in its config.json. Make
+that folder a symlink to this one so code changes need only a restart. After
+changing the manifest or icon, update config.json **while VoiceOS is quit**
+(it rewrites the file on quit), then relaunch.
 
 ## Definition of done
 

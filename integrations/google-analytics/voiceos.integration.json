@@ -3,8 +3,8 @@
   "id": "com.voiceos.generated.google-analytics",
   "version": "1.0.0",
   "name": "Google Analytics",
-  "summary": "Run GA4 analytics reports, realtime visitor counts, and property metadata via Composio.",
-  "description": "Connect Google Analytics 4 via Composio with OAuth2. Query sessions, active users, top pages, live realtime visitors, and property schema metadata directly from VoiceOS.",
+  "summary": "Ask about your Google Analytics 4 traffic: reports, live visitors and metrics.",
+  "description": "Ask VoiceOS about your website or app traffic in Google Analytics 4: visitors, page views, top pages, sources and countries for any date range, compared with an earlier period, and who is on your site right now. Read-only. Connects to your Google account through Composio (OAuth2).",
   "supportedPlatforms": [
     "darwin",
     "win32"
@@ -24,8 +24,7 @@
     {
       "kind": "network",
       "domains": [
-        "backend.composio.dev",
-        "dashboard.composio.dev"
+        "backend.composio.dev"
       ]
     }
   ],
@@ -40,39 +39,39 @@
     {
       "name": "GA4_PROPERTY_ID",
       "title": "Default GA4 property ID",
-      "description": "Your 9-digit Google Analytics 4 Property ID (e.g. 123456789), found in Admin -> Property Settings.",
+      "description": "Digits only, e.g. 123456789. In Google Analytics: Admin → Property settings. Not the G-… Measurement ID.",
       "type": "text",
       "required": false,
       "placeholder": "123456789"
     }
   ],
   "setupGuide": {
-    "title": "Google Analytics Setup via Composio",
+    "title": "Set up Google Analytics",
     "collapsedByDefault": false,
     "blocks": [
       {
         "type": "heading",
-        "text": "1. Get your Composio API key"
+        "text": "1. Use a Google account that can see your property"
       },
       {
         "type": "text",
-        "text": "Log in to Composio at dashboard.composio.dev and copy your API key from Settings -> API Keys."
+        "text": "VoiceOS reads Google Analytics through Composio with your Google sign-in (OAuth2). Viewer access to the GA4 property is enough; VoiceOS never changes anything."
       },
       {
         "type": "heading",
-        "text": "2. Connect Google Analytics OAuth2"
+        "text": "2. Find your GA4 property ID"
       },
       {
         "type": "text",
-        "text": "In Composio (dashboard.composio.dev/apps/google_analytics), connect your Google account with Analytics Viewer access to your GA4 property."
+        "text": "In Google Analytics, open Admin → Property settings and copy the Property ID (digits only, e.g. 123456789). The G-… code on your data stream is the Measurement ID — that one won't work here."
       },
       {
         "type": "heading",
-        "text": "3. Find your GA4 Property ID"
+        "text": "3. Paste it below"
       },
       {
         "type": "text",
-        "text": "In Google Analytics, navigate to Admin -> Property Settings. Copy your 9-digit Property ID (e.g. 123456789) and paste it below."
+        "text": "It becomes the default for every question. You can still name another property when you ask."
       }
     ]
   },
@@ -80,7 +79,7 @@
     {
       "name": "run_report",
       "title": "Run report",
-      "description": "Query GA4 metrics such as sessions, active users, and page paths.",
+      "description": "Visitors, page views, top pages and sources for any date range.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -103,7 +102,7 @@
               "type": "string"
             },
             "maxItems": 9,
-            "description": "Dimension API names to group by, up to 9, e.g. [\"pagePath\"]. Omit for a single total row."
+            "description": "Dimension API names to group by, up to 9, e.g. [\"pagePath\"]. Omit for totals only."
           },
           "start_date": {
             "type": "string",
@@ -112,6 +111,33 @@
           "end_date": {
             "type": "string",
             "description": "YYYY-MM-DD, \"today\", \"yesterday\" or \"NdaysAgo\". Default \"today\"."
+          },
+          "compare_start_date": {
+            "type": "string",
+            "description": "Start of an earlier period to compare with, same formats. Set together with compare_end_date."
+          },
+          "compare_end_date": {
+            "type": "string",
+            "description": "End of the earlier period to compare with."
+          },
+          "filter": {
+            "type": "object",
+            "properties": {
+              "dimension": {
+                "type": "string",
+                "description": "Dimension API name, e.g. \"country\" or \"eventName\". It need not be in dimensions."
+              },
+              "value": {
+                "type": "string",
+                "description": "Exact value to keep, e.g. \"United States\" or \"sign_up_click\"."
+              }
+            },
+            "required": [
+              "dimension",
+              "value"
+            ],
+            "additionalProperties": false,
+            "description": "Keep only rows where this dimension equals this value."
           },
           "order_by": {
             "type": "string",
@@ -125,7 +151,7 @@
             "type": "integer",
             "minimum": 1,
             "maximum": 100,
-            "description": "Maximum rows (default 10)."
+            "description": "Maximum rows (default 10). totals and row_count always cover every matching row."
           }
         },
         "required": [
@@ -138,7 +164,7 @@
     {
       "name": "run_realtime_report",
       "title": "Run realtime report",
-      "description": "View live active site visitors in the last 30 minutes and top pages.",
+      "description": "See who's on your site right now and which pages they're on.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -160,7 +186,26 @@
               "type": "string"
             },
             "maxItems": 9,
-            "description": "Dimension API names to group by, up to 9, e.g. [\"unifiedScreenName\"]. Omit for a single total."
+            "description": "Dimension API names to group by, up to 9, e.g. [\"unifiedScreenName\"]. Omit for totals only."
+          },
+          "filter": {
+            "type": "object",
+            "properties": {
+              "dimension": {
+                "type": "string",
+                "description": "Dimension API name, e.g. \"country\" or \"eventName\". It need not be in dimensions."
+              },
+              "value": {
+                "type": "string",
+                "description": "Exact value to keep, e.g. \"United States\" or \"sign_up_click\"."
+              }
+            },
+            "required": [
+              "dimension",
+              "value"
+            ],
+            "additionalProperties": false,
+            "description": "Keep only rows where this dimension equals this value."
           },
           "order_by": {
             "type": "string",
@@ -174,7 +219,7 @@
             "type": "integer",
             "minimum": 1,
             "maximum": 100,
-            "description": "Maximum rows (default 10)."
+            "description": "Maximum rows (default 10). totals and row_count always cover every matching row."
           }
         },
         "additionalProperties": false,
@@ -184,7 +229,7 @@
     {
       "name": "get_metadata",
       "title": "Get metadata",
-      "description": "List available dimensions and metrics for a Google Analytics property.",
+      "description": "List the metrics and dimensions you can ask about.",
       "inputSchema": {
         "type": "object",
         "properties": {

@@ -41,8 +41,13 @@ comparison period.
   asks *which* pages, countries or devices.
 **Success Criteria**: Each manifest description fits two lines; the 5 VoiceOS test questions
 route to the right tool in one call.
-**Tests**: manifest and server.ts list the same tool names and input schemas.
-**Status**: Not Started
+**Tests**: manifest and server.ts list the same tool names and input schemas; only the 3
+approved tools, none with a confirmation card; Actions panel descriptions ≤80 chars; network
+permission is only backend.composio.dev; totals, filter and comparison request/response shapes
+(taken from real GA responses).
+**Status**: In Progress. Code, tests (34) and real MCP calls are done. Waiting on the user to
+check visually in VoiceOS that the Actions panel descriptions fit in two lines and that the
+test questions take one call each.
 
 ## Stage 3: Glance cards (UI)
 

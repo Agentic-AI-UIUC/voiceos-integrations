@@ -198,6 +198,29 @@ function toRows(data: any): Record<string, string | number>[] {
   });
 }
 
+/**
+ * GA's TOTAL rows → {metric: n}, or {current: {…}, previous: {…}} for a comparison.
+ * Totals are computed by GA over every matching row, so unlike a sum of `rows`
+ * they are not cut short by the limit. Empty totals ({}, no data) count as 0.
+ */
+function toTotals(data: any, periods?: string[]) {
+  const mets: string[] = (data?.metricHeaders ?? []).map((h: any) => h.name);
+  const totals: any[] = data?.totals ?? [];
+  const one = (t: any) => Object.fromEntries(mets.map((name, i) => [name, Number(t?.metricValues?.[i]?.value ?? 0)]));
+  if (!periods) return one(totals[0]);
+  // Each totals entry names its period in dimensionValues; fall back to request order.
+  return Object.fromEntries(periods.map((p, i) => [p, one(totals.find((t) => t?.dimensionValues?.some((v: any) => v.value === p)) ?? totals[i])]));
+}
+
+/** One exact-match condition on a dimension, which needn't be one of the request's dimensions. */
+export interface Filter {
+  dimension: string;
+  value: string;
+}
+
+const dimensionFilter = (f?: Filter) =>
+  f ? { dimensionFilter: { filter: { fieldName: f.dimension, stringFilter: { matchType: "EXACT", value: f.value } } } } : {};
+
 /** Field names grouped by category, kept only when `keep` says so (the full metadata is ~140 KB). */
 function byCategory(fields: any[] = [], keep: (f: any) => boolean): Record<string, string[]> {
   const out: Record<string, string[]> = {};
@@ -211,12 +234,16 @@ export interface ReportArgs {
   dimensions?: string[];
   start_date?: string;
   end_date?: string;
+  /** Both set → a second, "previous" period; rows and totals then say which period they are. */
+  compare_start_date?: string;
+  compare_end_date?: string;
+  filter?: Filter;
   order_by?: string;
   descending?: boolean;
   limit?: number;
 }
 
-export type RealtimeArgs = Omit<ReportArgs, "metrics" | "start_date" | "end_date"> & { metrics?: string[] };
+export type RealtimeArgs = Omit<ReportArgs, "metrics" | "start_date" | "end_date" | "compare_start_date" | "compare_end_date"> & { metrics?: string[] };
 
 export interface MetadataArgs {
   property_id?: string;
@@ -230,19 +257,28 @@ export function createGa(execute: ExecuteTool, defaultPropertyId?: string) {
       const property = propertyName(a.property_id, defaultPropertyId);
       const start_date = a.start_date || "7daysAgo";
       const end_date = a.end_date || "today";
+      const { compare_start_date, compare_end_date } = a;
+      if (!compare_start_date !== !compare_end_date) throw new Error("A comparison needs both compare_start_date and compare_end_date.");
+      const compare = !!compare_start_date;
       const data = await execute("GOOGLE_ANALYTICS_RUN_REPORT", {
         property,
-        dateRanges: [{ startDate: start_date, endDate: end_date }],
+        dateRanges: compare
+          ? [{ startDate: start_date, endDate: end_date, name: "current" }, { startDate: compare_start_date, endDate: compare_end_date, name: "previous" }]
+          : [{ startDate: start_date, endDate: end_date }],
         metrics: named(a.metrics),
         dimensions: named(a.dimensions),
+        ...dimensionFilter(a.filter),
         orderBys: orderBys(a.metrics, a.order_by, a.descending),
+        metricAggregations: ["TOTAL"],
         limit: a.limit ?? DEFAULT_LIMIT,
       });
       const rows = toRows(data);
       return {
         property_id: idOf(property), start_date, end_date,
+        ...(compare ? { compare_start_date, compare_end_date } : {}),
         time_zone: data?.metadata?.timeZone,
         row_count: data?.rowCount ?? rows.length,
+        totals: toTotals(data, compare ? ["current", "previous"] : undefined),
         rows,
       };
     },
@@ -254,11 +290,13 @@ export function createGa(execute: ExecuteTool, defaultPropertyId?: string) {
         property,
         metrics: named(metrics),
         dimensions: named(a.dimensions),
+        ...dimensionFilter(a.filter),
         orderBys: orderBys(metrics, a.order_by, a.descending),
+        metricAggregations: ["TOTAL"],
         limit: a.limit ?? DEFAULT_LIMIT,
       });
       const rows = toRows(data);
-      return { property_id: idOf(property), window: "last 30 minutes", row_count: data?.rowCount ?? rows.length, rows };
+      return { property_id: idOf(property), window: "last 30 minutes", row_count: data?.rowCount ?? rows.length, totals: toTotals(data), rows };
     },
 
     async getMetadata(a: MetadataArgs) {
@@ -330,26 +368,32 @@ export async function describeError(err: any, linkStatus: () => Promise<string>)
 
 // ============================================================================
 // 5. Tools (MCP wiring, entry point)
-// Only runs when this file is the program (VoiceOS / run.sh), not when tests
-// import it. import.meta.main is missing under tsx, so compare paths instead.
+// createServer registers the three tools; tests drive it over an in-memory
+// transport. main() only runs when this file is the program (VoiceOS /
+// run.sh), not when tests import it. import.meta.main is missing under tsx,
+// so compare paths instead.
+//
+// Descriptions here are the agent's routing rules. The manifest's are the short
+// lines users see in the Actions panel, which cuts text off after two lines.
 // ============================================================================
 
 const fieldList = (what: string) => z.array(z.string()).describe(what);
 const propertyArg = z.string().optional().describe("GA4 property ID (digits, e.g. 123456789). Omit to use the default from Setup.");
+const dateArg = (fallback: string) => z.string().optional().describe(`YYYY-MM-DD, "today", "yesterday" or "NdaysAgo". Default "${fallback}".`);
+const filterArg = z.object({
+  dimension: z.string().describe("Dimension API name, e.g. \"country\" or \"eventName\". It need not be in dimensions."),
+  value: z.string().describe("Exact value to keep, e.g. \"United States\" or \"sign_up_click\"."),
+}).optional().describe("Keep only rows where this dimension equals this value.");
 const sortArgs = {
   order_by: z.string().optional().describe("A metric or dimension from this request to sort by. Default: the first metric."),
   descending: z.boolean().optional().describe("Sort high to low (default true). Use false for dates in time order."),
-  limit: z.number().int().min(1).max(100).optional().describe("Maximum rows (default 10)."),
+  limit: z.number().int().min(1).max(100).optional().describe("Maximum rows (default 10). totals and row_count always cover every matching row."),
 };
 
-async function main(): Promise<void> {
-  loadEnvFile(fileURLToPath(new URL(".env", import.meta.url)));
+// Shared by both report tools: how to read what comes back.
+const READING_RESULTS = "Results: rows are {field: value}; totals are GA's own totals over every matching row, so use them for \"how many in total\" rather than adding up rows (rows stop at limit, row_count says how many matched). User counts can repeat across rows (one person viewing two pages), so for unique users overall, query without dimensions. Rates such as bounceRate and engagementRate are fractions (0.42 = 42%); durations are seconds.";
 
-  const userId = process.env.COMPOSIO_USER_ID?.trim() || "default";
-  const composio = createComposio({ apiKey: process.env.COMPOSIO_API_KEY?.trim(), userId });
-  const ga = createGa(composio.execute, process.env.GA4_PROPERTY_ID?.trim() || undefined);
-  const linkStatus = () => gaLinkStatus(composio.request, userId);
-
+export function createServer(ga: ReturnType<typeof createGa>, linkStatus: () => Promise<string>): McpServer {
   const server = new McpServer({ name: "google-analytics", version: "1.0.0" });
 
   /** A tool result: JSON the model reads. */
@@ -372,13 +416,22 @@ async function main(): Promise<void> {
     "run_report",
     {
       title: "Run report",
-      description: "Run a Google Analytics (GA4) report over a date range: metrics (what to count) grouped by optional dimensions. Use when the user asks about visitors, users, sessions, page views, top pages, traffic sources, countries, devices or events over days, weeks or months. For \"right now\" or the last 30 minutes use run_realtime_report instead. Use exact GA4 API names (metrics e.g. activeUsers, sessions, screenPageViews, eventCount; dimensions e.g. pagePath, country, sessionSource, deviceCategory, eventName, date); if unsure of a name, call get_metadata first. Dates are in the property's time zone, returned as time_zone. Empty rows means no data for that period, not an error; a new property can take a day before reports have data.",
+      description: [
+        "Run a Google Analytics (GA4) report over a date range: metrics (what to count) grouped by optional dimensions. Use when the user asks about visitors, users, sessions, page views, top pages, traffic sources, countries, devices or events over days, weeks or months. For \"right now\" or the last 30 minutes use run_realtime_report instead.",
+        "Use exact GA4 API names. Common metrics: activeUsers, newUsers, sessions, screenPageViews, eventCount, engagementRate, averageSessionDuration, keyEvents. Common dimensions: pagePath, pageTitle, country, city, deviceCategory, sessionSource, sessionDefaultChannelGroup, eventName, date. If unsure of a name, or a query fails on an invalid field, call get_metadata first.",
+        "Answer in one call: when the user asks which pages, countries or sources, put that dimension in this call. To compare with an earlier period (\"vs last week\"), set compare_start_date/compare_end_date: rows gain a dateRange field (\"current\"/\"previous\") and totals split by period. For one value (\"how many from the US\", \"how many sign-ups\"), use filter instead of hunting through rows. For trends over months use dimension yearMonth, over weeks isoYearIsoWeek, rather than date with a large limit.",
+        READING_RESULTS,
+        "Dates are in the property's time zone, returned as time_zone; say so when the user's \"today\" may differ. Empty rows with zero totals means no data for that period, not an error; a new property takes up to a day before reports have data.",
+      ].join(" "),
       inputSchema: {
         property_id: propertyArg,
         metrics: fieldList("Metric API names to count, 1 to 10, e.g. [\"activeUsers\"]").min(1).max(10),
-        dimensions: fieldList("Dimension API names to group by, up to 9, e.g. [\"pagePath\"]. Omit for a single total row.").max(9).optional(),
-        start_date: z.string().optional().describe("YYYY-MM-DD, \"today\", \"yesterday\" or \"NdaysAgo\". Default \"7daysAgo\"."),
-        end_date: z.string().optional().describe("YYYY-MM-DD, \"today\", \"yesterday\" or \"NdaysAgo\". Default \"today\"."),
+        dimensions: fieldList("Dimension API names to group by, up to 9, e.g. [\"pagePath\"]. Omit for totals only.").max(9).optional(),
+        start_date: dateArg("7daysAgo"),
+        end_date: dateArg("today"),
+        compare_start_date: z.string().optional().describe("Start of an earlier period to compare with, same formats. Set together with compare_end_date."),
+        compare_end_date: z.string().optional().describe("End of the earlier period to compare with."),
+        filter: filterArg,
         ...sortArgs,
       } as any,
     },
@@ -389,11 +442,16 @@ async function main(): Promise<void> {
     "run_realtime_report",
     {
       title: "Run realtime report",
-      description: "Show live Google Analytics (GA4) activity from the last 30 minutes: active users, optionally grouped by page (unifiedScreenName), country, deviceCategory or eventName. Use when the user asks how many people are on the site or app right now, or what they are looking at. Realtime supports fewer fields than run_report; for anything older than 30 minutes use run_report.",
+      description: [
+        "Show live Google Analytics (GA4) activity from the last 30 minutes. Use when the user asks how many people are on the site or app right now, or what they are doing. For anything older than 30 minutes use run_report.",
+        "Answer in one call: when the user asks which pages, countries or devices, put that dimension in this call (pages: unifiedScreenName; also country, city, deviceCategory, platform, eventName). Metrics: activeUsers (default), screenPageViews, eventCount, keyEvents. To count one thing, use filter (e.g. eventName = sign_up_click).",
+        READING_RESULTS,
+      ].join(" "),
       inputSchema: {
         property_id: propertyArg,
         metrics: fieldList("Metric API names, up to 10. Default [\"activeUsers\"].").max(10).optional(),
-        dimensions: fieldList("Dimension API names to group by, up to 9, e.g. [\"unifiedScreenName\"]. Omit for a single total.").max(9).optional(),
+        dimensions: fieldList("Dimension API names to group by, up to 9, e.g. [\"unifiedScreenName\"]. Omit for totals only.").max(9).optional(),
+        filter: filterArg,
         ...sortArgs,
       } as any,
     },
@@ -404,7 +462,7 @@ async function main(): Promise<void> {
     "get_metadata",
     {
       title: "Get metadata",
-      description: "List the dimension and metric API names a GA4 property supports, grouped by category, including its custom ones. Use before run_report or run_realtime_report when unsure of a field's exact name, after a query fails on an invalid field, or when the user asks what they can measure. The full list is long: narrow it with category (e.g. \"Page / Screen\", \"User\", \"Traffic Source\") or search (words in the name).",
+      description: "List the dimension and metric API names a GA4 property supports, grouped by category, including its custom ones. Use before run_report or run_realtime_report when unsure of a field's exact name, after a query fails on an invalid field (GA's own \"Did you mean\" guess is often wrong), or when the user asks what they can measure. The full list is long: narrow it with category (e.g. \"Page / Screen\", \"User\", \"Session\", \"Traffic Source\", \"Event\") or search (words in the API or display name, e.g. \"view\").",
       inputSchema: {
         property_id: propertyArg,
         category: z.string().optional().describe("Only this category, e.g. \"Page / Screen\", \"User\", \"Session\", \"Geography\", \"Traffic Source\", \"Event\"."),
@@ -414,7 +472,16 @@ async function main(): Promise<void> {
     guarded("get_metadata", (args: MetadataArgs) => ga.getMetadata(args)),
   );
 
-  await server.connect(new StdioServerTransport());
+  return server;
+}
+
+async function main(): Promise<void> {
+  loadEnvFile(fileURLToPath(new URL(".env", import.meta.url)));
+
+  const userId = process.env.COMPOSIO_USER_ID?.trim() || "default";
+  const composio = createComposio({ apiKey: process.env.COMPOSIO_API_KEY?.trim(), userId });
+  const ga = createGa(composio.execute, process.env.GA4_PROPERTY_ID?.trim() || undefined);
+  await createServer(ga, () => gaLinkStatus(composio.request, userId)).connect(new StdioServerTransport());
 }
 
 const isEntryPoint = !!process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
