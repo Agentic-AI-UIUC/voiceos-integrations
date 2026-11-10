@@ -32,7 +32,9 @@ afterEach(() => {
   while (dirs.length) fs.rmSync(dirs.pop()!, { recursive: true, force: true });
 });
 
-test("a write that lands while another process is reading the state is never written over", () => {
+// Windows can't replace a file while it's open, so there a write can't land
+// mid-read: the writer waits until the read is done (whenFree in state.ts).
+test.if(process.platform !== "win32")("a write that lands while another process is reading the state is never written over", () => {
   const dir = fs.mkdtempSync(join(tmpdir(), "gh-race-"));
   dirs.push(dir);
   const until = Date.now() + 60_000;

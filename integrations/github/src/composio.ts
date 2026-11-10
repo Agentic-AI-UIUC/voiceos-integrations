@@ -12,7 +12,7 @@ import { APPROVED, UPSTREAM_SNAPSHOT, schemaHash, type Slug } from "./catalog.ts
 import { GithubError, sanitizeDetail } from "./errors.ts";
 
 export const DEFAULT_BASE_URL = "https://backend.composio.dev";
-export const CLIENT_VERSION = "2.5.4";
+export const CLIENT_VERSION = "2.5.5";
 
 /** Only loopback overrides are honoured — a test seam that can't exfiltrate the key. */
 export function resolveBaseUrl(override: string | undefined): string {

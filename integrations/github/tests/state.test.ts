@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Coalescer, KeyedMutex, OperationLedger, SlidingWindowLimiter, StateStore } from "../src/state.ts";
 
+// Windows has no POSIX file modes, and chmod can't make a folder unwritable there.
+const POSIX = process.platform !== "win32";
 const dirs: string[] = [];
 const freshDir = () => {
   const d = mkdtempSync(join(tmpdir(), "gh-state-"));
@@ -30,7 +32,7 @@ describe("StateStore", () => {
     new StateStore(dir).update((s) => {
       s.identities.internal = { userId: "u", createdAt: "t" };
     });
-    expect(statSync(join(dir, "state.json")).mode & 0o777).toBe(0o600);
+    if (POSIX) expect(statSync(join(dir, "state.json")).mode & 0o777).toBe(0o600);
     expect(readdirSync(dir).filter((f) => f.includes(".tmp"))).toEqual([]);
   });
 
@@ -78,7 +80,7 @@ for (let i = 0; i < 40; i++) if (!ledger.consumeReceipt(process.argv[3] + i, Dat
 });
 
 describe("StateStore lock", () => {
-  test("a folder that turned read-only can still be read, so the server still starts", () => {
+  test.if(POSIX)("a folder that turned read-only can still be read, so the server still starts", () => {
     const dir = freshDir();
     new StateStore(dir).update((s) => {
       s.identities.internal = { userId: "u", createdAt: "t" };
@@ -109,7 +111,7 @@ describe("StateStore lock", () => {
   test("a lock left by a process that died is taken over at once", () => {
     const dir = freshDir();
     const store = new StateStore(dir);
-    const deadPid = Bun.spawnSync(["/bin/sh", "-c", "echo $$"]).stdout.toString().trim();
+    const deadPid = Bun.spawnSync([process.execPath, "-e", "console.log(process.pid)"]).stdout.toString().trim();
     writeFileSync(join(dir, "state.lock"), deadPid);
     const started = Date.now();
     store.update((s) => {

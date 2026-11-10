@@ -1685,7 +1685,8 @@ describe("outcomes stay honest (final review)", () => {
     expect(upstream(env, "GITHUB_CREATE_AN_ISSUE_COMMENT").map((c) => c.args.body)).toEqual(["first"]);
   });
 
-  test("a failure after a change was sent is reported as unknown, never as a plain error", async () => {
+  // chmod is how this test makes the folder unwritable, and Windows ignores it.
+  test.if(process.platform !== "win32")("a failure after a change was sent is reported as unknown, never as a plain error", async () => {
     const env = await connected();
     env.mock.onNextCall("GITHUB_CREATE_AN_ISSUE", () => chmodSync(env.dir, 0o500));
     try {
@@ -1817,7 +1818,8 @@ describe("every change is either sent or honestly not sent", () => {
     }
   });
 
-  test("a change sent just before the state folder became unwritable is reported as unknown", async () => {
+  // chmod is how this test makes the folder unwritable, and Windows ignores it.
+  test.if(process.platform !== "win32")("a change sent just before the state folder became unwritable is reported as unknown", async () => {
     const env = await connected();
     env.mock.onNextCall("GITHUB_CREATE_AN_ISSUE", () => {
       new StateStore(env.dir).update((s) => {

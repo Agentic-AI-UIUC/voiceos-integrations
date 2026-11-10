@@ -23,9 +23,14 @@ await createServer(gateway).connect(new StdioServerTransport());
 // Not awaited: settings-driven cleanup (a disconnect) mustn't hold up the handshake.
 void gateway.start();
 
-const shutdown = async () => {
-  await gateway.stop();
-  process.exit(0);
+// VoiceOS closes an integration by ending stdin, then kills it 2 s later. On
+// Windows that kill ends the process without running any handler, so stdin
+// closing is the only notice there; SIGTERM still covers macOS.
+let stopping: Promise<void> | undefined;
+const shutdown = () => {
+  stopping ??= gateway.stop().finally(() => process.exit(0));
 };
+process.stdin.once("end", shutdown);
+process.stdin.once("close", shutdown);
 process.on("SIGTERM", shutdown);
 process.on("SIGINT", shutdown);

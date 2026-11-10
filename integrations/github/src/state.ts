@@ -87,6 +87,28 @@ function pause(ms: number) {
   else Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
+const WINDOWS = process.platform === "win32";
+/** What Windows answers, for a moment, about a file another process has open or is deleting. */
+const BUSY_ON_WINDOWS = new Set(["EPERM", "EACCES", "EBUSY"]);
+const isBusy = (error: unknown) => WINDOWS && BUSY_ON_WINDOWS.has((error as NodeJS.ErrnoException).code ?? "");
+
+/**
+ * Windows can't replace, delete or open a file while another process holds it
+ * open or is deleting it (another server reading state.json, a virus scan),
+ * so a file operation there is retried briefly. Elsewhere it runs once.
+ */
+function whenFree<T>(work: () => T): T {
+  const deadline = Date.now() + 1_000;
+  for (;;) {
+    try {
+      return work();
+    } catch (error) {
+      if (!isBusy(error) || Date.now() > deadline) throw error;
+      pause(2);
+    }
+  }
+}
+
 export class StateStore {
   private readonly file: string;
   private readonly lockFile: string;
@@ -121,7 +143,7 @@ export class StateStore {
     if (this.version() === this.seen) return;
     let fd: number;
     try {
-      fd = openSync(this.file, "r");
+      fd = whenFree(() => openSync(this.file, "r"));
     } catch {
       this.state = empty();
       this.seen = "";
@@ -154,7 +176,7 @@ export class StateStore {
       this.locked(() => {
         if (this.version() !== version) return;
         const aside = `${this.file}.corrupt-${Date.now()}`;
-        renameSync(this.file, aside);
+        whenFree(() => renameSync(this.file, aside));
         console.error(`[github] state file unreadable (${why}); moved aside to ${aside}`);
       });
     } catch {
@@ -184,10 +206,10 @@ export class StateStore {
         writeFileSync(tmp, JSON.stringify(draft, null, 2), { mode: 0o600 });
         chmodSync(tmp, 0o600);
         if (attempt < 5 && this.version() !== base) {
-          unlinkSync(tmp);
+          whenFree(() => unlinkSync(tmp));
           continue;
         }
-        renameSync(tmp, this.file);
+        whenFree(() => renameSync(tmp, this.file));
         this.state = draft;
         this.seen = this.version();
         return result;
@@ -209,9 +231,11 @@ export class StateStore {
         }
         break;
       } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-        if (this.lockAbandoned()) continue;
-        if (Date.now() > deadline) throw new Error("another process is holding the GitHub state file");
+        // On Windows a lock file another process is still deleting can't be created yet: wait as for a held lock.
+        const held = (error as NodeJS.ErrnoException).code === "EEXIST";
+        if (!held && !isBusy(error)) throw error;
+        if (held && this.lockAbandoned()) continue;
+        if (Date.now() > deadline) throw held ? new Error("another process is holding the GitHub state file") : error;
         pause(2);
       }
     }
@@ -220,7 +244,7 @@ export class StateStore {
     } finally {
       // Release only our own lock, never one another process holds now.
       try {
-        if (readFileSync(this.lockFile, "utf8") === mine) unlinkSync(this.lockFile);
+        if (whenFree(() => readFileSync(this.lockFile, "utf8")) === mine) whenFree(() => unlinkSync(this.lockFile));
       } catch {
         // Already gone.
       }

@@ -14977,7 +14977,7 @@ function classifyUpstreamFailure(raw, ctx) {
 
 // src/composio.ts
 var DEFAULT_BASE_URL = "https://backend.composio.dev";
-var CLIENT_VERSION = "2.5.4";
+var CLIENT_VERSION = "2.5.5";
 function resolveBaseUrl(override) {
   if (!override)
     return DEFAULT_BASE_URL;
@@ -16078,6 +16078,21 @@ function pause(ms) {
   else
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
+var WINDOWS = process.platform === "win32";
+var BUSY_ON_WINDOWS = new Set(["EPERM", "EACCES", "EBUSY"]);
+var isBusy = (error2) => WINDOWS && BUSY_ON_WINDOWS.has(error2.code ?? "");
+function whenFree(work) {
+  const deadline = Date.now() + 1000;
+  for (;; ) {
+    try {
+      return work();
+    } catch (error2) {
+      if (!isBusy(error2) || Date.now() > deadline)
+        throw error2;
+      pause(2);
+    }
+  }
+}
 
 class StateStore {
   dir;
@@ -16105,7 +16120,7 @@ class StateStore {
       return;
     let fd;
     try {
-      fd = openSync(this.file, "r");
+      fd = whenFree(() => openSync(this.file, "r"));
     } catch {
       this.state = empty();
       this.seen = "";
@@ -16138,7 +16153,7 @@ class StateStore {
         if (this.version() !== version2)
           return;
         const aside = `${this.file}.corrupt-${Date.now()}`;
-        renameSync(this.file, aside);
+        whenFree(() => renameSync(this.file, aside));
         console.error(`[github] state file unreadable (${why}); moved aside to ${aside}`);
       });
     } catch {}
@@ -16158,10 +16173,10 @@ class StateStore {
         writeFileSync(tmp, JSON.stringify(draft, null, 2), { mode: 384 });
         chmodSync(tmp, 384);
         if (attempt < 5 && this.version() !== base) {
-          unlinkSync(tmp);
+          whenFree(() => unlinkSync(tmp));
           continue;
         }
-        renameSync(tmp, this.file);
+        whenFree(() => renameSync(tmp, this.file));
         this.state = draft;
         this.seen = this.version();
         return result;
@@ -16181,12 +16196,13 @@ class StateStore {
         }
         break;
       } catch (error2) {
-        if (error2.code !== "EEXIST")
+        const held = error2.code === "EEXIST";
+        if (!held && !isBusy(error2))
           throw error2;
-        if (this.lockAbandoned())
+        if (held && this.lockAbandoned())
           continue;
         if (Date.now() > deadline)
-          throw new Error("another process is holding the GitHub state file");
+          throw held ? new Error("another process is holding the GitHub state file") : error2;
         pause(2);
       }
     }
@@ -16194,8 +16210,8 @@ class StateStore {
       return work();
     } finally {
       try {
-        if (readFileSync(this.lockFile, "utf8") === mine)
-          unlinkSync(this.lockFile);
+        if (whenFree(() => readFileSync(this.lockFile, "utf8")) === mine)
+          whenFree(() => unlinkSync(this.lockFile));
       } catch {}
     }
   }
@@ -20031,9 +20047,11 @@ var folder = existsSync2(join4(here, "voiceos.integration.json")) ? here : dirna
 var gateway = new Gateway(loadConfig(process.env, folder, process.argv.slice(2)));
 await createServer(gateway).connect(new StdioServerTransport);
 gateway.start();
-var shutdown = async () => {
-  await gateway.stop();
-  process.exit(0);
+var stopping;
+var shutdown = () => {
+  stopping ??= gateway.stop().finally(() => process.exit(0));
 };
+process.stdin.once("end", shutdown);
+process.stdin.once("close", shutdown);
 process.on("SIGTERM", shutdown);
 process.on("SIGINT", shutdown);

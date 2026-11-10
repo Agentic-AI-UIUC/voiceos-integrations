@@ -14,10 +14,10 @@
  * Exits non-zero on any failure.
  */
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { getDefaultEnvironment, StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { copyFileSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { receiptCore } from "./src/receiptCore.ts";
 import { makeRepo, startMockComposio } from "./tests/mockComposio.ts";
@@ -50,19 +50,19 @@ mock.addPull(sandbox, { number: 2, title: "Preview PR", head: { ref: "preview", 
 
 // The environment VoiceOS gives the process (its main process's
 // buildMcpProcessEnv): the MCP SDK's default inherited variables, the JIT
-// turned off, its bundled Bun as VOICEOS_BUN, the stored setup values, and
-// Homebrew/Bun bins in front of a Dock-launched app's PATH (launchd's, not
-// the user's shell PATH).
-const VOICEOS_BUN = "/Applications/VoiceOS.app/Contents/Resources/bun-runtime/bun";
+// turned off, its bundled Bun as VOICEOS_BUN, the stored setup values, and a
+// PATH with the Bun bins. On macOS they go in front of a Dock-launched app's
+// PATH (launchd's, not the user's shell PATH); on Windows, after the user's.
+const WINDOWS = process.platform === "win32";
+const VOICEOS_BUN = WINDOWS
+  ? join(process.env.LOCALAPPDATA ?? "", "Programs", "VoiceOS", "resources", "bun-runtime", "bun.exe")
+  : "/Applications/VoiceOS.app/Contents/Resources/bun-runtime/bun";
 function hostEnvironment(setupValues: Record<string, string>): Record<string, string> {
-  const env: Record<string, string> = {};
-  for (const name of ["HOME", "LOGNAME", "SHELL", "TERM", "USER"]) {
-    const value = process.env[name];
-    if (value !== undefined && !value.startsWith("()")) env[name] = value;
-  }
   const bun = existsSync(VOICEOS_BUN) ? VOICEOS_BUN : undefined;
-  const path = ["/opt/homebrew/bin", "/usr/local/bin", join(homedir(), ".bun", "bin"), join(homedir(), ".local", "bin"), "/usr/bin", "/bin", "/usr/sbin", "/sbin", ...(bun ? [dirname(bun)] : [])];
-  return { ...env, BUN_JSC_useJIT: "false", ...setupValues, ...(bun ? { VOICEOS_BUN: bun } : {}), PATH: [...new Set(path)].join(":") };
+  const path = WINDOWS
+    ? [...(process.env.PATH ?? "").split(delimiter), join(homedir(), ".bun", "bin"), ...(bun ? [dirname(bun)] : [])]
+    : ["/opt/homebrew/bin", "/usr/local/bin", join(homedir(), ".bun", "bin"), join(homedir(), ".local", "bin"), "/usr/bin", "/bin", "/usr/sbin", "/sbin", ...(bun ? [dirname(bun)] : [])];
+  return { ...getDefaultEnvironment(), BUN_JSC_useJIT: "false", ...setupValues, ...(bun ? { VOICEOS_BUN: bun } : {}), PATH: [...new Set(path.filter(Boolean))].join(delimiter) };
 }
 // --package: a teammate's first launch. Only the five files the share service
 // packages, in an empty folder, with an empty Bun cache, so every dependency

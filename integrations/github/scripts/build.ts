@@ -39,14 +39,15 @@ const existing = JSON.parse(readFileSync(manifestPath, "utf8"));
 //  - The SDK's JSON Schema validator is ajv, a code generator. It only runs
 //    for tool output schemas (Composio's tools declare none) and elicitation
 //    (unused), so it becomes a validator that refuses if it is ever reached.
+// Paths are matched with either separator: Windows paths use backslashes.
 const PATCHES: Array<{ file: RegExp; from: string; to: string }> = [
   {
-    file: /node_modules\/zod\/v4\/core\/util\.js$/,
+    file: /node_modules[\\/]zod[\\/]v4[\\/]core[\\/]util\.js$/,
     from: '    try {\n        const F = Function;\n        new F("");\n        return true;\n    }\n    catch (_) {\n        return false;\n    }',
     to: "    return false;",
   },
   {
-    file: /node_modules\/zod\/v4\/core\/doc\.js$/,
+    file: /node_modules[\\/]zod[\\/]v4[\\/]core[\\/]doc\.js$/,
     from: "        const F = Function;\n        const args = this?.args;\n        const content = this?.content ?? [``];\n        const lines = [...content.map((x) => `  ${x}`)];\n        // console.log(lines.join(\"\\n\"));\n        return new F(...args, lines.join(\"\\n\"));",
     to: '        throw new Error("zod code generation is disabled in this build");',
   },
@@ -66,7 +67,7 @@ const bundle = await Bun.build({
     {
       name: "no-code-from-strings",
       setup(build) {
-        build.onLoad({ filter: /@modelcontextprotocol\/sdk\/dist\/esm\/validation\/ajv-provider\.js$/ }, () => ({ contents: NO_AJV, loader: "js" }));
+        build.onLoad({ filter: /@modelcontextprotocol[\\/]sdk[\\/]dist[\\/]esm[\\/]validation[\\/]ajv-provider\.js$/ }, () => ({ contents: NO_AJV, loader: "js" }));
         for (const p of PATCHES) {
           build.onLoad({ filter: p.file }, async (args) => {
             const source = await Bun.file(args.path).text();
@@ -180,14 +181,15 @@ const preferences = [
 const manifest = {
   schemaVersion: 1,
   id: existing.id,
-  version: "2.5.4",
+  version: "2.5.5",
   name: "GitHub",
   summary: "Find GitHub repositories and source code, investigate code behavior, and check issues and pull requests.",
   description,
   setupGuide,
   categories: ["Developer Tools", "Productivity"],
   icon: existing.icon ?? "icon.png",
-  supportedPlatforms: existing.supportedPlatforms ?? ["darwin"],
+  // VoiceOS ships for Mac and Windows x64; on both it runs `bun` from the PATH, falling back to the Bun it bundles.
+  supportedPlatforms: ["darwin", "win32"],
   publisher: existing.publisher,
   // VoiceOS's own integrations launch this way; the share review rejects a runtime that spawns a shell (/bin/zsh run.sh).
   runtime: { kind: "local-mcp", command: "bun", args: ["server.ts"] },
