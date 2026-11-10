@@ -10,6 +10,12 @@ import {
   itemKind,
   itemPathOf,
   listOf,
+  localUploadPath,
+  MAX_LOCAL_UPLOAD_BYTES,
+  mimeTypeOf,
+  nameMatchesTerms,
+  readLocalUpload,
+  searchTerms,
   looksLikeItemId,
   normPath,
   safeLocalName,
@@ -202,5 +208,58 @@ describe("spokenName", () => {
     ["notes", "notes"],
   ])("%p → %p", (input, expected) => {
     expect(spokenName(input)).toBe(expected);
+  });
+});
+
+describe("search terms", () => {
+  test.each([
+    ["find a book", ["book"]],
+    ["look for the cedar budget", ["cedar", "budget"]],
+    ["Book 1.xlsx", ["book", "1"]],
+    ["the budget PDF", ["budget"]],
+    ["my file", ["my"]],
+  ])("%p → %p", (q, terms) => expect(searchTerms(q)).toEqual(terms));
+
+  test("a name matches only when it holds every term", () => {
+    expect(nameMatchesTerms("Book 1.xlsx", ["book", "1"])).toBe(true);
+    expect(nameMatchesTerms("book_club-notes.md", ["book"])).toBe(true);
+    expect(nameMatchesTerms("Report.pdf", ["pdf"])).toBe(true);
+    expect(nameMatchesTerms("Budget.xlsx", ["book"])).toBe(false);
+    expect(nameMatchesTerms("Budget.xlsx", [])).toBe(false);
+  });
+});
+
+describe("local uploads", () => {
+  const home = os.homedir();
+  test("resolves ~, home-relative and absolute paths", () => {
+    expect(localUploadPath("~/Downloads/a.pdf")).toBe(path.join(home, "Downloads/a.pdf"));
+    expect(localUploadPath("Desktop/b.png")).toBe(path.join(home, "Desktop/b.png"));
+    expect(localUploadPath("file:///tmp/c.txt")).toBe("/tmp/c.txt");
+  });
+
+  test("refuses hidden files and folders", () => {
+    expect(() => localUploadPath("~/.ssh/id_ed25519")).toThrow(/hidden/);
+    expect(() => localUploadPath("~/Documents/.env")).toThrow(/hidden/);
+    expect(() => localUploadPath("~/Downloads/../.aws/credentials")).toThrow(/hidden/);
+  });
+
+  test("names the type OneDrive should store", () => {
+    expect(mimeTypeOf("Report.PDF")).toBe("application/pdf");
+    expect(mimeTypeOf("Book 1.xlsx")).toBe("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    expect(mimeTypeOf("blob.weird")).toBe("application/octet-stream");
+  });
+
+  test("reads a file, and explains a missing, empty, folder or oversized one", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "od-up-"));
+    fs.writeFileSync(path.join(dir, "Quarterly Report.pdf"), "pdf bytes");
+    fs.writeFileSync(path.join(dir, "empty.txt"), "");
+    fs.writeFileSync(path.join(dir, "big.bin"), Buffer.alloc(MAX_LOCAL_UPLOAD_BYTES + 1));
+    const ok = await readLocalUpload(path.join(dir, "Quarterly Report.pdf"));
+    expect(ok.bytes.toString()).toBe("pdf bytes");
+    await expect(readLocalUpload(path.join(dir, "quarterly.pdf"))).rejects.toThrow(/no file at .*Quarterly Report.pdf/);
+    await expect(readLocalUpload(path.join(dir, "empty.txt"))).rejects.toThrow(/empty/);
+    await expect(readLocalUpload(dir)).rejects.toThrow(/is a folder/);
+    await expect(readLocalUpload(path.join(dir, "big.bin"))).rejects.toThrow(/limited to/);
+    fs.rmSync(dir, { recursive: true, force: true });
   });
 });

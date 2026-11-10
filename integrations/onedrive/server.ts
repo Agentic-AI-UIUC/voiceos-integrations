@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import fs from "node:fs";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { renderCustom, markHtml, esc, clip } from "./widgetKit.ts";
 import { unzipSync, strFromU8 } from "fflate";
@@ -316,6 +317,120 @@ export function matchByName(hits: any[], query: string): any[] {
   return [];
 }
 
+// Words in a spoken search that are never part of the name ("find a book").
+const SEARCH_FILLER = new Set([
+  "a", "an", "the", "my", "our", "some", "me", "for", "called", "named", "titled", "file", "files", "folder", "document",
+  "find", "search", "look", "locate", "open", "show", "get",
+]);
+
+/** The words a file name must contain to match what the user said. */
+export function searchTerms(query: string): string[] {
+  const words = spokenName(query).split(" ").filter(Boolean);
+  const terms = words.filter((w) => !SEARCH_FILLER.has(w));
+  return terms.length ? terms : words;
+}
+
+/** How many terms appear in the name (extension included, so "pdf" finds PDFs). */
+export function termHits(name: string, terms: string[]): number {
+  const hay = String(name || "").toLowerCase().replace(/[_\-.]+/g, " ");
+  return terms.filter((t) => hay.includes(t)).length;
+}
+
+/** True when every term appears in the name. */
+export function nameMatchesTerms(name: string, terms: string[]): boolean {
+  return terms.length > 0 && termHits(name, terms) === terms.length;
+}
+
+let cachedDrive: { accountId: string; driveId: string } | null = null;
+
+/** The ID of the user's own drive, which the full-drive listing needs. */
+async function myDriveId(): Promise<string> {
+  if (cachedDrive && cachedDrive.accountId === cachedAccount?.accountId) return cachedDrive.driveId;
+  const root = await composio("ONE_DRIVE_GET_ROOT", {});
+  const driveId = String(root?.parentReference?.driveId || "");
+  if (!driveId) throw new Error("OneDrive didn't say which drive is yours, so it can't be scanned by name.");
+  cachedDrive = { accountId: cachedAccount?.accountId || "", driveId };
+  return driveId;
+}
+
+/**
+ * Gives a listed item a drive-relative parentReference.path built from its
+ * ancestors, since Graph's delta listing doesn't promise one, so itemPathOf
+ * and summarizeItem treat it like a search hit.
+ */
+export function withComputedPath(item: any, byId: Map<string, { name: string; parentId?: string; root: boolean }>): any {
+  const names: string[] = [];
+  let id = item?.parentReference?.id;
+  for (let i = 0; id && i < 64; i++) {
+    const node = byId.get(id);
+    if (!node) return item; // ancestor not seen: keep whatever path Graph sent
+    if (node.root) break;
+    names.unshift(node.name);
+    id = node.parentId;
+  }
+  const dir = names.map(encodeURIComponent).join("/");
+  return { ...item, parentReference: { ...item.parentReference, path: dir ? `/drive/root:/${dir}` : "/drive/root:" } };
+}
+
+// Room to keep after the scan for the tool to finish (resolve, render).
+const SCAN_RESERVE_MS = 4_000;
+
+/**
+ * Lists the whole drive page by page (Graph delta) and keeps the items whose
+ * names contain the most search terms (ideally all). Doesn't depend on Microsoft's search index.
+ */
+export async function scanDriveByName(query: string): Promise<any[]> {
+  const terms = searchTerms(query);
+  if (!terms.length) return [];
+  const driveId = await myDriveId();
+  const byId = new Map<string, { name: string; parentId?: string; root: boolean }>();
+  const found: Array<{ it: any; hits: number }> = [];
+  let token: string | undefined;
+  for (let page = 0; page < 25; page++) {
+    const end = toolDeadline.getStore();
+    if (page > 0 && end !== undefined && end - Date.now() < SCAN_RESERVE_MS) {
+      console.error(`Drive scan for "${query}" stopped after ${page} pages to stay within the time limit`);
+      break;
+    }
+    const data = await composio("ONE_DRIVE_LIST_ALL_DRIVE_ITEMS", { drive_id: driveId, top: 999, ...(token ? { page_token: token } : {}) });
+    for (const it of listOf(data)) {
+      if (!it?.id || it.deleted) continue;
+      byId.set(it.id, { name: String(it.name || ""), parentId: it.parentReference?.id, root: Boolean(it.root) });
+      const hits = it.root ? 0 : termHits(it.name, terms);
+      if (hits) found.push({ it, hits });
+    }
+    token = data?.next_page_token || undefined;
+    if (data?.sync_complete || !token) break;
+  }
+  // Names holding every word; failing that, the ones holding the most
+  // ("groceries list" still finds groceries.txt).
+  const best = Math.max(0, ...found.map((f) => f.hits));
+  return found.filter((f) => f.hits === best).map((f) => withComputedPath(f.it, byId));
+}
+
+/**
+ * Items matching what the user said. OneDrive's search runs on Microsoft's
+ * index, which on work and school accounts can return nothing at all (a UIUC
+ * account got "No matches" even for the exact name "Book 1.xlsx"). So an empty
+ * search is retried with just the meaningful words, then the drive is scanned
+ * by name.
+ */
+export async function findItems(query: string, top: number): Promise<{ items: any[]; via: "search" | "name_scan" }> {
+  const hits = listOf(await composio("ONE_DRIVE_SEARCH_ITEMS", { q: query, top }));
+  if (hits.length) return { items: hits, via: "search" };
+  const words = searchTerms(query).join(" ");
+  if (words && words !== query.trim().toLowerCase()) {
+    const retry = listOf(await composio("ONE_DRIVE_SEARCH_ITEMS", { q: words, top }));
+    if (retry.length) return { items: retry, via: "search" };
+  }
+  console.error(`OneDrive search found nothing for "${query}"; scanning the drive by name`);
+  try {
+    return { items: await scanDriveByName(query), via: "name_scan" };
+  } catch (err) {
+    throw new Error(`OneDrive's search found nothing for "${query}", and scanning the drive by name failed too: ${extractErrorMessage(err)}`);
+  }
+}
+
 /**
  * Turns what the user said — an item ID, a path, or (when loose) a spoken name,
  * optionally under a folder — into a Graph driveItem. Never guesses between
@@ -341,7 +456,7 @@ export async function resolveItem(ref: string, loose: boolean): Promise<any> {
   const slash = p.lastIndexOf("/");
   const folder = slash >= 0 ? p.slice(0, slash).toLowerCase() : "";
   const name = slash >= 0 ? p.slice(slash + 1) : p;
-  const hits = listOf(await composio("ONE_DRIVE_SEARCH_ITEMS", { q: spokenName(name) || name, top: 25 }))
+  const hits = (await findItems(spokenName(name) || name, 25)).items
     .filter((h: any) => !folder || path.posix.dirname(itemPathOf(h)).toLowerCase() === folder);
   const found = matchByName(hits, name);
   if (found.length === 1) return found[0];
@@ -421,6 +536,102 @@ export function uploadableText(content: string): { content: string; padded: bool
   return content.length === 0 ? { content: "\n", padded: true } : { content, padded: false };
 }
 
+// A local upload goes computer → Composio storage → OneDrive inside one tool call,
+// so it is capped to what fits in VoiceOS's time limit.
+export const MAX_LOCAL_UPLOAD_BYTES = 20 * 1024 * 1024;
+
+const MIME_TYPES: Record<string, string> = {
+  pdf: "application/pdf", txt: "text/plain", md: "text/markdown", csv: "text/csv", json: "application/json",
+  html: "text/html", xml: "application/xml", rtf: "application/rtf", zip: "application/zip",
+  doc: "application/msword", xls: "application/vnd.ms-excel", ppt: "application/vnd.ms-powerpoint",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  pages: "application/vnd.apple.pages", numbers: "application/vnd.apple.numbers", key: "application/vnd.apple.keynote",
+  png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", heic: "image/heic", webp: "image/webp", svg: "image/svg+xml",
+  mp3: "audio/mpeg", m4a: "audio/mp4", wav: "audio/wav", mp4: "video/mp4", mov: "video/quicktime",
+};
+
+export function mimeTypeOf(name: string): string {
+  return MIME_TYPES[path.extname(name).slice(1).toLowerCase()] || "application/octet-stream";
+}
+
+/**
+ * The local file the user named, as an absolute path: "~/Downloads/a.pdf",
+ * "Downloads/a.pdf" (relative to home) or "/Users/…". Refuses hidden files and
+ * folders (~/.ssh, ~/.aws, …) so a stray instruction can't ship credentials.
+ */
+export function localUploadPath(raw: string): string {
+  let p = String(raw || "").trim().replace(/^file:\/\//i, "");
+  if (!p) throw new Error("No local file was given to upload.");
+  if (p === "~" || /^~[\/\\]/.test(p)) p = path.join(os.homedir(), p.slice(1));
+  else if (!path.isAbsolute(p)) p = path.join(os.homedir(), p);
+  p = path.normalize(p);
+  if (p.split(path.sep).some((part) => part.startsWith("."))) {
+    throw new Error(`"${raw}" is in a hidden file or folder, which upload_file won't send to OneDrive.`);
+  }
+  return p;
+}
+
+/** Reads the file to upload, with errors that tell the user what to say instead. */
+export async function readLocalUpload(raw: string): Promise<{ file: string; bytes: Buffer }> {
+  const requested = localUploadPath(raw);
+  let file: string;
+  try {
+    file = await fs.promises.realpath(requested);
+  } catch {
+    const dir = path.dirname(requested);
+    const want = spokenName(path.basename(requested));
+    const near = await fs.promises.readdir(dir).then(
+      (names) => names.filter((n) => !n.startsWith(".") && want && spokenName(n).includes(want)).slice(0, 5),
+      () => [] as string[],
+    );
+    throw new Error(`There's no file at ${requested}.${near.length ? ` Files with a similar name in ${dir}: ${near.join(", ")}.` : ""}`);
+  }
+  localUploadPath(file); // a link must not lead into a hidden folder either
+  const stat = await fs.promises.stat(file);
+  if (stat.isDirectory()) throw new Error(`${file} is a folder; upload_file sends one file at a time.`);
+  if (stat.size === 0) throw new Error(`${file} is empty, and OneDrive's upload can't take a 0-byte file.`);
+  if (stat.size > MAX_LOCAL_UPLOAD_BYTES) {
+    throw new Error(`${path.basename(file)} is ${formatSize(stat.size)}; uploads from this computer are limited to ${formatSize(MAX_LOCAL_UPLOAD_BYTES)}. Upload it in the OneDrive app or website instead.`);
+  }
+  return { file, bytes: await fs.promises.readFile(file) };
+}
+
+/**
+ * Puts the bytes in Composio's file storage and returns the key its upload
+ * action takes. Composio dedupes by MD5: an "existing" file needs no PUT.
+ */
+export async function stageForComposio(fileName: string, mimetype: string, bytes: Buffer): Promise<string> {
+  const apiKey = getApiKey();
+  const md5 = createHash("md5").update(bytes).digest("hex");
+  let res: Response;
+  try {
+    res = await fetch(`${COMPOSIO_BASE_URL}/files/upload/request`, {
+      method: "POST",
+      headers: { "x-api-key": apiKey, "Content-Type": "application/json" },
+      body: JSON.stringify({ toolkit_slug: "one_drive", tool_slug: "ONE_DRIVE_ONEDRIVE_UPLOAD_FILE", filename: fileName, mimetype, md5 }),
+      signal: AbortSignal.timeout(timeLeft()),
+    });
+  } catch (err) {
+    throw new Error(`Couldn't reach Composio to stage the upload: ${extractErrorMessage(err)}`);
+  }
+  const json: any = await res.json().catch(() => null);
+  const key = String(json?.key || "");
+  const putUrl = httpsUrl(json?.new_presigned_url || json?.newPresignedUrl);
+  if (!res.ok || !key) throw new Error(`Composio wouldn't stage "${fileName}" for upload: ${extractErrorMessage(json?.error ?? json?.message ?? `HTTP ${res.status}`)}`);
+  if (json?.type !== "existing") {
+    if (!putUrl) throw new Error(`Composio didn't return an upload address for "${fileName}".`);
+    try {
+      const put = await fetch(putUrl, { method: "PUT", headers: { "Content-Type": mimetype }, body: bytes, signal: AbortSignal.timeout(timeLeft(TOOL_BUDGET_MS)) });
+      if (!put.ok) throw new Error(`HTTP ${put.status}`);
+    } catch (err) {
+      throw new Error(`Couldn't send "${fileName}" to Composio's storage (${new URL(putUrl).host}): ${extractErrorMessage(err)}`);
+    }
+  }
+  return key;
+}
+
 // Device names Windows reserves, with or without an extension ("CON", "nul.txt").
 const WINDOWS_RESERVED_NAME = /^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³])(\.|$)/i;
 const MAX_LOCAL_NAME = 200;
@@ -463,6 +674,7 @@ export async function writeUnique(dir: string, name: string, data: Buffer): Prom
 /** Test hook: forget the auto-discovered connected account. */
 export function resetAccountCache(): void {
   cachedAccount = null;
+  cachedDrive = null;
 }
 
 // --- Text extraction (read_file) --------------------------------------------
@@ -635,7 +847,7 @@ const NEUTRAL_ACCENT = "#8e8e93"; // grey, so the kit's accent wash adds no hue
 const ROW_HEIGHT = 44;
 const READ_MAX_BYTES = 25 * 1024 * 1024;
 
-const server = new McpServer({ name: "microsoft-onedrive", version: "1.6.1" });
+const server = new McpServer({ name: "microsoft-onedrive", version: "1.7.0" });
 
 // Every tool handler runs under TOOL_BUDGET_MS (see timeLeft).
 const registerTool = ((name: string, config: any, handler: (...a: any[]) => any) =>
@@ -849,7 +1061,7 @@ registerTool(
   "list_files",
   {
     title: "List files and folder contents",
-    description: "List files and folders inside a Microsoft OneDrive folder (root by default). Use when the user asks what's in their OneDrive or in a specific folder, or wants to browse directories. Each item comes back with a `path` to pass to download_file, create_share_link, or delete_file.",
+    description: "List files and folders inside a Microsoft OneDrive folder (root by default). Use when the user asks what's in their OneDrive or in a specific folder, or wants to browse directories. Don't use it to find a file by name or topic (\"find my budget\"); use search_files for that. Each item comes back with a `path` to pass to download_file, create_share_link, or delete_file.",
     inputSchema: {
       folder_path: z.string().optional().describe("OneDrive folder path relative to the root (e.g. 'Documents' or 'Documents/Projects'); leave empty for the root"),
       limit: z.number().min(1).max(50).optional().describe("Maximum number of items to return (1-50, default 20)"),
@@ -893,7 +1105,7 @@ registerTool(
   "search_files",
   {
     title: "Search files",
-    description: "Search Microsoft OneDrive for files and folders by keyword (matches names, metadata, and file contents). Use when the user wants to find or locate a file but doesn't know which folder it's in. Each result has an `id` (and usually a `path`) to pass to download_file, create_share_link, or delete_file.",
+    description: "Search Microsoft OneDrive for files and folders by keyword (matches names, metadata, and file contents). Use when the user wants to find, look for, or locate a file (\"find a book\" → query 'book') and doesn't name its folder. Each result has an `id` (and usually a `path`) to pass to download_file, create_share_link, or delete_file.",
     inputSchema: {
       query: z.string().describe("Plain keywords or a file name (no wildcards or filters like 'filetype:')"),
       limit: z.number().min(1).max(25).optional().describe("Maximum results to return (1-25, default 10)"),
@@ -904,13 +1116,13 @@ registerTool(
     if (!query) throw new Error("search_files needs a query.");
     const limit = Math.min(Math.max(Math.round(args?.limit ?? 10), 1), 25);
 
-    const data = await composio("ONE_DRIVE_SEARCH_ITEMS", { q: query, top: limit });
-    const items = listOf(data).slice(0, limit).map(summarizeItem);
+    const { items: hits, via } = await findItems(query, limit);
+    const items = hits.slice(0, limit).map(summarizeItem);
     const title = `Search · "${clip(query, 28)}"`;
 
     if (items.length === 0) {
       const rendered = card(header(title, count("0 results")) + emptyState(ICONS.search, "No matches", "Check the spelling, or browse folders in My files."), 150);
-      return widgetResult({ query, total_matches: 0, results: [] }, rendered);
+      return widgetResult({ query, total_matches: 0, results: [], searched_by: via }, rendered);
     }
 
     const rows = items.map((f): CardRow => {
@@ -924,7 +1136,7 @@ registerTool(
       };
     });
     const rendered = card(header(title, count(`${items.length} result${items.length === 1 ? "" : "s"}`)) + scrollList(rows), listCardHeight(rows.length));
-    return widgetResult({ query, total_matches: items.length, results: items }, rendered);
+    return widgetResult({ query, total_matches: items.length, results: items, searched_by: via }, rendered);
   }
 );
 
@@ -1045,46 +1257,78 @@ registerTool(
   "upload_file",
   {
     title: "Upload file",
-    description: "Create a new plain-text file (e.g. .txt or .md) in Microsoft OneDrive from text the user dictates or that you compose. Use when the user asks to upload, create, write, or save a note or text file to OneDrive. Never overwrites: if the name is taken OneDrive picks a new one, which the result reports.",
+    description: "Upload a file from the user's computer to Microsoft OneDrive (any type: PDF, Word, Excel, images, …, up to 20 MB), or create a new text file (e.g. .txt or .md) from text the user dictates or that you compose. Use when the user asks to upload, send, back up, or copy a file from their computer to OneDrive (pass local_path, e.g. '~/Downloads/Report.pdf'), or to create, write, or save a note or text file in OneDrive (pass file_name and content). Never overwrites: if the name is taken OneDrive picks a new one, which the result reports.",
     inputSchema: {
-      file_name: z.string().describe("File name to create, including extension (e.g. 'Notes.md' or 'Summary.txt')"),
-      content: z.string().describe("Text content of the file"),
+      local_path: z.string().optional().describe("Local file to upload, e.g. '~/Downloads/Report.pdf' or '~/Desktop/photo.jpg'. Leave empty when creating a text file from content"),
+      file_name: z.string().optional().describe("Name for the file in OneDrive, including extension (e.g. 'Notes.md'). Required for a text file; for a local file, defaults to its current name"),
+      content: z.string().optional().describe("Text content of a new text file. Leave empty when uploading a local file"),
       folder_path: z.string().optional().describe("Destination OneDrive folder path relative to the root (default: 'Documents'; '/' for the root)"),
     },
   },
   async (args) => {
-    const fileName = String(args?.file_name || "").trim();
-    if (!fileName) throw new Error("upload_file needs a file name.");
-    const { content, padded } = uploadableText(String(args?.content ?? ""));
+    const localRaw = String(args?.local_path ?? "").trim();
+    const textContent = String(args?.content ?? "");
+    if (localRaw && textContent.trim()) {
+      throw new Error("upload_file got both a local file and text content. Pass local_path to upload a file, or file_name and content to create a text file, not both.");
+    }
     const rawFolder = String(args?.folder_path ?? "").trim();
     const folder = rawFolder ? normPath(rawFolder) : "Documents";
-
     const where = folder ? `/${folder}` : "/";
+
+    let fileName = String(args?.file_name || "").trim();
     let created: any;
-    try {
+    let bytes: number;
+    let preview: string;
+    let note: string | undefined;
+    let localFile: string | undefined;
+
+    if (localRaw) {
+      const local = await readLocalUpload(localRaw);
+      localFile = local.file;
+      const localName = path.basename(local.file);
+      if (!fileName) fileName = localName;
+      else if (!path.extname(fileName) && path.extname(localName)) fileName += path.extname(localName);
+      const mimetype = mimeTypeOf(fileName);
+      const s3key = await stageForComposio(fileName, mimetype, local.bytes);
       created = await composio(
-        "ONE_DRIVE_ONEDRIVE_CREATE_TEXT_FILE",
-        { name: fileName, content, folder: where, conflict_behavior: "rename" },
-        { write: `created "${fileName}" in ${where}` },
+        "ONE_DRIVE_ONEDRIVE_UPLOAD_FILE",
+        { file: { name: fileName, mimetype, s3key }, folder: where, conflict_behavior: "rename" },
+        { write: `uploaded "${fileName}" to ${where}` },
       );
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (/content-range/i.test(msg)) {
-        // Fails partway through the upload session, so a file may exist anyway;
-        // a blind retry would add a renamed copy next to it.
-        throw new Error(`OneDrive rejected part of the upload of "${fileName}" (${msg}), so it may or may not have been created. Check ${where} in OneDrive (and that the folder exists) before trying again.`);
+      bytes = local.bytes.length;
+      preview = `<div class="mono">From ${esc(local.file.replace(os.homedir(), "~"))}</div>`;
+    } else {
+      if (!fileName) throw new Error("upload_file needs a file name for a text file, or a local_path to upload a file from this computer.");
+      const { content, padded } = uploadableText(textContent);
+      try {
+        created = await composio(
+          "ONE_DRIVE_ONEDRIVE_CREATE_TEXT_FILE",
+          { name: fileName, content, folder: where, conflict_behavior: "rename" },
+          { write: `created "${fileName}" in ${where}` },
+        );
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (/content-range/i.test(msg)) {
+          // Fails partway through the upload session, so a file may exist anyway;
+          // a blind retry would add a renamed copy next to it.
+          throw new Error(`OneDrive rejected part of the upload of "${fileName}" (${msg}), so it may or may not have been created. Check ${where} in OneDrive (and that the folder exists) before trying again.`);
+        }
+        throw err;
       }
-      throw err;
+      bytes = Buffer.byteLength(content, "utf-8");
+      preview = `<div class="pv">${padded ? "Empty file (one blank line)" : esc(clip(content, 280))}</div>`;
+      if (padded) note = "OneDrive's upload can't create a 0-byte file through Composio, so the file contains a single blank line.";
     }
+
     const finalName = String(created?.name || fileName);
     const renamed = finalName !== fileName;
-    const fileSizeStr = formatSize(typeof created?.size === "number" ? created.size : Buffer.byteLength(content, "utf-8"));
+    const fileSizeStr = formatSize(typeof created?.size === "number" ? created.size : bytes);
 
     const rendered = card(
       header("OneDrive", tag(renamed ? "Uploaded · renamed" : "Uploaded")) +
         hero(itemIcon(finalName, "file"), finalName, `in ${folder ? `/${folder}` : "My files"}`, created?.webUrl) +
         facts([["Size", fileSizeStr], ["Status", renamed ? "Name was taken" : "Saved"]]) +
-        `<div class="pv">${padded ? "Empty file (one blank line)" : esc(clip(content, 280))}</div>`,
+        preview,
       200,
     );
     return widgetResult({
@@ -1095,7 +1339,8 @@ registerTool(
       id: created?.id,
       web_url: created?.webUrl,
       size: fileSizeStr,
-      note: padded ? "OneDrive's upload can't create a 0-byte file through Composio, so the file contains a single blank line." : undefined,
+      uploaded_from: localFile,
+      note,
     }, rendered);
   }
 );
