@@ -99,8 +99,9 @@ This guide records the programmatic refresh actually used for Monday.
 
 5. Verify a new app process and installed Monday MCP process appear. An MCP
    `listTools` request against the installed `server.ts` should currently return
-   `connect_account`, `connection_status`, `disconnect_account`, `get_boards`, and
-   `get_items`. Tool discovery needs no Composio key and makes no provider calls.
+   `connect_account`, `connection_status`, `disconnect_account`, `get_boards`,
+   `get_items`, `create_item`, `update_item_values`, `create_update`, and
+   `create_board`. Tool discovery needs no Composio key and makes no provider calls.
    Update that expected list as subsequent passes add approved tools.
 
 6. **Tell the user immediately when the refresh is ready**, then let them test:
@@ -110,3 +111,64 @@ This guide records the programmatic refresh actually used for Monday.
 
 For rollback, quit VoiceOS, restore the config and replaced files from the printed
 backup, and reopen. Backups contain credentials; keep them local and out of Git.
+
+## Accessing the macOS agent island for integration testing
+
+The island is a separate Electron window titled **VoiceOS Agent**. Its renderer
+URL ends in `#/agent-notch`. When the island is collapsed, macOS accessibility
+may show only the window and its HTML container. The packaged app disables
+the in-window Developer Tools, but supports a loopback Chromium DevTools
+Protocol (CDP) connection. This also works for integrations other than Monday.
+
+1. Check `http://127.0.0.1:9227/json/list` for an existing page target ending in
+   `#/agent-notch`. If it exists, reuse it. Otherwise, when the user has
+   requested debug access, fully quit VoiceOS and relaunch it:
+
+   ```sh
+   env -u ELECTRON_RUN_AS_NODE open -a /Applications/VoiceOS.app --args \
+     --remote-debugging-address=127.0.0.1 --remote-debugging-port=9227
+   curl -fsS --max-time 3 http://127.0.0.1:9227/json/list
+   lsof -nP -iTCP:9227 -sTCP:LISTEN
+   ```
+
+   Verify the listener is on loopback and select the exact `#/agent-notch`
+   page. Use that page's `webSocketDebuggerUrl` for CDP. The main window and
+   the island history window have different routes. Quitting VoiceOS and
+   launching without the flags closes debug access. While it is enabled,
+   other local processes can inspect and control the app.
+
+2. Before submitting a test prompt, check the live VoiceOS integration registry
+   (`window.api.customMcp.list()` and `getTools(server.id)`) for the connected
+   integration and expected tool. The island can be ready before its tools
+   finish loading.
+3. The Todoist test opened the composer by reading the current bounds of
+   `[data-agent-notch-geometry-key]` in the island renderer and dispatching a
+   mouse press and release inside those bounds. It verified that a textarea
+   had focus, preserved any existing draft, and submitted through the normal
+   Enter handler. An expanded result can collapse on the first click. Read
+   the bounds again before reopening the composer.
+4. Subscribe to turn and completion events before submission. Capture the
+   result while the panel is visible so a later collapse does not lose it.
+   Capture the rendered card separately when testing appearance. Leave any
+   confirmation for the user to review in VoiceOS.
+
+The earlier **Open VoiceOS from the Island** chat in the Agentic AI project
+verified composer input and response capture with Todoist. Its
+`voiceos-control/read-agent.cjs` helper is a reference implementation with a
+Todoist-specific readiness check. For Monday, use the matching Monday server
+and tool in that check. On 2026-11-10, a fresh debug launch was verified to
+expose one `#/agent-notch` target with the listener bound to `127.0.0.1:9227`.
+
+### Prompting through the island
+
+Write live test prompts the way a user would speak or type. Refer to boards,
+items, and people by their visible names or natural descriptions. For example,
+say “Add a task called Review the draft to the Voiceos test board” or “What’s on
+the Voiceos board?” Keep product IDs, MCP tool names, argument names, and
+instructions about which integration calls to make out of the prompt. Use IDs
+in direct MCP tests and to verify results after a live test.
+
+Include vague requests in the test cases. Check that VoiceOS resolves a clear
+match on its own, asks a focused question when the target is ambiguous, and
+waits for the answer before writing. Supplying the answer or an ID in the
+initial prompt skips the behavior these tests are meant to cover.
