@@ -7,6 +7,8 @@
 // MOCK_CALENDAR: "ok" (default), "no_join_link", "no_scope" (sign-in lacks Calendars.ReadWrite),
 // "expired" (Microsoft rejects the token), "graph_error", "key_denied" (key lacks Proxy execute),
 // "rejected" (Composio refuses the request), or "network" (the answer never comes back).
+// MOCK_PLATFORM: pretend to run on another OS, such as "win32".
+if (process.env.MOCK_PLATFORM) Object.defineProperty(process, "platform", { value: process.env.MOCK_PLATFORM });
 let connection = process.env.MOCK_CONNECTION ?? "active";
 let accountIds = connection === "none" ? [] : ["ca_test", "ca_duplicate"];
 const SIGN_IN = process.env.MOCK_SIGN_IN ?? "complete";

@@ -4,6 +4,8 @@ A VoiceOS integration (UIUC-20) that lets the VoiceOS agent read Teams chats, se
 
 Built with the VoiceOS Integration Studio, then fixed and tidied by hand. `AGENTS.md` describes the VoiceOS integration contract.
 
+Runs on macOS and Windows. VoiceOS starts it with `run.sh` on a Mac and `run.cmd` on Windows.
+
 ## Tools
 
 Exactly the six tools approved in the ticket. The two reads run immediately; the four writes show a confirmation card first, where the user can edit the arguments.
@@ -55,7 +57,7 @@ Say "connect me to Teams", or say "show my Teams connection" and use the Connect
 
 ## Testing
 
-`bun install && bun test` runs 62 offline tests. They start the real server over MCP with `tests/mock-composio.ts` preloaded, which replaces `fetch` with a fake Composio, so no keys or network are needed. They cover the manifest (the six tools plus the account tools, confirmations only on writes, card fields bound to real inputs, declared env vars, the network allowlist), every tool's arguments and results (including reading IDs from a post's link), scheduling (the calendar event sent, times converted to UTC, a sign-in without calendar access, a key without Proxy execute, no join link returned, a lost response), the not-connected, expired, revoked-token and missing-setup paths, and connecting and disconnecting (finished, unfinished and failed sign-in, duplicate connections, a key without write access).
+`bun install && bun test` runs 65 offline tests. They start the real server over MCP with `tests/mock-composio.ts` preloaded, which replaces `fetch` with a fake Composio, so no keys or network are needed. They cover the manifest (the six tools plus the account tools, confirmations only on writes, card fields bound to real inputs, declared env vars, the network allowlist), every tool's arguments and results (including reading IDs from a post's link), scheduling (the calendar event sent, times converted to UTC, a sign-in without calendar access, a key without Proxy execute, no join link returned, a lost response), the not-connected, expired, revoked-token and missing-setup paths, opening the sign-in with the right command on macOS and Windows, and connecting and disconnecting (finished, unfinished and failed sign-in, duplicate connections, a key without write access).
 
 Tested live on Nov 1, 2026 with a UIUC Microsoft 365 account:
 
@@ -77,6 +79,8 @@ Tested live on Nov 7, 2026, on version 1.2.0:
 - Upgrading an existing setup: editing the auth config's scopes, deleting the old connection, then signing in with `connect_account` by voice. UIUC didn't ask for admin approval for `Calendars.ReadWrite`
 
 A successful disconnect hasn't been tested live, because it needs a key with write access to Connected accounts. So far it has only run against the fake Composio.
+
+Windows support (version 1.3.0) hasn't run on a Windows machine yet. The offline tests check that Windows is declared and that sign-in opens the browser with `rundll32` instead of macOS's `open`.
 
 ## Known limitations
 

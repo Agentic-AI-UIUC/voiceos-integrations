@@ -1,6 +1,6 @@
 // Offline tests: runs the real server over MCP against tests/mock-composio.ts. No keys or network needed.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -84,6 +84,12 @@ describe("manifest", () => {
     expect(manifest.id).toBe("com.voiceos.generated.microsoft-teams");
     expect(manifest.version).toMatch(/^\d+\.\d+\.\d+$/);
     expect(manifest.summary.length).toBeLessThanOrEqual(140);
+  });
+
+  test("supports macOS and Windows, with a launcher for each", () => {
+    expect(manifest.supportedPlatforms).toEqual(["darwin", "win32"]);
+    expect(existsSync(join(ROOT, "run.sh"))).toBe(true);
+    expect(existsSync(join(ROOT, "run.cmd"))).toBe(true);
   });
 
   test("declares exactly the six approved tools plus the three account tools", () => {
@@ -469,6 +475,33 @@ describe("scheduling a meeting", () => {
     expect(r.isError).toBe(true);
     expect(r.text).toBe("Connect Microsoft Teams in your browser, then try again.");
     expect(proxyRequests(server)).toHaveLength(0);
+  });
+});
+
+describe("opening the sign-in in the browser", () => {
+  // Fake `open` and `rundll32` commands on PATH record exactly how the server launched them.
+  async function launchedFor(platform: string): Promise<string[]> {
+    const bin = mkdtempSync(join(tmpdir(), "teams-bin-"));
+    const record = join(bin, "launched.txt");
+    for (const name of ["open", "rundll32"]) {
+      writeFileSync(join(bin, name), `#!/bin/sh\nprintf '%s\\n' "\${0##*/}" "$@" >> "${record}"\n`, { mode: 0o755 });
+    }
+    const server = await startServer({ ...SETUP_ENV, MOCK_CONNECTION: "none", MOCK_PLATFORM: platform, PATH: bin });
+    try {
+      await run(server, "get_all_chats", {});
+      for (let i = 0; i < 40 && !existsSync(record); i++) await Bun.sleep(50);
+      return readFileSync(record, "utf8").trim().split("\n");
+    } finally {
+      await server.client.close();
+    }
+  }
+
+  test("uses open on macOS", async () => {
+    expect(await launchedFor("darwin")).toEqual(["open", "https://connect.composio.dev/link/test"]);
+  });
+
+  test("uses rundll32 on Windows, which has no open command", async () => {
+    expect(await launchedFor("win32")).toEqual(["rundll32", "url.dll,FileProtocolHandler", "https://connect.composio.dev/link/test"]);
   });
 });
 
