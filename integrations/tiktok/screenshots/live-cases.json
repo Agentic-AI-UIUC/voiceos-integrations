@@ -135,7 +135,8 @@
         "prepare_photo_post"
       ],
       "outcomes": [
-        "yes in 10.5s (turn fbd5f13a-83dc-4048-a8f6-3f8a88a5fd4f)"
+        "yes in 10.5s (turn fbd5f13a-83dc-4048-a8f6-3f8a88a5fd4f)",
+        "yes in 9.8s (turn eded72c2-d1b0-4fef-bef8-2b9d1da88a5d)"
       ],
       "reply": ""
     },
@@ -234,6 +235,17 @@
       "reply": ""
     },
     {
+      "prompt": "make them into one TikTok carousel, use the crying photo as the cover and keep the original story order",
+      "tools": [
+        "find_recent_images",
+        "prepare_photo_post"
+      ],
+      "outcomes": [
+        "yes in 11.0s (turn f5846c0c-e3d5-4148-90ad-b9b80e332952)"
+      ],
+      "reply": ""
+    },
+    {
       "prompt": "show what I've sent to TikTok today, including drafts and private posts",
       "tools": [
         "list_videos"
@@ -286,6 +298,16 @@
       "reply": ""
     },
     {
+      "prompt": "check how the strawberry episode is doing now, its views, likes, comments and shares",
+      "tools": [
+        "query_videos"
+      ],
+      "outcomes": [
+        "yes in 14.9s (turn bcc1ecf9-9db1-4cb9-bdb2-9809cc2f0548)"
+      ],
+      "reply": ""
+    },
+    {
       "prompt": "hold on, send those same episode one stills to drafts instead so I can add music and the AI label in TikTok; keep the crying cover and title",
       "tools": [
         "upload_photos"
@@ -329,12 +351,49 @@
       "reply": ""
     },
     {
+      "prompt": "can you find that new two brides episode and check the posting options? don't upload it",
+      "tools": [
+        "find_recent_videos",
+        "query_creator_info"
+      ],
+      "outcomes": [
+        "yes in 17.9s (turn b97ce947-69d3-4f93-b72a-ddeb0e39f66b)"
+      ],
+      "reply": ""
+    },
+    {
+      "prompt": "cancel that, I only wanted to check the label option",
+      "tools": [],
+      "outcomes": [
+        "yes in 4.5s (turn e2665cdb-43c9-4676-a148-734d79700a2a)"
+      ],
+      "reply": ""
+    },
+    {
+      "prompt": "cancel that, don't post another copy",
+      "tools": [],
+      "outcomes": [
+        "yes in 4.3s (turn 50ec58c5-7621-4e69-914a-8d4abc506c47)"
+      ],
+      "reply": ""
+    },
+    {
       "prompt": "find my Juicy Drama episode ninety-nine video",
       "tools": [
         "find_recent_videos"
       ],
       "outcomes": [
         "yes in 11.9s (turn e9ea3e1e-2d8f-4411-9d8f-ec3c089a2e49)"
+      ],
+      "reply": ""
+    },
+    {
+      "prompt": "how's my TikTok profile doing now?",
+      "tools": [
+        "get_user_stats"
+      ],
+      "outcomes": [
+        "yes in 8.8s (turn 104d17d2-a257-4248-b79f-6d4583c353a7)"
       ],
       "reply": ""
     }
@@ -569,6 +628,66 @@
       "at": "2026-11-10T23:15:55.206Z",
       "status": 3,
       "message": "TikTok: list_videos"
+    },
+    {
+      "at": "2026-11-10T23:17:20.946Z",
+      "status": 3,
+      "message": "TikTok: get_user_stats"
+    },
+    {
+      "at": "2026-11-10T23:24:34.127Z",
+      "status": 3,
+      "message": "TikTok: find_recent_videos"
+    },
+    {
+      "at": "2026-11-10T23:24:37.546Z",
+      "status": 3,
+      "message": "TikTok: find_recent_videos"
+    },
+    {
+      "at": "2026-11-10T23:24:40.525Z",
+      "status": 3,
+      "message": "TikTok: query_creator_info"
+    },
+    {
+      "at": "2026-11-10T23:28:15.191Z",
+      "status": 3,
+      "message": "TikTok: query_videos"
+    },
+    {
+      "at": "2026-11-10T23:33:00.840Z",
+      "status": 3,
+      "message": "TikTok: find_recent_images"
+    },
+    {
+      "at": "2026-11-10T23:33:04.405Z",
+      "status": 3,
+      "message": "TikTok: prepare_photo_post"
+    },
+    {
+      "at": "2026-11-10T23:36:10.994Z",
+      "status": 3,
+      "message": "TikTok: find_recent_images"
+    },
+    {
+      "at": "2026-11-10T23:36:15.177Z",
+      "status": 3,
+      "message": "TikTok: prepare_photo_post"
+    },
+    {
+      "at": "2026-11-10T23:38:07.024Z",
+      "status": 3,
+      "message": "TikTok: prepare_photo_post"
+    },
+    {
+      "at": "2026-11-10T23:41:44.650Z",
+      "status": 3,
+      "message": "TikTok: find_recent_images"
+    },
+    {
+      "at": "2026-11-10T23:41:48.211Z",
+      "status": 3,
+      "message": "TikTok: prepare_photo_post"
     }
   ]
 }

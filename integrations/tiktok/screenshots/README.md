@@ -20,7 +20,7 @@ Every turn was a real prompt typed to the VoiceOS agent. Every write was approve
 | # | Title | Caption |
 |---|---|---|
 | 05 | **Find a photo set** ([png](05-find-photos.png)) | "i wanna put those episode one stills on tiktok, can you pull them up". `find_recent_images` finds all six episode-one stills in story order, with thumbnails. |
-| 06 | **Carousel ready** ([gif](06-carousel-ready.gif)) | "nice, make those into one carousel and use the one where she's crying as the cover". `prepare_photo_post` keeps the story order and selects photo 2 as the cover. Nothing is uploaded. |
+| 06 | **Carousel ready** ([gif](06-carousel-ready.gif)) | “make them into one TikTok carousel, use the crying photo as the cover and keep the original story order.” `prepare_photo_post` uses the crying photo as cover. This recording shows every real thumbnail in the six-photo stack, over a complete cycle. Nothing is uploaded. |
 | 07 | **Confirm a photo post** ([gif](07-post-photos-card.gif)) | `post_photos` card: the slides, title, description with hashtags, Who can view (Only me), Comments, and TikTok's Music Usage Confirmation. Nothing is sent until Post is clicked. |
 | 08 | **Carousel posted** ([gif](08-carousel-status.gif)) | "Did my Juicy Drama cast carousel go up on TikTok?" TikTok's PUBLISH_COMPLETE: posted, 6 photos, Only me. |
 | 09 | **Confirm photo drafts** ([gif](09-photo-drafts-card.gif)) | "Send my Juicy Drama cast photos to my TikTok drafts so I can add music in the app." `upload_photos` card with a single Send to drafts button. |
@@ -43,6 +43,8 @@ Every turn was a real prompt typed to the VoiceOS agent. Every write was approve
 | 17 | **Confirm both outcomes** ([gif](17-episode-one-photo-status.gif)) | “did that episode one photo post finish, and did the photo draft arrive?” Status and history report the completed private post and inbox draft. |
 | 18 | **Revise into a draft** ([gif](18-video-draft-revision.gif)) | “actually make that a draft … add fruit drama and story time tags.” The draft card folds the requested caption and tags together. Reviewed, then revised; this card was not sent. |
 | 19 | **Switch drafts to post** ([gif](19-video-post-revision.gif)) | “wait, post it instead, just me, it’s AI made … cover at 0:05.” The replacement card shows the new caption, retained tags, AI label, Only me and Cover 0:05. Cancelled afterwards; no additional episode-one video was posted. |
+| 23 | **AI-label request goes to drafts** ([gif](23-photo-ai-label-drafts.gif)) | “post my Juicy Drama cast photos with TikTok's AI-generated label; show me first.” With the routing fix, this opens `upload_photos`, where the label can be applied in TikTok. The 20-second recording shows the full confirmation-preview cycle: five tiny frames and “+1 more.” The prepared card in 06 shows every real photo; confirmation arguments are limited to 1,500 characters. Cancelled without sending. |
+| 22 | **Second episode ready** ([gif](22-second-episode-ready.gif)) | “can you find that new two brides episode and check the posting options? don't upload it.” VoiceOS finds the newly exported second episode without a local path, checks creator options and shows a moving preview. No upload is made by this turn. |
 | 21 | **Public post details** ([png](21-public-post-details.png)) | “how many views, likes, comments and shares does this strawberry episode have?” with its public TikTok URL. `query_videos` returns the actual four zero counts, cover, publication time, length, aspect and hashtags. |
 
 ## Tool and conversation coverage

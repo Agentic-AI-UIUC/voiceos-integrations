@@ -25777,7 +25777,7 @@ var META = [
     title: "Prepare a TikTok photo carousel",
     visibility: "agent",
     photo: true,
-    description: "Agent-only, local only (nothing is uploaded). Use when building a photo carousel: takes image_tokens in carousel order and a cover index, checks count (1-35), formats and sizes, and returns bundle_token, preview, count_label, order_label and a warning line. Call again after any reorder, add, remove or cover change.",
+    description: "Agent-only, local only (nothing is uploaded). Use when building a photo carousel: takes image_tokens in carousel order and a cover index, checks count (1-35), formats and sizes, and returns bundle_token, preview, count_label, order_label and a warning line. A cover-only change keeps image_tokens in their existing order and changes cover_index. Call again after any reorder, add, remove or cover change.",
     annotations: read("Prepare a TikTok photo carousel", false)
   },
   {
@@ -25802,7 +25802,7 @@ var META = [
     execution: { mode: "background", estimatedDurationMs: 120000 },
     write: true,
     photo: true,
-    description: "Use when the user wants photos or screenshots sent to their TikTok drafts as a carousel; this is the default for photos. Sends 1-35 photos to the user's TikTok inbox. Title and description DO carry into TikTok's editor; privacy, comments and music are set in TikTok. Needs TikTok app 31.8 or later. Requires bundle_token, preview and any warning from prepare_photo_post, unchanged. While a card shows, any change (title, caption, hashtags, @tags, photos, order) means calling this again at once with it applied: the old card is gone once the user speaks, so an acknowledgement alone leaves none. Runs in the background; approval is by clicking the card's button: a yes in words sends nothing.",
+    description: "Use when the user wants photos or screenshots sent to their TikTok drafts as a carousel; this is the default for photos. Also use when a TikTok AI-generated label is requested for photos: that label is added in TikTok. Sends 1-35 photos to the user's TikTok inbox. Title and description DO carry into TikTok's editor; privacy, comments and music are set in TikTok. Needs TikTok app 31.8 or later. Requires bundle_token, preview and any warning from prepare_photo_post, unchanged. While a card shows, any change (title, caption, hashtags, @tags, photos, order) means calling this again at once with it applied: the old card is gone once the user speaks, so an acknowledgement alone leaves none. Runs in the background; approval is by clicking the card's button: a yes in words sends nothing.",
     annotations: write("Send photo carousel to TikTok drafts")
   },
   {
@@ -25811,7 +25811,7 @@ var META = [
     execution: { mode: "background", estimatedDurationMs: 180000 },
     write: true,
     photo: true,
-    description: "Use when the user explicitly asks to post photos directly, not to drafts (upload_photos is the default). 1-35 photos, private (Only me) until TikTok audits the app: for a wider audience, show the Only me card, which is the question. Leave privacy_level empty unless the user named one: they pick it on the card. First call query_creator_info and pass post_token, privacy_options, creator_nickname and comment_disabled through unchanged. Requires bundle_token, preview and any warning from prepare_photo_post, unchanged. While a card shows, any change or addition (text, hashtags, @tags, privacy) means calling this again at once with it applied: the old card is gone once the user speaks, so an acknowledgement alone leaves none. Runs in the background; approval is by clicking Post: a yes in words sends nothing. TikTok can take a few minutes to process it before it shows on the profile.",
+    description: "Use when the user asks to post photos directly; upload_photos is the default. For a TikTok AI-generated label, use upload_photos and add the label in TikTok. 1-35 photos, Only me until TikTok audits the app: for a wider audience, show the Only me card, which is the question. Leave privacy_level empty unless the user named one: they pick it on the card. First call query_creator_info and pass post_token, privacy_options, creator_nickname and comment_disabled through unchanged. Requires bundle_token, preview and any warning from prepare_photo_post, unchanged. While a card shows, any change or addition (text, hashtags, @tags, privacy) means calling this again at once with it applied: the old card is gone once the user speaks, so an acknowledgement alone leaves none. Runs in the background; approval is by clicking Post: a yes in words sends nothing. Processing takes a few minutes.",
     annotations: write("Post photo carousel to TikTok")
   }
 ];
@@ -25891,7 +25891,7 @@ var SCHEMAS = {
   }).strict(),
   prepare_photo_post: exports_external.object({
     image_tokens: needed(exports_external.array(exports_external.string()).min(1).max(35).describe("image_tokens from find_recent_images, in carousel order (1-35).")),
-    cover_index: exports_external.number().int().min(0).max(34).default(0).describe("Which photo is the cover, counting from 0 (default 0, the first).")
+    cover_index: exports_external.number().int().min(0).max(34).default(0).describe("Which photo is the cover, counting from 0 (default 0, the first). Selecting a cover leaves image_tokens in the existing slide order.")
   }).strict(),
   upload_video: exports_external.object({
     file_token: token("file_token from find_recent_videos; the same one when the user changes something about the card. If it's gone, find_recent_videos with pick 'current' returns the video in progress."),
