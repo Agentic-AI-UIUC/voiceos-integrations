@@ -336,10 +336,43 @@ export async function gaLinkStatus(request: ComposioRequest, userId: string): Pr
 }
 
 /**
- * Turns a failure into words the user (and agent) can act on. `reconnect` is
- * true when linking Google Analytics again is the fix.
+ * A Google sign-in link that makes the connection work again. An existing
+ * account is re-authorized in place (Composio's refresh; status → INITIATED
+ * until the user finishes), so the user never ends up with a dead ACTIVE
+ * account next to a new one. Only with no account at all does it start a
+ * first connection through the project's enabled auth config.
+ * Only called when reconnecting is already the fix: a Google 401 means the
+ * refresh token is gone (Composio refreshes expired access tokens itself).
  */
-export async function describeError(err: any, linkStatus: () => Promise<string>): Promise<{ error: string; reconnect: boolean }> {
+export async function gaReconnectUrl(request: ComposioRequest, userId: string): Promise<string> {
+  const query = new URLSearchParams({ toolkit_slugs: "google_analytics", user_ids: userId });
+  const accounts: { id: string; created_at?: string }[] = (await request("GET", `/connected_accounts?${query}`))?.items ?? [];
+  const newest = [...accounts].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0];
+  if (newest) return (await request("POST", `/connected_accounts/${newest.id}/refresh`, {}))?.redirect_url;
+
+  const configs: { id: string; status?: string }[] = (await request("GET", "/auth_configs?toolkit_slug=google_analytics"))?.items ?? [];
+  const config = configs.find((c) => c.status === "ENABLED");
+  if (!config) throw new Error("The Composio project has no enabled Google Analytics auth config.");
+  return (await request("POST", "/connected_accounts/link", { auth_config_id: config.id, user_id: userId }))?.redirect_url;
+}
+
+export interface DescribedError {
+  error: string;
+  reconnect: boolean;
+  /** Present when reconnecting is the fix and Composio gave a sign-in link. */
+  reconnect_url?: string;
+}
+
+/**
+ * Turns a failure into words the user (and agent) can act on. `reconnect` is
+ * true when linking Google Analytics again is the fix; then `reconnectUrl`
+ * (when given) is asked for a sign-in link.
+ */
+export async function describeError(
+  err: any,
+  linkStatus: () => Promise<string>,
+  reconnectUrl?: () => Promise<string | undefined>,
+): Promise<DescribedError> {
   const fail = (error: string, reconnect = false) => ({ error, reconnect });
   // GA's messages start with Composio's wrapper; keep only Google's part.
   const gaMessage = String(err?.message ?? "").replace(/^API request failed with status \d+\.\s*/, "");
@@ -353,6 +386,8 @@ export async function describeError(err: any, linkStatus: () => Promise<string>)
     const why = ["NONE", "INITIALIZING", "INITIATED"].includes(status) ? "Google Analytics isn't connected yet."
       : status === "EXPIRED" ? "The Google Analytics connection has expired."
       : "Google Analytics access was revoked.";
+    const url = await reconnectUrl?.().catch((e) => (console.error("reconnect link failed:", e), undefined));
+    if (url) return { error: `${why} Open the reconnect link to sign in to Google again.`, reconnect: true, reconnect_url: url };
     return fail(`${why} Reconnect the Google account in ${DASHBOARD}.`, true);
   }
   if (err instanceof ComposioError && err.source === "composio" && err.status === 401) {
@@ -493,8 +528,12 @@ export function metadataCard(r: { dimensions: Record<string, string[]>; metrics:
   ]);
 }
 
-export function errorCard(error: string, reconnect: boolean): RenderedWidget {
-  return card([vHeader({ title: "Google Analytics", trailing: reconnect ? "Reconnect needed" : undefined }), vNote(error)]);
+export function errorCard(error: string, reconnect: boolean, reconnectUrl?: string): RenderedWidget {
+  return card([
+    vHeader({ title: "Google Analytics", trailing: reconnect ? "Reconnect needed" : undefined }),
+    vNote(error),
+    reconnectUrl && vList([{ title: "Reconnect Google Analytics", trailing: "Open", href: reconnectUrl }]),
+  ]);
 }
 
 // ============================================================================
@@ -522,9 +561,13 @@ const sortArgs = {
 };
 
 // Shared by both report tools: how to read what comes back.
-const READING_RESULTS = "Results: rows are {field: value}; totals are GA's own totals over every matching row, so use them for \"how many in total\" rather than adding up rows (rows stop at limit, row_count says how many matched). User counts can repeat across rows (one person viewing two pages), so for unique users overall, query without dimensions. Rates such as bounceRate and engagementRate are fractions (0.42 = 42%); durations are seconds.";
+const READING_RESULTS = "If a result has reconnect: true, the Google connection must be renewed: tell the user in one sentence and point them to the Reconnect link on the card (also in reconnect_url); don't retry until they say they've signed in. Results: rows are {field: value}; totals are GA's own totals over every matching row, so use them for \"how many in total\" rather than adding up rows (rows stop at limit, row_count says how many matched). User counts can repeat across rows (one person viewing two pages), so for unique users overall, query without dimensions. Rates such as bounceRate and engagementRate are fractions (0.42 = 42%); durations are seconds.";
 
-export function createServer(ga: ReturnType<typeof createGa>, linkStatus: () => Promise<string>): McpServer {
+export function createServer(
+  ga: ReturnType<typeof createGa>,
+  linkStatus: () => Promise<string>,
+  reconnectUrl?: () => Promise<string | undefined>,
+): McpServer {
   const server = new McpServer({ name: "google-analytics", version: "1.0.0" });
 
   /** A tool result: JSON the model reads. */
@@ -554,8 +597,8 @@ export function createServer(ga: ReturnType<typeof createGa>, linkStatus: () => 
         return textResult(withCard(result, () => render(result, args)));
       } catch (err) {
         console.error(`${tool} failed:`, err);
-        const described = await describeError(err, linkStatus);
-        return textResult(withCard(described, () => errorCard(described.error, described.reconnect)), true);
+        const described = await describeError(err, linkStatus, reconnectUrl);
+        return textResult(withCard(described, () => errorCard(described.error, described.reconnect, described.reconnect_url)), true);
       }
     };
 
@@ -630,7 +673,9 @@ async function main(): Promise<void> {
   const userId = process.env.COMPOSIO_USER_ID?.trim() || "default";
   const composio = createComposio({ apiKey: process.env.COMPOSIO_API_KEY?.trim(), userId });
   const ga = createGa(composio.execute, process.env.GA4_PROPERTY_ID?.trim() || undefined);
-  await createServer(ga, () => gaLinkStatus(composio.request, userId)).connect(new StdioServerTransport());
+  const linkStatus = () => gaLinkStatus(composio.request, userId);
+  const reconnectUrl = () => gaReconnectUrl(composio.request, userId);
+  await createServer(ga, linkStatus, reconnectUrl).connect(new StdioServerTransport());
 }
 
 const isEntryPoint = !!process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));

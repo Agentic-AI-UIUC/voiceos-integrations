@@ -98,3 +98,9 @@ test("an error card carries the plain-words message, and says when reconnecting 
   expect(t).toContain("Reconnect needed");
   expect(text(errorCard("Quota used up.", false))).not.toContain("Reconnect needed");
 });
+
+test("an error card with a reconnect link shows a row the user can open", () => {
+  const c = errorCard("Google Analytics access was revoked.", true, "https://connect.example/abc");
+  expect(text(c)).toContain("Reconnect Google Analytics");
+  expect(c.html).toContain('href="https://connect.example/abc"');
+});
