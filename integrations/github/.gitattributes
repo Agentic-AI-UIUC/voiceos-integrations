@@ -1,2 +1,7 @@
 # server.ts is generated from src/ by scripts/build.ts. GitHub collapses it in diffs; review src/ instead.
 server.ts linguist-generated=true
+# LF on every checkout, Windows included (Git for Windows defaults to CRLF), so a
+# build there produces the same server.ts and manifest VoiceOS ships.
+*.ts text eol=lf
+*.json text eol=lf
+*.md text eol=lf

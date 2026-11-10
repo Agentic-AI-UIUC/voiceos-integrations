@@ -13,6 +13,8 @@ policy and reviewers.
 
 ## Use it
 
+It runs in VoiceOS on macOS and Windows x64.
+
 1. VoiceOS → Integrations → GitHub → Configure → **Composio project API key**
    (composio.dev → Settings → Project Settings → API Keys). It must be a project
    key, not a `ck_` consumer key or a `uak_` user key. A full-access key works;
@@ -198,9 +200,16 @@ and GitHub refusing a change.
   `upstream_schema_changed` in the audit log; a change that no longer fits
   what the integration sends makes that action unavailable.
 - **Local state** lives in `.state/`: `state.json` (connection binding,
-  operation ledger, spent receipts; mode 0600, no keys or tokens) and
+  operation ledger, spent receipts; mode 0600 on macOS, no keys or tokens) and
   `audit.jsonl`. A lock file keeps it consistent when VoiceOS and an
   Integration Studio test run use the folder at the same time.
+- **macOS and Windows.** Both run `bun server.ts` with no shell: VoiceOS uses
+  the `bun` on the PATH, or the one it bundles. VoiceOS stops the server by
+  closing stdin, then kills it 2 seconds later; on Windows that kill runs no
+  handler, so the server shuts down (and deletes its Composio session) as soon
+  as stdin closes. Windows can't replace a file another process has open, so
+  writes to `state.json` there retry for up to a second while another server
+  reads it.
 
 ## Develop
 

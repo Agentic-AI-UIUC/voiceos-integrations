@@ -40,6 +40,8 @@ describe("identity and runtime (must not drift from the installed integration)",
     expect(manifest.publisher).toEqual({ id: "pub_user", name: "Made in VoiceOS" });
     // The share review rejects a runtime that spawns a shell; VoiceOS's bundled integrations use exactly this.
     expect(manifest.runtime).toEqual({ kind: "local-mcp", command: "bun", args: ["server.ts"] });
+    // VoiceOS ships for Mac and Windows x64 (issue #35).
+    expect(manifest.supportedPlatforms).toEqual(["darwin", "win32"]);
     expect(manifest.icon).toBe("icon.png");
     expect(manifest.name).toBe("GitHub");
     expect(manifest.summary.length).toBeGreaterThan(0);

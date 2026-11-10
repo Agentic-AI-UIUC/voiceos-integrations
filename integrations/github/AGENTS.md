@@ -88,6 +88,11 @@ changes on its next turn — just talk to it.
   `scripts/build.ts`. Run `bun run build`; never hand-edit `server.ts` or the
   manifest's tools.
 - **Check every change:** `bun run build && bun test && bun run verify`.
+- **It runs on macOS and Windows x64** (`supportedPlatforms`, set in
+  `scripts/build.ts`; the repo's CI requires both). Keep the runtime free of
+  shells and POSIX-only calls. Shutdown hangs off stdin closing, because a
+  Windows kill runs no handler. File operations on `.state/` that another
+  process can collide with go through `whenFree` in `src/state.ts`.
 - **The tool list is fixed at eight** (`src/catalog.ts`, the approved
   allowlist). The integration works with every repository the connected
   GitHub account can reach; there's no repository limit.
