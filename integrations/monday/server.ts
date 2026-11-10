@@ -33,6 +33,7 @@ type Output = {
 type ReadOutput = {
   resultType: "boards" | "tasks";
   boardName?: string;
+  groupName?: string;
   status: string;
   message: string;
   records: Record<string, unknown>[];
@@ -337,13 +338,45 @@ function readNames(entries: Record<string, unknown>[]): string {
   return new Intl.ListFormat("en", { type: "conjunction" }).format(names);
 }
 
-function readSummary(entries: Record<string, unknown>[], kind: "boards" | "tasks", hasNextPage: boolean, boardName?: string): string {
+const itemPreviewLimit = 6;
+const itemCount = (count: number) => `${count} ${count === 1 ? "item" : "items"}`;
+
+function itemSummary(count: number, boardName?: string): string {
   const scope = boardName ? ` on "${boardName}"` : "";
-  if (!entries.length) return `No matching ${kind} found${scope}.`;
-  const summary = readNames(entries);
-  // The remainder counts this page only, not an unknown total across the board.
-  const label = kind === "boards" ? "Boards found" : `Tasks${scope}`;
-  return `${label}: ${summary}.${hasNextPage ? " More results may be available on the next page." : ""}`;
+  if (count === 0) return `No matching items found${scope}.`;
+  if (count > itemPreviewLimit) return `Here are the first few items${scope}.`;
+  return `Found ${itemCount(count)}${scope}.`;
+}
+
+function displayText(value: unknown): string | undefined {
+  return typeof value === "string" ? value.trim() || undefined : undefined;
+}
+
+function itemGlance(data: ReadOutput) {
+  const count = data.records.length;
+  const visibleCount = count > itemPreviewLimit ? itemPreviewLimit - 1 : count;
+  const rows = data.records.slice(0, visibleCount).map(item => {
+    const columns = Array.isArray(item.column_values) ? item.column_values : [];
+    const status = columns.map(record).find(column =>
+      displayText(column?.text) && (
+        column?.type === "status" || column?.type === "color" ||
+        (column?.type == null && column?.id === "status")
+      ),
+    );
+    const subtitle = displayText(status?.text) ?? displayText(record(item.group)?.title) ?? data.groupName;
+    return {
+      title: (displayText(item.name) ?? "Untitled item").slice(0, 60),
+      ...(subtitle ? { subtitle: subtitle.slice(0, 60) } : {}),
+    };
+  });
+  if (visibleCount < count) rows.push({ title: `and ${count - visibleCount} more` });
+  return [
+    {
+      type: "header",
+      title: (data.boardName ?? "Monday.com items").slice(0, 60),
+    },
+    rows.length ? { type: "list", rows } : { type: "keyValue", pairs: [["Results", data.message]] },
+  ];
 }
 
 async function getBoards(
@@ -356,7 +389,9 @@ async function getBoards(
   return {
     resultType: "boards",
     status: "Boards found",
-    message: readSummary(boards, "boards", boards.length === limit),
+    message: boards.length
+      ? `Boards found: ${readNames(boards)}.${boards.length === limit ? " More results may be available on the next page." : ""}`
+      : "No matching boards found.",
     records: boards,
     pagination: {
       page,
@@ -410,7 +445,7 @@ async function getItems(
     return {
       resultType: "tasks",
       status: "Tasks",
-      message: readSummary(items, "tasks", items.length === limit),
+      message: itemSummary(items.length),
       records: items,
       pagination: {
         page,
@@ -432,9 +467,10 @@ async function getItems(
     };
   }
   const board = Array.isArray(data.boards) ? record(data.boards[0]) : undefined;
-  const boardName = typeof board?.name === "string" && board.name.trim() ? board.name : board_name;
+  const boardName = displayText(board?.name) ?? board_name;
   const group =
     board && Array.isArray(board.groups) ? record(board.groups[0]) : undefined;
+  const groupName = input.group_id ? displayText(group?.title) : undefined;
   const page =
     record(
       data.next_items_page ??
@@ -452,7 +488,8 @@ async function getItems(
     resultType: "tasks",
     status: "Tasks",
     ...(boardName ? { boardName } : {}),
-    message: readSummary(items, "tasks", Boolean(page.cursor), boardName),
+    ...(groupName ? { groupName } : {}),
+    message: itemSummary(items.length, boardName),
     records: items,
     pagination: { limit, nextCursor: page.cursor },
   };
@@ -634,7 +671,7 @@ async function feedback(
           ...data,
           notificationQueued,
           _voiceos_glance: {
-            blocks: [
+            blocks: "records" in data && data.resultType === "tasks" ? itemGlance(data) : [
               {
                 type: "header",
                 title: "Monday.com",
@@ -643,9 +680,8 @@ async function feedback(
               {
                 type: "keyValue",
                 pairs: "records" in data ? [
-                  ...(data.boardName ? [["Board", data.boardName]] : []),
-                  [data.resultType === "boards" ? "Boards" : "Tasks", data.records.length ? `${readNames(data.records)}.` : data.message],
-                  ...(data.pagination.nextCursor || data.pagination.nextPage ? [["More pages", "May be available"]] : []),
+                  ["Boards", data.records.length ? `${readNames(data.records)}.` : data.message],
+                  ...(data.pagination.nextPage ? [["More pages", "May be available"]] : []),
                 ] : [["Status", "error" in data ? data.error : data.message]],
               },
             ],
@@ -774,7 +810,7 @@ server.registerTool(
   {
     title: "Get Monday.com items",
     description:
-      "Retrieve Monday.com tasks/items using exactly one of ids, board_id, or cursor. For a named board, first resolve its ID with get_boards: prefer an exact match, otherwise use a unique clear partial match; ask if ambiguous. Pass the exact resolved board_name for display and name that board in the final task answer. Never present get_boards results as tasks; wait for this call to succeed before listing tasks, or report its error. Item-ID reads support page, newest_first, and exclude_nonactive. Board reads include column values and optionally group_id; continue using pagination.nextCursor with optional board_name display context. Use actual IDs internally; never invent IDs or names. Present the Tasks summary: the first three task names and how many more were returned. Do not display or speak raw IDs unless explicitly requested; provide more names/details if asked. Remainder counts cover the returned page only; mention when more pages may exist. Read only; does not start OAuth or send notifications.",
+      "Retrieve Monday.com tasks/items using exactly one of ids, board_id, or cursor. For a named board, first resolve its ID with get_boards: prefer an exact match, otherwise use a unique clear partial match; ask if ambiguous. Pass the exact resolved board_name for display and name that board in the final task answer. Never present get_boards results as tasks; wait for this call to succeed before listing tasks, or report its error. Item-ID reads support page, newest_first, and exclude_nonactive; pagination.nextPage is a possible next page. Board reads include column values and optionally group_id. For an explicit next-page request, use pagination.nextCursor with the previous limit and optional board_name display context. For a general list request, use the short message and let the glance card show the names. Offer to show the next page when there is a cursor, or offer to narrow by group when appropriate. Use the full records from the current page to answer item-specific follow-ups, including items outside the preview. Counts describe the returned page. Keep IDs internal unless explicitly requested, and use only confirmed IDs and names. Read only; does not start OAuth or send notifications.",
     inputSchema: getItemsSchema,
     annotations: {
       readOnlyHint: true,

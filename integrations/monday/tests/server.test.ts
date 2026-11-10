@@ -169,12 +169,20 @@ describe("Monday read tools", () => {
     expect(first.isError).toBe(false);
     expect(first.body.records).toEqual([item]);
     expect(first.body.pagination.nextCursor).toBe("next-page");
+    expect(first.body._voiceos_glance.blocks).toEqual([
+      { type: "header", title: "Monday.com items" },
+      { type: "list", rows: [{ title: "Ship", subtitle: "Done" }] },
+    ]);
     expect(executions()[0].body?.arguments).toEqual({ board_id: 123, limit: 1, include_column_values: true });
     scenario({ toolData: { data: { next_items_page: { items: [], cursor: null } } } });
     const next = await invoke("get_items", { cursor: first.body.pagination.nextCursor, limit: 1 });
     expect(next.isError).toBe(false);
     expect(next.body.records).toEqual([]);
     expect(next.body.pagination.nextCursor).toBeNull();
+    expect(next.body._voiceos_glance.blocks).toEqual([
+      { type: "header", title: "Monday.com items" },
+      { type: "keyValue", pairs: [["Results", "No matching items found."]] },
+    ]);
     expect(executions()[1].body?.arguments).toEqual({ cursor: "next-page", limit: 1, include_column_values: true });
     expect(notifications).toEqual([]);
   });
@@ -206,17 +214,23 @@ describe("Monday read tools", () => {
     expect(boards.body._voiceos_glance.blocks[1].pairs).toEqual([["Boards", "Voiceos test."]]);
     expect(boards.body.records[0].id).toBe("123");
 
-    const tasks = Array.from({ length: 7 }, (_, i) => ({ id: String(i + 10), name: `Task ${i + 1}` }));
-    scenario({ toolData: { items: tasks, cursor: null } });
+    const tasks = Array.from({ length: 25 }, (_, i) => ({
+      id: String(i + 10),
+      name: `Task ${i + 1}`,
+      group: { id: "internal-group", title: "Launch" },
+    }));
+    scenario({ toolData: { items: tasks, cursor: "next-page" } });
     const result = await invoke("get_items", { board_id: 123, board_name: boards.body.records[0].name });
     expect(result.isError).toBe(false);
     expect(result.body.resultType).toBe("tasks");
     expect(result.body.boardName).toBe("Voiceos test");
-    expect(result.body.message).toBe('Tasks on "Voiceos test": Task 1, Task 2, Task 3, and 4 more.');
-    expect(result.body._voiceos_glance.blocks[0].trailing).toBe("Tasks");
-    expect(result.body._voiceos_glance.blocks[1].pairs).toEqual([
-      ["Board", "Voiceos test"],
-      ["Tasks", "Task 1, Task 2, Task 3, and 4 more."],
+    expect(result.body.message).toBe('Here are the first few items on "Voiceos test".');
+    expect(result.body._voiceos_glance.blocks).toEqual([
+      { type: "header", title: "Voiceos test" },
+      { type: "list", rows: [
+        ...tasks.slice(0, 5).map(task => ({ title: task.name, subtitle: "Launch" })),
+        { title: "and 20 more" },
+      ] },
     ]);
     expect(result.body.records).toEqual(tasks);
     expect(executions()[1].body?.arguments).toEqual({ board_id: 123, limit: 25, include_column_values: true });
@@ -233,11 +247,11 @@ describe("Monday read tools", () => {
     const first = await invoke("get_items", { board_id: 123, board_name: "Old board name" });
     expect(first.isError).toBe(false);
     expect(first.body.boardName).toBe("Actual board");
-    expect(first.body.message).toBe('No matching tasks found on "Actual board".');
+    expect(first.body.message).toBe('No matching items found on "Actual board".');
     scenario({ toolData: { items: [{ id: "456", name: "Ship" }], cursor: null } });
     const next = await invoke("get_items", { cursor: "next", board_name: first.body.boardName });
     expect(next.isError).toBe(false);
-    expect(next.body.message).toBe('Tasks on "Actual board": Ship.');
+    expect(next.body.message).toBe('Found 1 item on "Actual board".');
     expect(executions()[1].body?.arguments).toEqual({ cursor: "next", limit: 25, include_column_values: true });
   });
 
@@ -251,33 +265,40 @@ describe("Monday read tools", () => {
     scenario({ toolData });
     const result = await invoke(name as string, args as Record<string, unknown>);
     expect(result.isError).toBe(false);
-    expect(result.body.message).toBe(`${name === "get_boards" ? "Boards found" : "Tasks"}: Task 1, Task 2, Task 3, and 4 more.`);
+    const isBoards = name === "get_boards";
+    expect(result.body.message).toBe(isBoards ? "Boards found: Task 1, Task 2, Task 3, and 4 more." : "Here are the first few items.");
     expect(result.body.resultType).toBe(name === "get_boards" ? "boards" : "tasks");
     expect(result.body.records).toEqual(entries);
     const displayed = JSON.stringify(result.body._voiceos_glance);
-    expect(displayed).toContain("Task 1, Task 2, Task 3, and 4 more.");
+    expect(displayed).toContain(isBoards ? "Task 1, Task 2, Task 3, and 4 more." : "and 2 more");
     expect(displayed).not.toContain("internal-id");
-    expect(displayed).not.toContain("Task 4");
+    expect(displayed).not.toContain(isBoards ? "Task 4" : "Task 6");
+    expect(displayed).not.toContain("Ask for the next page");
     expect(result.body._voiceos_glance.blocks.length).toBeLessThanOrEqual(3);
   });
 
   test.each([
-    [0, "No matching tasks found."],
-    [1, "Tasks: Task 1."],
-    [2, "Tasks: Task 1 and Task 2."],
-    [3, "Tasks: Task 1, Task 2, and Task 3."],
-  ])("summarizes %i tasks without inventing a remainder", async (count, expected) => {
+    [0, "No matching items found."],
+    [1, "Found 1 item."],
+    [2, "Found 2 items."],
+    [3, "Found 3 items."],
+    [6, "Found 6 items."],
+  ])("summarizes %i returned items by count", async (count, expected) => {
     scenario({ toolData: { items: Array.from({ length: count as number }, (_, i) => ({ id: String(i + 1), name: `Task ${i + 1}` })), cursor: null } });
     const result = await invoke("get_items", { board_id: 123 });
     expect(result.isError).toBe(false);
     expect(result.body.message).toBe(expected);
+    if (count) expect(result.body._voiceos_glance.blocks[1].rows).toEqual(
+      result.body.records.map((item: { name: string }) => ({ title: item.name })),
+    );
   });
 
-  test("does not imply a page's remainder is the board's total task count", async () => {
+  test("labels a partial preview with the returned page count", async () => {
     scenario({ toolData: { items: Array.from({ length: 7 }, (_, i) => ({ id: String(i + 1), name: `Task ${i + 1}` })), cursor: "next-page" } });
     const result = await invoke("get_items", { board_id: 123 });
     expect(result.isError).toBe(false);
-    expect(result.body.message).toBe("Tasks: Task 1, Task 2, Task 3, and 4 more. More results may be available on the next page.");
+    expect(result.body.message).toBe("Here are the first few items.");
+    expect(result.body._voiceos_glance.blocks[1].rows.at(-1)).toEqual({ title: "and 2 more" });
     expect(result.body.pagination.nextCursor).toBe("next-page");
   });
 
