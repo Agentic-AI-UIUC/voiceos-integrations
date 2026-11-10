@@ -1,8 +1,8 @@
 {
   "name": "composio-monday",
-  "version": "0.1.1",
+  "version": "0.1.3",
   "private": true,
-  "description": "Connect Monday.com and read boards and items through Composio OAuth in VoiceOS.",
+  "description": "Connect Monday.com and read or create boards, items, and comments through Composio OAuth in VoiceOS.",
   "type": "module",
   "scripts": {
     "build": "bun build server.ts --target=bun --packages=external --outdir=dist"

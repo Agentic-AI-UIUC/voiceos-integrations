@@ -1,6 +1,6 @@
-# Monday.com — 0.1.1
+# Monday.com — 0.1.3
 
-macOS VoiceOS integration using Composio-managed OAuth. This version exposes three account tools and two read tools:
+macOS VoiceOS integration using Composio-managed OAuth. This version exposes three account tools, two read tools, and four write tools:
 
 - **Connect Monday.com** (`connect_account`): open browser authorization and immediately return its pending state and link, or verify a saved active connection.
 - **Monday.com account** (`connection_status`): check connection status (active, pending, disconnected, or expired). Read-only; does not start OAuth.
@@ -8,7 +8,7 @@ macOS VoiceOS integration using Composio-managed OAuth. This version exposes thr
 - **Get Monday.com boards** (`get_boards`): list boards or retrieve specific IDs, with workspace, visibility, and state filters and page-based pagination.
 - **Get Monday.com items** (`get_items`): retrieve specific item IDs, or read a board/group's items with column values and cursor-based pagination.
 
-Account actions have native confirmation cards, loading/progress feedback, result cards, and success/error notifications. Lookups run without confirmation and without triggering notifications. Get Boards and Get Items show up to six list rows. Get Boards uses a **Monday.com boards** header and shows workspace names when available. Get Items uses the board name as its header and shows status or group labels when available. For a longer page, the sixth row says “and X more,” counting the hidden items on that page. The agent can offer the next page when a cursor is available. The agent gives a brief spoken summary and can use all returned records, IDs, and metadata for follow-ups.
+Connecting and disconnecting Monday.com show native confirmation cards, progress, result cards, and desktop notifications. Business tools show progress and result cards. Get Boards and Get Items show up to six list rows. Get Boards uses a **Monday.com boards** header and shows workspace names when available. Get Items uses the board name as its header and shows status or group labels when available. For a longer page, the sixth row says “and X more,” counting the hidden items on that page. The agent can offer the next page when a cursor is available. The agent gives a brief spoken summary and can use all returned records, IDs, and metadata for follow-ups.
 
 Board discovery is labeled **Monday.com boards**, with `resultType: "boards"`. Task results use **Tasks**, with `resultType: "tasks"`. For “What are my tasks on the Voiceos board?”, the agent is instructed to resolve the board internally, prefer an exact name match or use a unique clear partial match (for example, **Voiceos test**), and ask when multiple boards could match. It must fetch tasks before giving the task answer, rather than narrating board names as tasks. An intermediate board card can still appear, but its label distinguishes it from the final answer.
 
@@ -36,7 +36,29 @@ Results contain `records` and `pagination`. Board and item-ID reads return `next
 
 Only `MONDAY_BOARDS`, `MONDAY_GET_ITEMS`, and `MONDAY_ITEMS_PAGE` are executed, through the Composio SDK using the saved installation identity and connected account, pinned to toolkit version `20261101_00`. Reads verify an active Monday connection first and have a 20-second account-check/execution deadline. Composio failures and Monday GraphQL errors are returned as errors, with reconnect guidance for invalid authorization. Reads never initiate OAuth automatically.
 
-The remaining seven business tools are planned for later passes. The current allowlist is exactly five MCP tools: the three account controls and the two reads above.
+The current MCP allowlist contains nine tools: three account controls, two reads, and four writes. Delete board, archive board, and membership changes remain for pass 3.
+
+## Write tools (pass 2)
+
+- `create_item`: required `board_id` and `item_name` (1–256 characters), optional `group_id` and `column_values`.
+- `update_item_values`: required `board_id`, `item_id`, and nonempty `column_values` keyed by actual column IDs.
+- `create_update`: required `item_id` and nonempty `body` to post an update/comment.
+- `create_board`: required `board_name` and explicit `board_kind` (`public`, `private`, or `share`); optional `workspace_id`, `folder_id`, and `description`. Membership assignment is reserved for pass 3.
+
+IDs use the same positive safe integer contract as reads. Column values accept an object or JSON object string and are validated before execution. The create action receives a canonical JSON string; the update action receives each typed value, which Composio serializes according to its schema. Null column values and nested arrays are not supported by the pinned update action. Resolve actual IDs and column types from Monday; provider validation remains authoritative for board-specific column formats.
+
+```json
+{"name":"create_item","arguments":{"board_id":123,"item_name":"Review proposal","column_values":{"status":{"label":"Working on it"}}}}
+{"name":"update_item_values","arguments":{"board_id":123,"item_id":456,"column_values":{"status":{"label":"Done"},"text":"Reviewed"}}}
+{"name":"create_update","arguments":{"item_id":456,"body":"Review completed."}}
+{"name":"create_board","arguments":{"board_name":"Project planning","board_kind":"private"}}
+```
+
+The Composio catalog schemas were checked during implementation and are retained in `tests/catalog/`. The four provider actions are `MONDAY_CREATE_ITEM`, `MONDAY_UPDATE_ITEM`, `MONDAY_CREATE_UPDATE`, and `MONDAY_CREATE_BOARD`, all pinned to `20261101_00`. `MONDAY_UPDATE_ITEM` changes one column per request. Multi-column updates run sequentially and are **not atomic**: an error identifies completed columns, the unconfirmed column, and unattempted remaining columns. No rollback or automatic retry occurs. SDK execution disables HTTP retries; intercepted HTTP 500 tests verify one attempt.
+
+Each dispatched write shows progress and a result card. A successful write returns the confirmed created or updated ID, including when Composio wraps the Monday response in `raw_response`. Desktop notifications are reserved for connecting and disconnecting Monday.com. Invalid MCP schema inputs are rejected by the SDK before execution; malformed column JSON is reported through the write feedback handler. Missing or malformed provider IDs produce an uncertain-outcome error. Check Monday before retrying any uncertain write to avoid duplicates.
+
+Pass 2 verification exercises the real MCP server and Composio SDK with intercepted HTTP responses for all four tools. It covers account and version routing, partial updates, missing targets, permission and GraphQL failures, malformed columns, the live create response envelope, and the absence of business notifications. For an in-app check, refresh the installed runtime using `AGENTS.md` and verify a dedicated create-board → create-item → retrieve → update → comment workflow.
 
 ## Setup
 
@@ -73,7 +95,7 @@ bun test
 bun run build
 ```
 
-Tests run a disposable copy of the real MCP server with the real Composio SDK. All HTTP and browser calls are intercepted locally; real credentials and installed OAuth state are never loaded. Coverage includes the exact five-tool allowlist and manifest/schema parity, confirmation contracts, OAuth completion/reuse/recovery, concurrent account calls, disconnect revocation/fallback/failures, credential redaction, and notifications. Read coverage includes saved-account/version routing, progress, filters, page/cursor pagination, column-value preservation, invalid inputs, empty and malformed results, GraphQL/HTTP failures, and expired/revoked/disabled connections.
+Tests run a disposable copy of the real MCP server with the real Composio SDK. All HTTP and browser calls are intercepted locally; real credentials and installed OAuth state are never loaded. Coverage includes the exact nine-tool allowlist and manifest/schema parity, confirmation contracts, OAuth completion/reuse/recovery, concurrent account calls, disconnect revocation/fallback/failures, credential redaction, and notifications. Read coverage includes saved-account/version routing, progress, filters, page/cursor pagination, column-value preservation, invalid inputs, empty and malformed results, GraphQL/HTTP failures, and expired/revoked/disabled connections.
 
 Manual checks in VoiceOS are still required for rendered confirmation/result cards and notifications, and a live Monday login is required to verify real consent. The integration does not claim that offline tests verify provider token refresh.
 

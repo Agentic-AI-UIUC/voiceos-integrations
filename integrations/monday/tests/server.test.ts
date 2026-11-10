@@ -14,7 +14,7 @@ const manifest = JSON.parse(readFileSync(join(ROOT, "voiceos.integration.json"),
 const KEY = "offline-monday-key-only";
 const IDENTITY = { userId: "voiceos-monday-test" };
 const ACTIVE = { ...IDENTITY, accountId: "ca_test" };
-const TOOLS = ["connect_account", "connection_status", "disconnect_account", "get_boards", "get_items"];
+const TOOLS = ["connect_account", "connection_status", "disconnect_account", "get_boards", "get_items", "create_item", "update_item_values", "create_update", "create_board"].sort();
 const directory = mkdtempSync(join(tmpdir(), "voiceos-monday-tests-"));
 const statePath = join(directory, ".composio-auth.json");
 const scenarioPath = join(directory, "scenario.json");
@@ -73,7 +73,7 @@ beforeEach(() => {
 afterEach(() => {
   expect(events().filter(event => event.kind === "unexpected")).toEqual([]);
   const executions = events().filter(event => event.path?.includes("/tools/execute/"));
-  expect(executions.every(event => ["MONDAY_BOARDS", "MONDAY_GET_ITEMS", "MONDAY_ITEMS_PAGE"].includes(event.path!.split("/").at(-1)!))).toBe(true);
+  expect(executions.every(event => ["MONDAY_BOARDS", "MONDAY_GET_ITEMS", "MONDAY_ITEMS_PAGE", "MONDAY_CREATE_ITEM", "MONDAY_UPDATE_ITEM", "MONDAY_CREATE_UPDATE", "MONDAY_CREATE_BOARD"].includes(event.path!.split("/").at(-1)!))).toBe(true);
 });
 afterAll(async () => {
   try { await client?.close(); } finally {
@@ -83,7 +83,7 @@ afterAll(async () => {
 });
 
 describe("account tools contract", () => {
-  test("exposes exactly three account tools and two reads, matching manifest inputs and confirmations", async () => {
+  test("exposes exactly three account tools, two reads, and four writes, matching manifest inputs and confirmations", async () => {
     const { tools } = await client.listTools();
     expect(tools.map(tool => tool.name).sort()).toEqual(TOOLS);
     expect(manifest.tools.map((tool: { name: string }) => tool.name).sort()).toEqual(tools.map(tool => tool.name).sort());
@@ -96,6 +96,11 @@ describe("account tools contract", () => {
         expect(declared.confirmation).toBeUndefined();
         expect(declared.uiCallable).toBe(true);
         expect(actual.annotations?.readOnlyHint).toBe(true);
+      } else if (["create_item", "update_item_values", "create_update", "create_board"].includes(actual.name)) {
+        expect(declared.confirmation).toBeUndefined();
+        expect(actual.annotations?.readOnlyHint).toBe(false);
+        expect(actual.annotations?.idempotentHint).toBe(false);
+        expect(actual.inputSchema.required).toEqual(declared.inputSchema.required);
       } else {
         expect(declared.confirmation.root.footer[0].items.map((item: { role: string }) => item.role).sort()).toEqual(["cancel", "confirm"]);
         expect(declared.execution.mode).toBe(actual.name === "connect_account" ? "sync" : "background");
@@ -103,7 +108,7 @@ describe("account tools contract", () => {
     }
   });
   test("rejects unknown tools and unexpected account arguments", async () => {
-    expect((await invoke("create_item")).isError).toBe(true);
+    expect((await invoke("delete_board", { board_id: 1 })).isError).toBe(true);
     expect((await invoke("connect_account", { accountId: "someone-else" })).isError).toBe(true);
     expect((await invoke("connection_status", { extra: true })).isError).toBe(true);
     expect(events()).toEqual([]);
@@ -666,4 +671,123 @@ test("new authorization returns an actionable pending result without waiting for
   expect(saved().pending.id).toBe("ca_pending");
   expect(events().filter(event => /\/connected_accounts\//.test(event.path ?? ""))).toEqual([]);
   expect(manifest.tools.find((tool: { name: string }) => tool.name === "connect_account").execution.mode).toBe("sync");
+});
+
+
+describe("Monday write tools", () => {
+  test("reads the created ID from Composio's live response envelope", async () => {
+    scenario({
+      toolData: {
+        raw_response: {
+          data: { create_item: { id: "456" } },
+          extensions: { request_id: "fixture" },
+        },
+      },
+    });
+    const result = await invoke("create_item", { board_id: 123, item_name: "Test item" });
+    expect(result.isError).toBe(false);
+    expect(result.body.id).toBe("456");
+    expect(result.body._voiceos_glance.blocks[0].trailing).toBe("Success");
+    expect(notifications).toEqual([]);
+  });
+
+  test("reports GraphQL errors inside raw_response even when partial data includes an ID", async () => {
+    scenario({
+      toolData: {
+        raw_response: {
+          data: { create_item: { id: "456" } },
+          errors: [{ message: "Access denied" }],
+        },
+      },
+    });
+    const result = await invoke("create_item", { board_id: 123, item_name: "Test item" });
+    expect(result.isError).toBe(true);
+    expect(result.body.error).toContain("Access denied");
+    expect(result.body.id).toBeUndefined();
+    expect(notifications).toEqual([]);
+  });
+
+  const cases = [
+    { name: "create_item", args: { board_id: 123, item_name: "New task", column_values: '{"status":{"label":"Done"}}' }, action: "MONDAY_CREATE_ITEM", response: { create_item: { id: "456" } }, routed: { board_id: "123", item_name: "New task", column_values: '{"status":{"label":"Done"}}' } },
+    { name: "update_item_values", args: { board_id: 123, item_id: 456, column_values: { status: { label: "Done" }, text: "Hello" } }, action: "MONDAY_UPDATE_ITEM", response: { change_column_value: { id: "456" } }, routed: { board_id: "123", item_id: "456", column_id: "status", value: { label: "Done" } } },
+    { name: "create_update", args: { item_id: 456, body: "A comment" }, action: "MONDAY_CREATE_UPDATE", response: { create_update: { id: "789" } }, routed: { item_id: 456, body: "A comment" } },
+    { name: "create_board", args: { board_name: "Test board", board_kind: "private", workspace_id: 123 }, action: "MONDAY_CREATE_BOARD", response: { create_board: { id: "987" } }, routed: { board_name: "Test board", board_kind: "private", workspace_id: 123 } },
+  ];
+  for (const c of cases) {
+    test(`${c.name} returns the confirmed ID and result card without a desktop notification`, async () => {
+      scenario({ toolData: { data: c.response } });
+      const result = await invoke(c.name, c.args);
+      expect(result.isError).toBe(false);
+      expect(result.body.id).toBeTruthy();
+      expect(result.body.notificationQueued).toBe(false);
+      expect(result.body._voiceos_glance.blocks[0].trailing).toBe("Success");
+      const calls = events().filter(e => e.path?.includes("/tools/execute/"));
+      expect(calls[0]).toMatchObject({ path: `/api/v3.1/tools/execute/${c.action}`, body: {
+        connected_account_id: "ca_test", user_id: IDENTITY.userId, version: "20261101_00", arguments: c.routed,
+      } });
+      // Compare actual HTTP arguments to the independently retrieved catalog contract.
+      const catalog = JSON.parse(readFileSync(join(ROOT, "tests/catalog", `${c.action}.json`), "utf8"));
+      expect(catalog.version).toBe("20261101_00");
+      for (const call of calls) {
+        const args = call.body!.arguments as Record<string, unknown>;
+        for (const key of catalog.inputSchema.required) expect(args[key]).toBeDefined();
+        for (const [key, value] of Object.entries(args)) {
+          const property = catalog.inputSchema.properties[key];
+          expect(property).toBeDefined();
+          if (property.type === "string") expect(typeof value).toBe("string");
+          if (property.type === "integer") expect(Number.isSafeInteger(value)).toBe(true);
+          if (property.enum) expect(property.enum).toContain(value);
+        }
+      }
+      expect(calls).toHaveLength(c.name === "update_item_values" ? 2 : 1);
+      expect(notifications).toEqual([]);
+    });
+    for (const failure of [
+      { toolHttpStatus: 500 }, { toolHttpStatus: 403 },
+      { toolSuccessful: false, toolError: "Missing target" },
+      { toolData: { errors: [{ message: "Permission denied" }] } },
+      { toolData: {} }, { accountStatus: "EXPIRED" },
+    ]) test(`${c.name} reports failure without retry: ${JSON.stringify(failure)}`, async () => {
+      scenario(failure);
+      const result = await invoke(c.name, c.args);
+      expect(result.isError).toBe(true);
+      expect(result.body.error).toBeTruthy();
+      expect(notifications).toEqual([]);
+      expect(events().filter(e => e.path?.includes("/tools/execute/")).length).toBeLessThanOrEqual(1);
+    });
+  }
+  test.each(["bad JSON", "[]", "null", "{}", '{"":1}'])("rejects malformed column values %s before writes", async columns => {
+    for (const name of ["create_item", "update_item_values"]) {
+      const args = name === "create_item" ? { board_id: 123, item_name: "Task", column_values: columns } : { board_id: 123, item_id: 456, column_values: columns };
+      expect((await invoke(name, args)).isError).toBe(true);
+    }
+    expect(events()).toEqual([]);
+    expect(notifications).toEqual([]);
+  });
+  test("reports partial changes and stops after a failed column", async () => {
+    scenario({ failColumn: "blocked", toolData: { change_column_value: { id: "456" } } });
+    const result = await invoke("update_item_values", { board_id: 123, item_id: 456, column_values: { text: "Saved", blocked: "Denied", last: "Untouched" } });
+    expect(result.isError).toBe(true);
+    expect(result.body.error).toContain("completed columns: text");
+    expect(result.body.error).toContain("Could not confirm column blocked");
+    expect(events().filter(e => e.path?.includes("/tools/execute/"))).toHaveLength(2);
+    expect(notifications).toEqual([]);
+  });
+  test.each([
+    ["create_item", {}], ["create_item", { board_id: 1, item_name: " " }],
+    ["create_update", { body: "Missing target" }], ["create_update", { item_id: 1, body: " " }],
+    ["update_item_values", { item_id: 1, column_values: { text: "Missing board" } }],
+    ["create_board", { board_name: "Board" }],
+    ["create_board", { board_name: "Board", board_kind: "public", board_owner_ids: [1] }],
+  ])("rejects missing/invalid write inputs for %s", async (name, args) => {
+    expect((await invoke(name as string, args as Record<string, unknown>)).isError).toBe(true);
+    expect(events()).toEqual([]);
+  });
+});
+
+test("validates all update values before changing any columns", async () => {
+  const result = await invoke("update_item_values", { board_id: 123, item_id: 456, column_values: { text: "Must not write", status: null } });
+  expect(result.isError).toBe(true);
+  expect(events()).toEqual([]);
+  expect(notifications).toEqual([]);
 });

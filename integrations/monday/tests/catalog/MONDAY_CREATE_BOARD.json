@@ -1,0 +1,113 @@
+{
+  "version": "20261101_00",
+  "inputSchema": {
+    "type": "object",
+    "title": "CreateMondayBoardRequest",
+    "required": [
+      "board_name",
+      "board_kind"
+    ],
+    "properties": {
+      "folder_id": {
+        "type": "integer",
+        "title": "Folder Id",
+        "examples": [
+          "123456"
+        ],
+        "description": "ID of the folder for the board. If `workspace_id` is absent, the board uses this folder's containing workspace. If `workspace_id` is present, this folder must be within the specified workspace."
+      },
+      "board_kind": {
+        "enum": [
+          "public",
+          "private",
+          "share"
+        ],
+        "type": "string",
+        "title": "Board Kind",
+        "examples": [
+          "public",
+          "private",
+          "share"
+        ],
+        "description": "The kind of board to create, determining its visibility and access."
+      },
+      "board_name": {
+        "type": "string",
+        "title": "Board Name",
+        "examples": [
+          "Project Phoenix Tasks",
+          "Q3 Marketing Roadmap"
+        ],
+        "description": "The name for the new board."
+      },
+      "description": {
+        "type": "string",
+        "title": "Description",
+        "examples": [
+          "Central board for tracking all Project Phoenix deliverables.",
+          "Roadmap and initiatives for the Q3 marketing campaign."
+        ],
+        "description": "Description for the new board."
+      },
+      "template_id": {
+        "type": "integer",
+        "title": "Template Id",
+        "examples": [
+          "111222333"
+        ],
+        "description": "ID of an accessible template to use for the new board."
+      },
+      "workspace_id": {
+        "type": "integer",
+        "title": "Workspace Id",
+        "examples": [
+          789012
+        ],
+        "description": "Numeric ID of the workspace for the board. Use MONDAY_GET_WORKSPACES action to retrieve valid workspace IDs. This field is optional - if omitted, the board is created in the default workspace. If `folder_id` is given, this workspace must contain that folder."
+      },
+      "board_owner_ids": {
+        "type": "array",
+        "items": {
+          "type": "integer"
+        },
+        "title": "Board Owner Ids",
+        "examples": [
+          [
+            "1234567",
+            "7654321"
+          ]
+        ],
+        "description": "User IDs to be assigned as owners of the board."
+      },
+      "board_subscriber_ids": {
+        "type": "array",
+        "items": {
+          "type": "integer"
+        },
+        "title": "Board Subscriber Ids",
+        "examples": [
+          [
+            "1122334",
+            "5566778"
+          ]
+        ],
+        "description": "User IDs to be subscribed to the board."
+      },
+      "board_subscriber_teams_ids": {
+        "type": "array",
+        "items": {
+          "type": "integer"
+        },
+        "title": "Board Subscriber Teams Ids",
+        "examples": [
+          [
+            "98765",
+            "54321"
+          ]
+        ],
+        "description": "Team IDs to be subscribed to the board."
+      }
+    },
+    "description": "Request to create a new board in Monday.com, specifying its name, kind, and optional properties."
+  }
+}

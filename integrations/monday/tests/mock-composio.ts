@@ -15,6 +15,7 @@ export type Scenario = {
   errorMessage?: string;
   watchBackgroundConnect?: boolean;
   pollIntervalMs?: number;
+  failColumn?: string;
   toolData?: Record<string, unknown>;
   toolSuccessful?: boolean;
   toolError?: string;
@@ -50,7 +51,7 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
   }
   record({ kind: "request", path, method: request.method, body, ...(path.includes("/tools/") ? { version: url.searchParams.get("version") } : {}) });
   if (url.origin === "https://backend.composio.dev") {
-    const tool = path.match(/^\/api\/v3\.1\/tools\/(MONDAY_BOARDS|MONDAY_GET_ITEMS|MONDAY_ITEMS_PAGE)$/);
+    const tool = path.match(/^\/api\/v3\.1\/tools\/(MONDAY_BOARDS|MONDAY_GET_ITEMS|MONDAY_ITEMS_PAGE|MONDAY_CREATE_ITEM|MONDAY_UPDATE_ITEM|MONDAY_CREATE_UPDATE|MONDAY_CREATE_BOARD)$/);
     if (tool && request.method === "GET") {
       return respond({
         slug: tool[1], name: tool[1], description: "Offline read tool", version: "20261101_00",
@@ -59,9 +60,11 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
         tags: ["readOnlyHint"],
       });
     }
-    const execute = path.match(/^\/api\/v3\.1\/tools\/execute\/(MONDAY_BOARDS|MONDAY_GET_ITEMS|MONDAY_ITEMS_PAGE)$/);
+    const execute = path.match(/^\/api\/v3\.1\/tools\/execute\/(MONDAY_BOARDS|MONDAY_GET_ITEMS|MONDAY_ITEMS_PAGE|MONDAY_CREATE_ITEM|MONDAY_UPDATE_ITEM|MONDAY_CREATE_UPDATE|MONDAY_CREATE_BOARD)$/);
     if (execute && request.method === "POST") {
-      return config.toolHttpStatus
+      return config.failColumn && body?.arguments?.column_id === config.failColumn
+        ? respond({ successful: false, error: "Column permission denied", data: {} })
+        : config.toolHttpStatus
         ? respond({ message: config.errorMessage ?? "Test tool unavailable" }, config.toolHttpStatus)
         : respond({
           successful: config.toolSuccessful ?? true, error: config.toolError ?? null,

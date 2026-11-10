@@ -8,7 +8,7 @@ import { readFile, writeFile, rename } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { setTimeout as delay } from "node:timers/promises";
 
-const server = new McpServer({ name: "composio-monday", version: "0.1.1" });
+const server = new McpServer({ name: "composio-monday", version: "0.1.3" });
 const stateFile = new URL("./.composio-auth.json", import.meta.url);
 const stateSchema = z
   .object({
@@ -45,9 +45,18 @@ const readActions = [
   "MONDAY_GET_ITEMS",
   "MONDAY_ITEMS_PAGE",
 ] as const;
-type ReadAction = (typeof readActions)[number];
+const writeActions = ["MONDAY_CREATE_ITEM", "MONDAY_UPDATE_ITEM", "MONDAY_CREATE_UPDATE", "MONDAY_CREATE_BOARD"] as const;
+const approvedActions = [...readActions, ...writeActions];
+type Action = (typeof approvedActions)[number];
+type WriteOutput = { status: string; message: string; id: string; completedColumns?: string[] };
 const id = () => z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 const ids = () => z.array(id()).min(1).max(100);
+const nonempty = () => z.string().trim().min(1);
+const columnValues = () => z.union([z.string(), z.record(z.unknown())]);
+const createItemSchema = z.object({ board_id: id(), item_name: nonempty().max(256), group_id: nonempty().optional(), column_values: columnValues().optional() }).strict();
+const updateItemValuesSchema = z.object({ board_id: id(), item_id: id(), column_values: columnValues() }).strict();
+const createUpdateSchema = z.object({ item_id: id(), body: nonempty() }).strict();
+const createBoardSchema = z.object({ board_name: nonempty(), board_kind: z.enum(["public", "private", "share"]), workspace_id: id().optional(), folder_id: id().optional(), description: nonempty().optional() }).strict();
 const getBoardsSchema = z
   .object({
     ids: ids().optional(),
@@ -247,12 +256,12 @@ function providerError(message: string): Error {
   return new Error(`Monday.com request failed: ${message}`);
 }
 
-async function executeRead(action: ReadAction, args: Record<string, unknown>) {
-  if (!readActions.includes(action))
+async function executeAction(action: Action, args: Record<string, unknown>) {
+  if (!approvedActions.includes(action))
     throw new Error("This Monday.com operation is not approved.");
   if (disconnecting)
     throw new Error(
-      "Monday.com is disconnecting. Wait for it to finish before reading boards or items.",
+      "Monday.com is disconnecting. Wait for it to finish before making another request.",
     );
   const signal = AbortSignal.timeout(20000);
   const state = await load();
@@ -280,7 +289,7 @@ async function executeRead(action: ReadAction, args: Record<string, unknown>) {
     );
   } catch (error) {
     if (signal.aborted)
-      throw new Error("Monday.com request timed out. Try the read again.");
+      throw new Error("Monday.com request timed out. Check Monday.com before retrying; the operation may already have completed.");
     if (httpStatus(error) === 401)
       throw new Error(
         "Composio rejected your API key. Update it in Monday.com settings; reconnecting alone will not fix the key.",
@@ -297,8 +306,10 @@ async function executeRead(action: ReadAction, args: Record<string, unknown>) {
     throw providerError(
       result.error || "Composio reported an unsuccessful execution.",
     );
-  // Composio actions can return the GraphQL envelope or its unwrapped data.
-  let data = result.data;
+  // Composio can wrap the Monday GraphQL response in raw_response.
+  // Check errors at each layer before reading any returned records or IDs.
+  let data = record(result.data);
+  if (!data) throw new Error("Monday.com returned an unexpected result. Check Monday.com before retrying a write.");
   for (;;) {
     if (
       data.errors &&
@@ -308,7 +319,7 @@ async function executeRead(action: ReadAction, args: Record<string, unknown>) {
     }
     if (data.error || data.error_message)
       throw providerError(String(data.error_message ?? data.error));
-    const nested = record(data.data);
+    const nested = record(data.raw_response) ?? record(data.data);
     if (!nested) return data;
     data = nested;
   }
@@ -377,12 +388,65 @@ function readGlance(data: ReadOutput) {
   ];
 }
 
+// Validate every column before executing any write. Keep canonical JSON conversion here.
+function normalizeColumns(value: string | Record<string, unknown>): Record<string, unknown> {
+  let parsed: unknown;
+  try { parsed = typeof value === "string" ? JSON.parse(value) : value; }
+  catch { throw new Error("column_values must be a valid JSON object keyed by column ID."); }
+  const columns = record(parsed);
+  if (!columns || !Object.keys(columns).length || Object.keys(columns).some(key => !key.trim()))
+    throw new Error("column_values must be a nonempty JSON object keyed by column ID.");
+  return JSON.parse(JSON.stringify(columns));
+}
+function writeResult(data: Record<string, unknown>, keys: string[], message: string): WriteOutput {
+  const target = keys.map(key => record(data[key])).find(Boolean) ?? data;
+  if ((typeof target.id !== "string" && typeof target.id !== "number") || !String(target.id).trim())
+    throw new Error("Monday.com did not return a confirmed object ID. Check Monday.com before retrying; the write may have completed.");
+  return { status: "Success", message, id: String(target.id) };
+}
+async function createItem(input: z.infer<typeof createItemSchema>): Promise<WriteOutput> {
+  const { column_values, ...args } = input;
+  const data = await executeAction("MONDAY_CREATE_ITEM", {
+    ...args, board_id: String(input.board_id),
+    ...(column_values !== undefined ? { column_values: JSON.stringify(normalizeColumns(column_values)) } : {}),
+  });
+  return writeResult(data, ["create_item"], `Created item "${input.item_name}".`);
+}
+async function updateItemValues(input: z.infer<typeof updateItemValuesSchema>): Promise<WriteOutput> {
+  const columns = normalizeColumns(input.column_values);
+  // UPDATE_ITEM accepts scalar/object values and flat arrays, but not null.
+  const validValue = (value: unknown): boolean => value !== null &&
+    (!Array.isArray(value) || value.every(entry => entry !== null && !Array.isArray(entry)));
+  if (Object.values(columns).some(value => !validValue(value)))
+    throw new Error("Column values cannot be null or contain nested arrays/null array entries for this Composio action.");
+  const completed: string[] = [];
+  for (const [column_id, value] of Object.entries(columns)) {
+    try {
+      const data = await executeAction("MONDAY_UPDATE_ITEM", {
+        board_id: String(input.board_id), item_id: String(input.item_id), column_id, value,
+      });
+      const result = writeResult(data, ["change_column_value", "update_item"], "Updated item.");
+      if (result.id !== String(input.item_id)) throw new Error("Monday.com returned an unexpected item ID.");
+      completed.push(column_id);
+    } catch (error) {
+      throw new Error(`Item ${input.item_id}: completed columns: ${completed.join(", ") || "none"}. Could not confirm column ${column_id}; remaining columns were not attempted. ${error instanceof Error ? error.message : "Write failed."} Check Monday.com before retrying.`);
+    }
+  }
+  return { status: "Success", message: `Updated ${completed.length} column(s) on item ${input.item_id}.`, id: String(input.item_id), completedColumns: completed };
+}
+async function createUpdate(input: z.infer<typeof createUpdateSchema>): Promise<WriteOutput> {
+  return writeResult(await executeAction("MONDAY_CREATE_UPDATE", input), ["create_update"], "Posted update/comment.");
+}
+async function createBoard(input: z.infer<typeof createBoardSchema>): Promise<WriteOutput> {
+  return writeResult(await executeAction("MONDAY_CREATE_BOARD", input), ["create_board"], `Created board "${input.board_name}".`);
+}
+
 async function getBoards(
   input: z.infer<typeof getBoardsSchema>,
 ): Promise<ReadOutput> {
   const page = input.page ?? 1;
   const limit = input.limit ?? 25;
-  const data = await executeRead("MONDAY_BOARDS", { ...input, page, limit });
+  const data = await executeAction("MONDAY_BOARDS", { ...input, page, limit });
   const boards = records(data.boards);
   return {
     resultType: "boards",
@@ -432,7 +496,7 @@ async function getItems(
   const limit = input.limit ?? 25;
   if (input.ids) {
     const page = input.page ?? 1;
-    const data = await executeRead("MONDAY_GET_ITEMS", {
+    const data = await executeAction("MONDAY_GET_ITEMS", {
       ...args,
       page,
       limit,
@@ -450,7 +514,7 @@ async function getItems(
       },
     };
   }
-  const data = await executeRead("MONDAY_ITEMS_PAGE", {
+  const data = await executeAction("MONDAY_ITEMS_PAGE", {
     ...args,
     limit,
     include_column_values: true,
@@ -627,11 +691,11 @@ async function progress(extra: ProgressContext, message: string, done = false) {
 async function feedback(
   title: string,
   extra: ProgressContext,
-  run: () => Promise<Output | ReadOutput>,
-  notifyResult = true,
+  run: () => Promise<Output | ReadOutput | WriteOutput>,
+  notifyResult = false,
 ) {
   await progress(extra, `${title}…`);
-  let data: Output | ReadOutput | { error: string };
+  let data: Output | ReadOutput | WriteOutput | { error: string };
   let isError = false;
   try {
     data = await run();
@@ -709,7 +773,7 @@ server.registerTool(
           connecting = undefined;
         });
       return await connecting;
-    }),
+    }, true),
 );
 
 server.registerTool(
@@ -778,7 +842,7 @@ server.registerTool(
           disconnecting = undefined;
         });
       return await disconnecting;
-    }),
+    }, true),
 );
 
 server.registerTool(
@@ -814,5 +878,25 @@ server.registerTool(
   async (input, extra) =>
     feedback("Get items", extra, () => getItems(input), false),
 );
+
+server.registerTool("create_item", {
+  title: "Create Monday.com item", description: "Create an item on a specific Monday.com board, optionally in a group with JSON column values. Use actual board and column IDs. Do not retry automatically; check Monday.com after an uncertain outcome.", inputSchema: createItemSchema,
+  annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+}, async (input, extra) => feedback("Create Monday.com item", extra, () => createItem(input)));
+
+server.registerTool("update_item_values", {
+  title: "Update Monday.com item values", description: "Update column values on a specific Monday.com item and board. column_values is a JSON object keyed by column ID. Columns are applied sequentially, not atomically; failures report completed columns. Do not retry automatically.", inputSchema: updateItemValuesSchema,
+  annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+}, async (input, extra) => feedback("Update Monday.com item values", extra, () => updateItemValues(input)));
+
+server.registerTool("create_update", {
+  title: "Create Monday.com update/comment", description: "Post a comment/update on a specific existing Monday.com item. Requires item_id and a nonempty body. Do not retry automatically after an uncertain outcome.", inputSchema: createUpdateSchema,
+  annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+}, async (input, extra) => feedback("Create Monday.com update/comment", extra, () => createUpdate(input)));
+
+server.registerTool("create_board", {
+  title: "Create Monday.com board", description: "Create a Monday.com board with an explicit name and visibility, optionally in a workspace/folder. Does not modify memberships. Do not retry automatically after an uncertain outcome.", inputSchema: createBoardSchema,
+  annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+}, async (input, extra) => feedback("Create Monday.com board", extra, () => createBoard(input)));
 
 await server.connect(new StdioServerTransport());
