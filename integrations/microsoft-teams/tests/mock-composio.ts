@@ -4,11 +4,15 @@
 // MOCK_SIGN_IN: "complete" (default), "pending" or "failed".
 // MOCK_REVOKE: "ok" (default) or "unsupported".
 // MOCK_DELETE: "ok" (default), "denied" (key has no write access) or "ignored" (stays connected).
+// MOCK_CALENDAR: "ok" (default), "no_join_link", "no_scope" (sign-in lacks Calendars.ReadWrite),
+// "expired" (Microsoft rejects the token), "graph_error", "key_denied" (key lacks Proxy execute),
+// "rejected" (Composio refuses the request), or "network" (the answer never comes back).
 let connection = process.env.MOCK_CONNECTION ?? "active";
 let accountIds = connection === "none" ? [] : ["ca_test", "ca_duplicate"];
 const SIGN_IN = process.env.MOCK_SIGN_IN ?? "complete";
 const REVOKE = process.env.MOCK_REVOKE ?? "ok";
 const DELETE = process.env.MOCK_DELETE ?? "ok";
+const CALENDAR = process.env.MOCK_CALENDAR ?? "ok";
 const SESSION_ID = "trs_test";
 const USER_GUID = "8ea0e38b-efb3-4757-924a-5f94061cf8c2";
 
@@ -52,13 +56,44 @@ function execute(slug: string, args: Record<string, any>): Response {
       return completed({ id: "m-new", body: { content: args.content } });
     case "MICROSOFT_TEAMS_POST_MESSAGE_REPLY":
       return completed({ id: "r-new", replyToId: args.message_id });
-    case "MICROSOFT_TEAMS_CREATE_MEETING":
-      return completed({ id: "meet-1", subject: args.subject, joinWebUrl: "https://teams.microsoft.com/l/meetup-join/test" });
     case "MICROSOFT_TEAMS_CREATE_CHANNEL":
       return failed("403 Forbidden: Missing scope permissions on the request. API requires one of 'Channel.Create'.");
     default:
       return failed(`Unexpected tool: ${slug}`);
   }
+}
+
+const proxied = (status: number, data: unknown) =>
+  respond({ result_type: "completed", status, data, headers: {} });
+const graphError = (status: number, code: string, message: string) => proxied(status, { error: { code, message } });
+
+// Behaves like Graph's POST /me/events, including refusing a time that has an offset.
+function proxyExecute(body: Record<string, any>): Response {
+  if (CALENDAR === "network") throw new TypeError("fetch failed");
+  if (CALENDAR === "key_denied") return respond({ error: { message: "This API key can't use this route" } }, 403);
+  if (CALENDAR === "rejected") return respond({ error: { message: "Endpoint isn't allowed" } }, 400);
+  if (body?.toolkit_slug !== "microsoft_teams") return respond({ error: { message: "Toolkit isn't enabled in this session" } }, 403);
+  if (body?.method !== "POST" || body?.endpoint !== "https://graph.microsoft.com/v1.0/me/events") {
+    return graphError(404, "NotFound", "Unexpected request");
+  }
+  if (CALENDAR === "expired") return graphError(401, "InvalidAuthenticationToken", "Access token has expired");
+  if (CALENDAR === "no_scope") return graphError(403, "ErrorAccessDenied", "Access is denied. Check credentials and try again.");
+  if (CALENDAR === "graph_error") return graphError(400, "ErrorInvalidRequest", "Your request can't be completed.");
+
+  const event = body.body ?? {};
+  const isGraphTime = (time: any) => /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(time?.dateTime ?? "") && Boolean(time?.timeZone);
+  if (!isGraphTime(event.start) || !isGraphTime(event.end)) return graphError(400, "TimeZoneNotSupportedException", "Invalid time");
+
+  const online = event.isOnlineMeeting === true && event.onlineMeetingProvider === "teamsForBusiness";
+  return proxied(201, {
+    id: "evt-1",
+    subject: event.subject,
+    webLink: "https://outlook.office365.com/owa/?itemid=evt-1",
+    start: event.start,
+    end: event.end,
+    isOnlineMeeting: online,
+    onlineMeeting: online && CALENDAR !== "no_join_link" ? { joinUrl: "https://teams.microsoft.com/l/meetup-join/test" } : null,
+  });
 }
 
 const rawAccount = (id: string, status: string) => ({
@@ -147,6 +182,7 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
     return respond({ redirect_url: "https://connect.composio.dev/link/test", connected_account_id: "ca_new", link_token: "lt_test" });
   }
   if (path === `/tool_router/session/${SESSION_ID}/execute`) return execute(body?.tool_slug, body?.arguments ?? {});
+  if (path === `/tool_router/session/${SESSION_ID}/proxy_execute`) return proxyExecute(body);
   return (
     connectedAccounts(request.method, path) ??
     respond({ error: { message: `Unexpected request: ${request.method} ${path}` } }, 404)
