@@ -421,12 +421,26 @@ export function uploadableText(content: string): { content: string; padded: bool
   return content.length === 0 ? { content: "\n", padded: true } : { content, padded: false };
 }
 
-/** A name that can only ever land directly inside ~/Downloads. */
+// Device names Windows reserves, with or without an extension ("CON", "nul.txt").
+const WINDOWS_RESERVED_NAME = /^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³])(\.|$)/i;
+const MAX_LOCAL_NAME = 200;
+
+/**
+ * A name that can only ever land directly inside the Downloads folder and that
+ * both macOS and Windows accept: no path separators, none of Windows' reserved
+ * characters (< > : " | ? *), no trailing dots or spaces, no device names.
+ */
 export function safeLocalName(requested: string | undefined, itemName: string): string {
   let name = String(requested || "").trim() || itemName;
-  name = name.replace(/[\/\\:\u0000-\u001f]/g, "_").replace(/^\.+/, "").trim();
+  name = name.replace(/[<>:"\/\\|?*\u0000-\u001f]/g, "_").replace(/^\.+/, "").replace(/[. ]+$/, "").trim();
   if (!name) name = "OneDrive download";
-  if (!path.extname(name) && path.extname(itemName)) name += path.extname(itemName);
+  if (WINDOWS_RESERVED_NAME.test(name)) name = `_${name}`;
+  const itemExt = path.extname(itemName).replace(/[<>:"\/\\|?*\u0000-\u001f]/g, "_");
+  if (!path.extname(name) && itemExt) name += itemExt;
+  if (name.length > MAX_LOCAL_NAME) {
+    const ext = path.extname(name).slice(0, 20);
+    name = name.slice(0, MAX_LOCAL_NAME - ext.length).replace(/[. ]+$/, "") + ext;
+  }
   return name;
 }
 
@@ -443,7 +457,7 @@ export async function writeUnique(dir: string, name: string, data: Buffer): Prom
       if (err?.code !== "EEXIST") throw err;
     }
   }
-  throw new Error(`Too many files named "${name}" already exist in ~/Downloads.`);
+  throw new Error(`Too many files named "${name}" already exist in your Downloads folder.`);
 }
 
 /** Test hook: forget the auto-discovered connected account. */
@@ -621,7 +635,7 @@ const NEUTRAL_ACCENT = "#8e8e93"; // grey, so the kit's accent wash adds no hue
 const ROW_HEIGHT = 44;
 const READ_MAX_BYTES = 25 * 1024 * 1024;
 
-const server = new McpServer({ name: "microsoft-onedrive", version: "1.6.0" });
+const server = new McpServer({ name: "microsoft-onedrive", version: "1.6.1" });
 
 // Every tool handler runs under TOOL_BUDGET_MS (see timeLeft).
 const registerTool = ((name: string, config: any, handler: (...a: any[]) => any) =>
@@ -798,9 +812,19 @@ function card(body: string, height: number) {
 
 const listCardHeight = (rows: number) => 50 + Math.min(rows, VISIBLE_ROWS) * ROW_HEIGHT;
 
-function copyToMacClipboard(text: string): boolean {
+/** The OS clipboard command: pbcopy on macOS, clip.exe on Windows. */
+export function clipboardCommand(platform: NodeJS.Platform = process.platform): string | null {
+  if (platform === "darwin") return "pbcopy";
+  if (platform === "win32") return "clip";
+  return null;
+}
+
+function copyToClipboard(text: string): boolean {
+  const cmd = clipboardCommand();
+  if (!cmd) return false;
   try {
-    const res = spawnSync("pbcopy", { input: text, timeout: 2000 });
+    // Share links are plain ASCII, so clip.exe's code-page handling can't mangle them.
+    const res = spawnSync(cmd, { input: text, timeout: 2000, windowsHide: true });
     return res.status === 0;
   } catch (err) {
     console.error("Clipboard write skipped:", err);
@@ -909,10 +933,10 @@ registerTool(
   "download_file",
   {
     title: "Download file",
-    description: "Download a file from Microsoft OneDrive into the Mac's ~/Downloads folder (never overwrites; adds ' (1)' if the name is taken). Use when the user asks to download, save locally, or fetch a OneDrive file. Call it directly with the name the user said (with or without extension, optionally with its folder); don't search first. If several files match, the error lists them.",
+    description: "Download a file from Microsoft OneDrive into the computer's Downloads folder (never overwrites; adds ' (1)' if the name is taken). Use when the user asks to download, save locally, or fetch a OneDrive file. Call it directly with the name the user said (with or without extension, optionally with its folder); don't search first. If several files match, the error lists them.",
     inputSchema: {
       item_path: z.string().describe("File name as the user said it, path (e.g. 'Documents/Report.pdf'), or item id"),
-      file_name: z.string().optional().describe("Optional file name to save as inside ~/Downloads"),
+      file_name: z.string().optional().describe("Optional file name to save as inside the Downloads folder"),
     },
   },
   async (args) => {
@@ -930,8 +954,8 @@ registerTool(
 
     const rendered = card(
       header("OneDrive", tag("Downloaded")) +
-        hero(ICONS.download, savedName, "Saved to your Mac · open in OneDrive", item?.webUrl) +
-        facts([["Size", fileSizeStr], ["Folder", "~/Downloads"]]) +
+        hero(ICONS.download, savedName, "Saved to this computer · open in OneDrive", item?.webUrl) +
+        facts([["Size", fileSizeStr], ["Folder", process.platform === "win32" ? "Downloads" : "~/Downloads"]]) +
         `<div class="mono">${esc(localTarget)}</div>`,
       190,
     );
@@ -1140,7 +1164,7 @@ registerTool(
   "create_share_link",
   {
     title: "Create share link",
-    description: "Create a sharing link for a Microsoft OneDrive file or folder and copy it to the Mac clipboard. Use when the user asks to share a file, get a link to it, or let someone view or edit it. By default anyone who has the link can open it; pass audience 'organization' when the user wants only people in their work or school organization. Call it directly with the name the user said (with or without extension, optionally with its folder); don't search first. If several files match, the error lists them.",
+    description: "Create a sharing link for a Microsoft OneDrive file or folder and copy it to the clipboard. Use when the user asks to share a file, get a link to it, or let someone view or edit it. By default anyone who has the link can open it; pass audience 'organization' when the user wants only people in their work or school organization. Call it directly with the name the user said (with or without extension, optionally with its folder); don't search first. If several files match, the error lists them.",
     inputSchema: {
       item_path: z.string().describe("File or folder name as the user said it, path (e.g. 'Documents/Report.docx'), or item id"),
       scope: z.enum(["view", "edit"]).or(z.literal("")).optional().describe("Link permission: 'view' for read-only or 'edit' to allow editing (default: 'view')"),
@@ -1159,7 +1183,7 @@ registerTool(
     const perm = await composio("ONE_DRIVE_CREATE_LINK", { item_id: item.id, type, scope }, { write: `created a share link for "${itemName}"` });
     const shareUrl = httpsUrl(perm?.link?.webUrl || perm?.webUrl);
     if (!shareUrl) throw new Error(`OneDrive didn't return a sharing link for "${itemName}".`);
-    const copied = copyToMacClipboard(shareUrl);
+    const copied = copyToClipboard(shareUrl);
     const permLabel = (perm?.link?.type || type) === "edit" ? "Can edit" : "Can view";
     const audience = LINK_SCOPE_LABELS[String(perm?.link?.scope || scope)];
 
