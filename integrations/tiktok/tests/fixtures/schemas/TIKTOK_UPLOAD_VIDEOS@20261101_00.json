@@ -1,0 +1,373 @@
+{
+  "slug": "TIKTOK_UPLOAD_VIDEOS",
+  "name": "Upload videos (batch)",
+  "toolkit": {
+    "slug": "tiktok",
+    "name": "tiktok",
+    "logo": "https://logos.composio.dev/api/tiktok"
+  },
+  "description": "Uploads multiple videos to TikTok concurrently, either to the creator's inbox as drafts or using the direct publishing flow. Returns per-file upload results; direct publication status can be checked using the returned publish IDs.",
+  "input_parameters": {
+    "type": "object",
+    "title": "UploadVideosRequest",
+    "required": [
+      "files_to_upload"
+    ],
+    "properties": {
+      "caption": {
+        "type": "string",
+        "title": "Caption",
+        "maxLength": 2200,
+        "description": "Optional caption/title used when publish=true. Max 2200 UTF-16 runes."
+      },
+      "is_aigc": {
+        "type": "boolean",
+        "title": "Is Aigc",
+        "default": false,
+        "description": "Set true to label the videos as AI-generated content."
+      },
+      "publish": {
+        "type": "boolean",
+        "title": "Publish",
+        "default": false,
+        "description": "If true, attempts to publish after each upload using direct publish flow."
+      },
+      "max_workers": {
+        "type": "integer",
+        "title": "Max Workers",
+        "default": 4,
+        "maximum": 16,
+        "minimum": 1,
+        "description": "Maximum number of parallel uploads"
+      },
+      "disable_duet": {
+        "type": "boolean",
+        "title": "Disable Duet",
+        "default": false,
+        "description": "Whether to disable duets on the videos."
+      },
+      "privacy_level": {
+        "enum": [
+          "PUBLIC_TO_EVERYONE",
+          "MUTUAL_FOLLOW_FRIENDS",
+          "FOLLOWER_OF_CREATOR",
+          "SELF_ONLY"
+        ],
+        "type": "string",
+        "title": "PrivacyLevel",
+        "description": "Privacy levels accepted by TikTok's Content Posting API.\n\nThe valid set for a given account is only discoverable via\n``/v2/post/publish/creator_info/query/``. For unaudited apps only\n``SELF_ONLY`` is permitted.\n\nhttps://developers.tiktok.com/doc/content-posting-api-reference-direct-post"
+      },
+      "disable_stitch": {
+        "type": "boolean",
+        "title": "Disable Stitch",
+        "default": false,
+        "description": "Whether to disable stitches on the videos."
+      },
+      "disable_comment": {
+        "type": "boolean",
+        "title": "Disable Comment",
+        "default": false,
+        "description": "Whether to disable comments on the videos."
+      },
+      "files_to_upload": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "title": "FileUploadable",
+          "required": [
+            "name",
+            "mimetype",
+            "s3key"
+          ],
+          "properties": {
+            "name": {
+              "type": "string",
+              "title": "Name",
+              "examples": [
+                "document.pdf",
+                "image.jpg",
+                "report.docx"
+              ],
+              "description": "The filename that will be used when uploading the file to the destination service"
+            },
+            "s3key": {
+              "type": "string",
+              "title": "S3Key",
+              "examples": [
+                "47563/gmail/GET_ATTACHMENT/response/12345"
+              ],
+              "description": "The S3 key of a publicly accessible file, typically returned from a previous download action that stored the file in S3. This key references an existing file that can be uploaded to another service."
+            },
+            "mimetype": {
+              "type": "string",
+              "title": "Mimetype",
+              "examples": [
+                "application/pdf",
+                "image/jpeg",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+              ],
+              "description": "The MIME type of the file"
+            }
+          },
+          "file_uploadable": true
+        },
+        "title": "Files To Upload",
+        "minItems": 1,
+        "description": "List of video files to upload to TikTok in parallel (at least one). Files are uploaded whole when possible and split into sequential TikTok-compatible chunks for larger videos. Supports common video formats like MP4, MOV, WebM. Too-long or unsupported-codec files are rejected. Caption (via `caption`) must also be within TikTok's length limit."
+      },
+      "chunk_size_bytes": {
+        "type": "integer",
+        "title": "Chunk Size Bytes",
+        "maximum": 64000000,
+        "minimum": 5000000,
+        "description": "Optional chunk size for multipart uploads. Must be between 5,000,000 and 64,000,000 bytes and must produce a valid TikTok upload plan for every file. Omit this to choose a safe chunk size automatically."
+      },
+      "brand_content_toggle": {
+        "type": "boolean",
+        "title": "Brand Content Toggle",
+        "default": false,
+        "description": "Set true if the content is a paid partnership promoting a third-party business."
+      },
+      "brand_organic_toggle": {
+        "type": "boolean",
+        "title": "Brand Organic Toggle",
+        "default": false,
+        "description": "Set true if the content promotes the creator's own business."
+      },
+      "video_cover_timestamp_ms": {
+        "type": "integer",
+        "title": "Video Cover Timestamp Ms",
+        "description": "Timestamp in milliseconds to use as video cover/thumbnail."
+      }
+    }
+  },
+  "output_parameters": {
+    "type": "object",
+    "$defs": {
+      "TikTokError": {
+        "type": "object",
+        "title": "TikTokError",
+        "required": [
+          "code",
+          "message",
+          "log_id"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code",
+            "description": "Status indicator; 'ok' indicates success, other values indicate specific error types (e.g., 'invalid_param', 'access_token_invalid', 'scope_not_authorized', 'rate_limit_exceeded')."
+          },
+          "log_id": {
+            "type": "string",
+            "title": "Log Id",
+            "description": "Unique execution identifier for tracking the request."
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "Human-readable error description. Empty string when successful."
+          }
+        },
+        "description": "Error information returned by TikTok API"
+      },
+      "BatchItemResult": {
+        "type": "object",
+        "title": "BatchItemResult",
+        "required": [
+          "file_name"
+        ],
+        "properties": {
+          "error": {
+            "type": "string",
+            "title": "Error",
+            "description": "Error message if the upload failed"
+          },
+          "file_name": {
+            "type": "string",
+            "title": "File Name",
+            "description": "Name of the uploaded file"
+          },
+          "publish_id": {
+            "type": "string",
+            "title": "Publish Id",
+            "description": "An identifier to track the posting action, which you can use to check the status. Maximum length: 64 characters."
+          },
+          "upload_url": {
+            "type": "string",
+            "title": "Upload Url",
+            "description": "The URL provided by TikTok where the video file can be uploaded. Maximum length: 256 characters. Only present when source is FILE_UPLOAD. Valid for one hour after issuance."
+          },
+          "tiktok_error": {
+            "$ref": "#/$defs/TikTokError",
+            "title": "Tiktok Error",
+            "description": "Structured error response from TikTok API if available"
+          },
+          "publish_response": {
+            "type": "object",
+            "title": "Publish Response",
+            "description": "Raw JSON publish response if publish=true",
+            "additionalProperties": true
+          },
+          "upload_status_code": {
+            "type": "integer",
+            "title": "Upload Status Code",
+            "description": "HTTP status code from upload PUT request"
+          }
+        },
+        "description": "Result of uploading a single video file in the batch operation"
+      },
+      "UploadVideosResponse": {
+        "type": "object",
+        "title": "UploadVideosResponse",
+        "properties": {
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/BatchItemResult"
+            },
+            "title": "Results",
+            "description": "Per-file upload results"
+          }
+        }
+      }
+    },
+    "title": "UploadVideosResponseWrapper",
+    "required": [
+      "data",
+      "successful"
+    ],
+    "properties": {
+      "data": {
+        "$ref": "#/$defs/UploadVideosResponse",
+        "title": "Data",
+        "description": "Data from the action execution"
+      },
+      "error": {
+        "type": "string",
+        "title": "Error",
+        "description": "Error if any occurred during the execution of the action"
+      },
+      "successful": {
+        "type": "boolean",
+        "title": "Successful",
+        "description": "Whether or not the action execution was successful or not"
+      }
+    }
+  },
+  "tags": [
+    "important",
+    "createHint"
+  ],
+  "available_versions": [
+    "20261101_00",
+    "20260917_00",
+    "20260817_00",
+    "20260730_00",
+    "20260728_00",
+    "20260721_00",
+    "20260708_00",
+    "20260702_00",
+    "20260616_00",
+    "20260615_00",
+    "20260524_00",
+    "20260413_00",
+    "20260409_00",
+    "20260407_00",
+    "20260403_00",
+    "20260327_00",
+    "20260316_00",
+    "20260312_00",
+    "20260307_00",
+    "20260223_00",
+    "20260211_00",
+    "20260204_00",
+    "20260203_00",
+    "20260130_00",
+    "20260128_00",
+    "20260127_00",
+    "20260111_00",
+    "20260107_00",
+    "20251230_00",
+    "20251209_00",
+    "20251208_00",
+    "20251202_01",
+    "20251202_00",
+    "20251023_00",
+    "20251017_00",
+    "20251016_00",
+    "20251006_00",
+    "20250924_00",
+    "20250915_00",
+    "20250908_00",
+    "00000000_00"
+  ],
+  "version": "20261101_00",
+  "scopes": [
+    "video.upload",
+    "video.publish"
+  ],
+  "scope_requirements": {
+    "all_of": [
+      {
+        "any_of": [
+          "video.upload",
+          "video.publish"
+        ]
+      }
+    ]
+  },
+  "is_deprecated": false,
+  "deprecated": {
+    "displayName": "Upload videos (batch)",
+    "is_deprecated": false,
+    "version": "20261101_00",
+    "available_versions": [
+      "20261101_00",
+      "20260917_00",
+      "20260817_00",
+      "20260730_00",
+      "20260728_00",
+      "20260721_00",
+      "20260708_00",
+      "20260702_00",
+      "20260616_00",
+      "20260615_00",
+      "20260524_00",
+      "20260413_00",
+      "20260409_00",
+      "20260407_00",
+      "20260403_00",
+      "20260327_00",
+      "20260316_00",
+      "20260312_00",
+      "20260307_00",
+      "20260223_00",
+      "20260211_00",
+      "20260204_00",
+      "20260203_00",
+      "20260130_00",
+      "20260128_00",
+      "20260127_00",
+      "20260111_00",
+      "20260107_00",
+      "20251230_00",
+      "20251209_00",
+      "20251208_00",
+      "20251202_01",
+      "20251202_00",
+      "20251023_00",
+      "20251017_00",
+      "20251016_00",
+      "20251006_00",
+      "20250924_00",
+      "20250915_00",
+      "20250908_00",
+      "00000000_00"
+    ],
+    "toolkit": {
+      "logo": "https://logos.composio.dev/api/tiktok"
+    }
+  },
+  "no_auth": false
+}

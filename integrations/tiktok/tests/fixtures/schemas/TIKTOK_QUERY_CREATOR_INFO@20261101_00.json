@@ -1,0 +1,179 @@
+{
+  "slug": "TIKTOK_QUERY_CREATOR_INFO",
+  "name": "Query creator info",
+  "toolkit": {
+    "slug": "tiktok",
+    "name": "tiktok",
+    "logo": "https://logos.composio.dev/api/tiktok"
+  },
+  "description": "Queries the authenticated creator's info and current posting options. Returns the account's available `privacy_level_options` and interaction settings (comment/duet/stitch), which the Content Posting API requires you to read before a direct post — the valid `privacy_level` values for an account are only discoverable here. Call this to pick a real privacy level instead of guessing (unaudited apps only ever get SELF_ONLY).",
+  "input_parameters": {
+    "type": "object",
+    "title": "QueryCreatorInfoRequest",
+    "properties": {},
+    "description": "The endpoint takes no parameters — the creator is resolved from the token."
+  },
+  "output_parameters": {
+    "type": "object",
+    "$defs": {
+      "CreatorInfoData": {
+        "type": "object",
+        "title": "CreatorInfoData",
+        "properties": {
+          "duet_disabled": {
+            "type": "boolean",
+            "title": "Duet Disabled",
+            "description": "True if duets are disabled (or the account is private)."
+          },
+          "stitch_disabled": {
+            "type": "boolean",
+            "title": "Stitch Disabled",
+            "description": "True if stitches are disabled (or the account is private)."
+          },
+          "comment_disabled": {
+            "type": "boolean",
+            "title": "Comment Disabled",
+            "description": "True if commenting is disabled for this creator."
+          },
+          "creator_nickname": {
+            "type": "string",
+            "title": "Creator Nickname",
+            "description": "Display name of the creator."
+          },
+          "creator_username": {
+            "type": "string",
+            "title": "Creator Username",
+            "description": "Unique username of the TikTok creator."
+          },
+          "creator_avatar_url": {
+            "type": "string",
+            "title": "Creator Avatar Url",
+            "description": "URL of the creator's avatar, with a 2-hour TTL."
+          },
+          "privacy_level_options": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "title": "Privacy Level Options",
+            "description": "Privacy levels this account may currently post with (e.g. SELF_ONLY, MUTUAL_FOLLOW_FRIENDS, FOLLOWER_OF_CREATOR, PUBLIC_TO_EVERYONE). Pass one of these as privacy_level when publishing. For unaudited apps only SELF_ONLY is returned."
+          },
+          "max_video_post_duration_sec": {
+            "type": "integer",
+            "title": "Max Video Post Duration Sec",
+            "description": "Maximum video length in seconds this creator may post."
+          }
+        },
+        "description": "Creator profile and the posting options currently available to them."
+      },
+      "CreatorInfoError": {
+        "type": "object",
+        "title": "CreatorInfoError",
+        "required": [
+          "code",
+          "message",
+          "log_id"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code",
+            "description": "Status indicator; 'ok' indicates success, other values indicate specific errors."
+          },
+          "log_id": {
+            "type": "string",
+            "title": "Log Id",
+            "description": "Unique identifier for request tracking and debugging purposes."
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "Human-readable error description. Empty string when successful."
+          }
+        },
+        "description": "Error information and request tracking details."
+      },
+      "QueryCreatorInfoResponse": {
+        "type": "object",
+        "title": "QueryCreatorInfoResponse",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/CreatorInfoData",
+            "title": "Data",
+            "description": "Creator profile and available posting options. Omitted when the request fails."
+          },
+          "error": {
+            "$ref": "#/$defs/CreatorInfoError",
+            "title": "Error"
+          }
+        },
+        "description": "Response from TikTok's query creator info endpoint."
+      }
+    },
+    "title": "QueryCreatorInfoResponseWrapper",
+    "required": [
+      "data",
+      "successful"
+    ],
+    "properties": {
+      "data": {
+        "$ref": "#/$defs/QueryCreatorInfoResponse",
+        "title": "Data",
+        "description": "Data from the action execution"
+      },
+      "error": {
+        "type": "string",
+        "title": "Error",
+        "description": "Error if any occurred during the execution of the action"
+      },
+      "successful": {
+        "type": "boolean",
+        "title": "Successful",
+        "description": "Whether or not the action execution was successful or not"
+      }
+    }
+  },
+  "tags": [
+    "readOnlyHint"
+  ],
+  "available_versions": [
+    "20261101_00",
+    "20260917_00",
+    "20260817_00",
+    "20260730_00",
+    "20260728_00"
+  ],
+  "version": "20261101_00",
+  "scopes": [
+    "video.publish"
+  ],
+  "scope_requirements": {
+    "all_of": [
+      {
+        "any_of": [
+          "video.publish"
+        ]
+      }
+    ]
+  },
+  "is_deprecated": false,
+  "deprecated": {
+    "displayName": "Query creator info",
+    "is_deprecated": false,
+    "version": "20261101_00",
+    "available_versions": [
+      "20261101_00",
+      "20260917_00",
+      "20260817_00",
+      "20260730_00",
+      "20260728_00"
+    ],
+    "toolkit": {
+      "logo": "https://logos.composio.dev/api/tiktok"
+    }
+  },
+  "no_auth": false
+}

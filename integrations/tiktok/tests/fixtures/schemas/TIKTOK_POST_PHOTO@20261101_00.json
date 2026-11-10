@@ -1,0 +1,295 @@
+{
+  "slug": "TIKTOK_POST_PHOTO",
+  "name": "Post photo",
+  "toolkit": {
+    "slug": "tiktok",
+    "name": "tiktok",
+    "logo": "https://logos.composio.dev/api/tiktok"
+  },
+  "description": "Create a photo post (1-35 images) on TikTok via Content Posting API. Supports two modes: - MEDIA_UPLOAD: Uploads photos to user's inbox for review/editing before posting - DIRECT_POST: Immediately posts photos to user's TikTok account IMPORTANT: Photo URLs must be from your TikTok-verified domain. Unverified domains will return 403 Forbidden. Unaudited apps can only post with privacy='SELF_ONLY'. Rate limit: 6 requests per minute per user access token. Reference: https://developers.tiktok.com/doc/content-posting-api-reference-photo-post",
+  "input_parameters": {
+    "type": "object",
+    "title": "PostPhotoRequest",
+    "required": [
+      "photo_images",
+      "photo_cover_index"
+    ],
+    "properties": {
+      "title": {
+        "type": "string",
+        "title": "Title",
+        "maxLength": 90,
+        "description": "Post title (<= 90 UTF-16 runes)"
+      },
+      "post_mode": {
+        "enum": [
+          "DIRECT_POST",
+          "MEDIA_UPLOAD"
+        ],
+        "type": "string",
+        "title": "Post Mode",
+        "default": "MEDIA_UPLOAD",
+        "description": "Use DIRECT_POST to publish immediately (requires video.publish), or MEDIA_UPLOAD to send to inbox for editing (requires video.upload)"
+      },
+      "description": {
+        "type": "string",
+        "title": "Description",
+        "maxLength": 4000,
+        "description": "Post description (<= 4000 UTF-16 runes)"
+      },
+      "photo_images": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "format": "uri",
+          "maxLength": 2083,
+          "minLength": 1
+        },
+        "title": "Photo Images",
+        "maxItems": 35,
+        "minItems": 1,
+        "description": "List of 1-35 publicly accessible HTTPS image URLs (JPG, JPEG, or WEBP format). IMPORTANT: URLs must be from your TikTok-verified domain or URL prefix. Random/third-party URLs will be rejected with 403 error."
+      },
+      "privacy_level": {
+        "enum": [
+          "PUBLIC_TO_EVERYONE",
+          "MUTUAL_FOLLOW_FRIENDS",
+          "FOLLOWER_OF_CREATOR",
+          "SELF_ONLY"
+        ],
+        "type": "string",
+        "title": "PrivacyLevel",
+        "description": "Privacy levels accepted by TikTok's Content Posting API.\n\nThe valid set for a given account is only discoverable via\n``/v2/post/publish/creator_info/query/``. For unaudited apps only\n``SELF_ONLY`` is permitted.\n\nhttps://developers.tiktok.com/doc/content-posting-api-reference-direct-post"
+      },
+      "auto_add_music": {
+        "type": "boolean",
+        "title": "Auto Add Music",
+        "description": "DIRECT_POST only. Auto add recommended music."
+      },
+      "disable_comment": {
+        "type": "boolean",
+        "title": "Disable Comment",
+        "description": "DIRECT_POST only. Disallow comments if true."
+      },
+      "photo_cover_index": {
+        "type": "integer",
+        "title": "Photo Cover Index",
+        "minimum": 0,
+        "description": "Zero-based index (0 to len(photo_images)-1) indicating which image to use as the cover/thumbnail"
+      },
+      "brand_content_toggle": {
+        "type": "boolean",
+        "title": "Brand Content Toggle",
+        "default": false,
+        "description": "DIRECT_POST only. Set true if content is a paid partnership to promote a third-party business."
+      },
+      "brand_organic_toggle": {
+        "type": "boolean",
+        "title": "Brand Organic Toggle",
+        "default": false,
+        "description": "DIRECT_POST only. Set true if content promotes the creator's own business."
+      }
+    }
+  },
+  "output_parameters": {
+    "type": "object",
+    "$defs": {
+      "PostPhotoResponse": {
+        "type": "object",
+        "title": "PostPhotoResponse",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/PostPhotoDataResponse",
+            "title": "Data",
+            "description": "Contains the success response information for the photo post request. Present on success with publish_id."
+          },
+          "error": {
+            "$ref": "#/$defs/PostPhotoErrorResponse",
+            "title": "Error",
+            "description": "Contains error details and status information for the API request. Always present with code='ok' on success or error code on failure."
+          }
+        },
+        "description": "Response from TikTok photo post API.\n\nOn success, data.publish_id is populated and error.code is 'ok'.\nOn failure, error.code contains error type and error.message has details."
+      },
+      "PostPhotoDataResponse": {
+        "type": "object",
+        "title": "PostPhotoDataResponse",
+        "properties": {
+          "publish_id": {
+            "type": "string",
+            "title": "Publish Id",
+            "description": "A unique identifier to track the posting action, which can be used to check the status of the photo post. Maximum length: 64 characters. Present on success."
+          }
+        },
+        "description": "Contains the success response information for the photo post request."
+      },
+      "PostPhotoErrorResponse": {
+        "type": "object",
+        "title": "PostPhotoErrorResponse",
+        "required": [
+          "code",
+          "message",
+          "log_id"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code",
+            "description": "Status indicator code. Returns 'ok' on success, other values indicate failure (e.g., 'invalid_param', 'access_token_invalid', 'rate_limit_exceeded', 'scope_not_authorized')."
+          },
+          "log_id": {
+            "type": "string",
+            "title": "Log Id",
+            "description": "Unique execution identifier for request tracking and debugging purposes."
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "Human-readable error description. Empty string when the request is successful."
+          }
+        },
+        "description": "Contains error details and status information for the API request."
+      }
+    },
+    "title": "PostPhotoResponseWrapper",
+    "required": [
+      "data",
+      "successful"
+    ],
+    "properties": {
+      "data": {
+        "$ref": "#/$defs/PostPhotoResponse",
+        "title": "Data",
+        "description": "Data from the action execution"
+      },
+      "error": {
+        "type": "string",
+        "title": "Error",
+        "description": "Error if any occurred during the execution of the action"
+      },
+      "successful": {
+        "type": "boolean",
+        "title": "Successful",
+        "description": "Whether or not the action execution was successful or not"
+      }
+    }
+  },
+  "tags": [
+    "important",
+    "createHint"
+  ],
+  "available_versions": [
+    "20261101_00",
+    "20260917_00",
+    "20260817_00",
+    "20260730_00",
+    "20260728_00",
+    "20260721_00",
+    "20260708_00",
+    "20260702_00",
+    "20260616_00",
+    "20260615_00",
+    "20260524_00",
+    "20260413_00",
+    "20260409_00",
+    "20260407_00",
+    "20260403_00",
+    "20260327_00",
+    "20260316_00",
+    "20260312_00",
+    "20260307_00",
+    "20260223_00",
+    "20260211_00",
+    "20260204_00",
+    "20260203_00",
+    "20260130_00",
+    "20260128_00",
+    "20260127_00",
+    "20260111_00",
+    "20260107_00",
+    "20251230_00",
+    "20251209_00",
+    "20251208_00",
+    "20251202_01",
+    "20251202_00",
+    "20251023_00",
+    "20251017_00",
+    "20251016_00",
+    "20251006_00",
+    "20250924_00",
+    "20250915_00",
+    "20250908_00",
+    "00000000_00"
+  ],
+  "version": "20261101_00",
+  "scopes": [
+    "video.upload",
+    "video.publish"
+  ],
+  "scope_requirements": {
+    "all_of": [
+      {
+        "any_of": [
+          "video.upload",
+          "video.publish"
+        ]
+      }
+    ]
+  },
+  "is_deprecated": false,
+  "deprecated": {
+    "displayName": "Post photo",
+    "is_deprecated": false,
+    "version": "20261101_00",
+    "available_versions": [
+      "20261101_00",
+      "20260917_00",
+      "20260817_00",
+      "20260730_00",
+      "20260728_00",
+      "20260721_00",
+      "20260708_00",
+      "20260702_00",
+      "20260616_00",
+      "20260615_00",
+      "20260524_00",
+      "20260413_00",
+      "20260409_00",
+      "20260407_00",
+      "20260403_00",
+      "20260327_00",
+      "20260316_00",
+      "20260312_00",
+      "20260307_00",
+      "20260223_00",
+      "20260211_00",
+      "20260204_00",
+      "20260203_00",
+      "20260130_00",
+      "20260128_00",
+      "20260127_00",
+      "20260111_00",
+      "20260107_00",
+      "20251230_00",
+      "20251209_00",
+      "20251208_00",
+      "20251202_01",
+      "20251202_00",
+      "20251023_00",
+      "20251017_00",
+      "20251016_00",
+      "20251006_00",
+      "20250924_00",
+      "20250915_00",
+      "20250908_00",
+      "00000000_00"
+    ],
+    "toolkit": {
+      "logo": "https://logos.composio.dev/api/tiktok"
+    }
+  },
+  "no_auth": false
+}

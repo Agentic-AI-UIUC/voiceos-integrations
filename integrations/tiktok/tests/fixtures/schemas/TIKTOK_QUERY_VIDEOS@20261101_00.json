@@ -1,0 +1,250 @@
+{
+  "slug": "TIKTOK_QUERY_VIDEOS",
+  "name": "Query videos",
+  "toolkit": {
+    "slug": "tiktok",
+    "name": "tiktok",
+    "logo": "https://logos.composio.dev/api/tiktok"
+  },
+  "description": "Fetches metadata for specific TikTok videos by ID (1-20 per request). Verifies the videos belong to the authenticated user and returns their details, refreshing the cover-image URL's expiration. Unlike List videos, this looks up known video IDs rather than walking recent uploads.",
+  "input_parameters": {
+    "type": "object",
+    "title": "QueryVideosRequest",
+    "required": [
+      "video_ids"
+    ],
+    "properties": {
+      "video_ids": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "title": "Video Ids",
+        "maxItems": 20,
+        "minItems": 1,
+        "description": "List of TikTok video IDs to fetch metadata for (1-20 per request). Only videos that belong to the authenticated user are returned."
+      }
+    }
+  },
+  "output_parameters": {
+    "type": "object",
+    "$defs": {
+      "Video": {
+        "type": "object",
+        "title": "Video",
+        "required": [
+          "id",
+          "create_time",
+          "cover_image_url",
+          "share_url",
+          "duration",
+          "height",
+          "width"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id",
+            "description": "Unique identifier for the TikTok video. Also called 'item_id'."
+          },
+          "title": {
+            "type": "string",
+            "title": "Title",
+            "description": "Video title with 150-character maximum."
+          },
+          "width": {
+            "type": "integer",
+            "title": "Width",
+            "description": "Video frame width dimension."
+          },
+          "height": {
+            "type": "integer",
+            "title": "Height",
+            "description": "Video frame height dimension."
+          },
+          "duration": {
+            "type": "integer",
+            "title": "Duration",
+            "description": "Video length in seconds."
+          },
+          "share_url": {
+            "type": "string",
+            "title": "Share Url",
+            "description": "A shareable link for this TikTok video."
+          },
+          "embed_html": {
+            "type": "string",
+            "title": "Embed Html",
+            "description": "HTML code for embedded video."
+          },
+          "embed_link": {
+            "type": "string",
+            "title": "Embed Link",
+            "description": "Video embed link of tiktok.com."
+          },
+          "like_count": {
+            "type": "integer",
+            "title": "Like Count",
+            "description": "Number of likes for the video."
+          },
+          "view_count": {
+            "type": "integer",
+            "title": "View Count",
+            "description": "Number of views of the video."
+          },
+          "create_time": {
+            "type": "integer",
+            "title": "Create Time",
+            "description": "UTC Unix epoch (in seconds) of when the TikTok video was posted."
+          },
+          "share_count": {
+            "type": "integer",
+            "title": "Share Count",
+            "description": "Number of shares of the video."
+          },
+          "comment_count": {
+            "type": "integer",
+            "title": "Comment Count",
+            "description": "Number of comments on the video."
+          },
+          "cover_image_url": {
+            "type": "string",
+            "title": "Cover Image Url",
+            "description": "CDN link for the video's cover image with a 6-hour TTL."
+          },
+          "video_description": {
+            "type": "string",
+            "title": "Video Description",
+            "description": "Creator-set description with 150-character maximum."
+          }
+        },
+        "description": "Represents a single TikTok video object."
+      },
+      "ErrorInfo": {
+        "type": "object",
+        "title": "ErrorInfo",
+        "required": [
+          "code",
+          "message",
+          "log_id"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code",
+            "description": "Error code indicating the status of the request (e.g., 'ok' for success)."
+          },
+          "log_id": {
+            "type": "string",
+            "title": "Log Id",
+            "description": "Unique identifier for request tracking and debugging purposes."
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "Error message providing details about the error. Empty string if request was successful."
+          }
+        },
+        "description": "Standard TikTok error response structure."
+      },
+      "QueryVideosData": {
+        "type": "object",
+        "title": "QueryVideosData",
+        "properties": {
+          "videos": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/Video"
+            },
+            "title": "Videos",
+            "description": "Video objects for the requested IDs that belong to the authenticated user."
+          }
+        },
+        "description": "Container for the queried video objects."
+      },
+      "QueryVideosResponse": {
+        "type": "object",
+        "title": "QueryVideosResponse",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/QueryVideosData",
+            "title": "Data",
+            "description": "Container for the queried video objects. Omitted when the request fails."
+          },
+          "error": {
+            "$ref": "#/$defs/ErrorInfo",
+            "title": "Error",
+            "description": "Standard error response structure containing status information."
+          }
+        },
+        "description": "Response from TikTok video query endpoint."
+      }
+    },
+    "title": "QueryVideosResponseWrapper",
+    "required": [
+      "data",
+      "successful"
+    ],
+    "properties": {
+      "data": {
+        "$ref": "#/$defs/QueryVideosResponse",
+        "title": "Data",
+        "description": "Data from the action execution"
+      },
+      "error": {
+        "type": "string",
+        "title": "Error",
+        "description": "Error if any occurred during the execution of the action"
+      },
+      "successful": {
+        "type": "boolean",
+        "title": "Successful",
+        "description": "Whether or not the action execution was successful or not"
+      }
+    }
+  },
+  "tags": [
+    "readOnlyHint",
+    "openWorldHint"
+  ],
+  "available_versions": [
+    "20261101_00",
+    "20260917_00",
+    "20260817_00",
+    "20260730_00",
+    "20260728_00"
+  ],
+  "version": "20261101_00",
+  "scopes": [
+    "video.list"
+  ],
+  "scope_requirements": {
+    "all_of": [
+      {
+        "any_of": [
+          "video.list"
+        ]
+      }
+    ]
+  },
+  "is_deprecated": false,
+  "deprecated": {
+    "displayName": "Query videos",
+    "is_deprecated": false,
+    "version": "20261101_00",
+    "available_versions": [
+      "20261101_00",
+      "20260917_00",
+      "20260817_00",
+      "20260730_00",
+      "20260728_00"
+    ],
+    "toolkit": {
+      "logo": "https://logos.composio.dev/api/tiktok"
+    }
+  },
+  "no_auth": false
+}
