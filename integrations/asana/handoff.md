@@ -7,8 +7,8 @@ All runtime code is in `server.ts`. `AGENTS.md` has the file layout and the dev 
 
 - **Composio**: a third-party service. It stores each user's Asana OAuth token and runs Asana API calls for us. We
   never see the token.
-- **user_id / connected account**: Composio files each linked Asana account under a user_id that you choose. Our calls
-  send that user_id, and Composio picks the matching connected account.
+- **user_id / connected account**: Composio files each linked Asana account under a user_id. Each install has its own
+  (`voiceos-<id>`), and Composio picks that user's connected account.
 - **Typed tool**: one of Composio's prebuilt Asana actions, such as `ASANA_CREATE_A_TASK`. Most of our calls use these.
 - **Proxy**: a Composio endpoint that forwards a raw Asana REST request with the user's token. We use it where no
   typed tool works.
@@ -22,8 +22,9 @@ All runtime code is in `server.ts`. `AGENTS.md` has the file layout and the dev 
 ## Before you ship
 
 1. Remove the temporary `COMPOSIO_API_KEY` Setup field from `preferences` in `voiceos.integration.json`.
-2. Copy `.env.example` to `.env` and set your own `COMPOSIO_API_KEY` and `COMPOSIO_USER_ID`.
-3. In platform.composio.dev, open Connected accounts and connect Asana for that user_id.
+2. Copy `.env.example` to `.env` and set your own `COMPOSIO_API_KEY`.
+3. In platform.composio.dev → Auth Configs, create an Asana auth config (OAuth2, Composio managed). Users connect from
+   the **Connect Asana** link on the error card.
 4. Run `bun test`.
 5. Check `publisher` in `voiceos.integration.json`. It credits the original author as `{"id": "lothronx", "name": "Yue Wu"}`, in
    the same form as the bundled grokbot integration. Studio generated `pub_user` / "Made in VoiceOS" there, so make sure
