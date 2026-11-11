@@ -120,7 +120,7 @@ describe("permissions", () => {
         kind: "network",
         domains: [
           "backend.composio.dev", COMPOSIO_UPLOAD_HOST, "p16-common-sign.tiktokcdn-us.com", "p19-common-sign.tiktokcdn-us.com",
-          ...(MEDIA_RELAY_BASE ? ["tiktok-media-relay.rishabh-rb.workers.dev"] : []),
+          ...(MEDIA_RELAY_BASE ? [new URL(MEDIA_RELAY_BASE).hostname] : []),
         ],
       },
       { kind: "background" },

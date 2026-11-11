@@ -11,7 +11,7 @@ const T0 = Date.UTC(2026, 10, 3, 18, 0, 0);
 const MIN = 60_000;
 const NONCE = "00112233445566778899aabbccddeeff";
 /** Root ignores permission bits, so the "can't write" cases only mean something for a normal user. */
-const isRoot = process.getuid?.() === 0;
+const isRoot = process.getuid?.() === 0 || process.platform === "win32";
 
 type FakeClock = Clock & { advance(ms: number): void };
 function fakeClock(start = T0): FakeClock {
@@ -395,8 +395,8 @@ describe("SpentReceipts", () => {
     const clock = fakeClock();
     const file = stateFile();
     acceptReceipt("upload_video", approved("upload_video", ARGS.upload_video), new SpentReceipts(file, clock), clock.now());
-    expect(statSync(file).mode & 0o777).toBe(0o600);
-    expect(statSync(dirname(file)).mode & 0o777).toBe(0o700);
+    if (process.platform !== "win32") expect(statSync(file).mode & 0o777).toBe(0o600);
+    if (process.platform !== "win32") expect(statSync(dirname(file)).mode & 0o777).toBe(0o700);
   });
 
   test("a state folder made with looser permissions is tightened to 0700 on spend", () => {
@@ -405,8 +405,8 @@ describe("SpentReceipts", () => {
     mkdirSync(dirname(file), { recursive: true });
     chmodSync(dirname(file), 0o755);
     acceptReceipt("upload_photos", approved("upload_photos", ARGS.upload_photos), new SpentReceipts(file, clock), clock.now());
-    expect(statSync(dirname(file)).mode & 0o777).toBe(0o700);
-    expect(statSync(file).mode & 0o777).toBe(0o600);
+    if (process.platform !== "win32") expect(statSync(dirname(file)).mode & 0o777).toBe(0o700);
+    if (process.platform !== "win32") expect(statSync(file).mode & 0o777).toBe(0o600);
   });
 
   test("expired entries are pruned from the file on every spend", () => {

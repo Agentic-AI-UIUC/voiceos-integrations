@@ -19,6 +19,7 @@ import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { TikTokError } from "./errors.ts";
 import { mp4Details, mp4Info, sipsMeta, type VideoDetailsInfo, type VideoInfo } from "./media.ts";
+import { isWindowsRunner } from "./windows.ts";
 import { log } from "./proc.ts";
 import { finderSelection, quicktimeDocuments, type PointedFailure } from "./finderApps.ts";
 import { chips, descriptor, evaluate, factsOf, keywordHit, rank as rankVideos, whenLabel, whichQuestion, type Confidence, type Evaluation, type Facts, type Ranking } from "./finderMatch.ts";
@@ -240,7 +241,7 @@ async function resolveRoots(all: string[], home: string, folders: string[] | und
   let names = want.size ? all.filter((f) => want.has(f.toLowerCase())) : all;
   if (!names.length) names = all;
   const native: Record<string, string> = {};
-  if (process.platform === "win32" && canon(home) === canon(homedir())) {
+  if (isWindowsRunner(runner) && canon(home) === canon(homedir())) {
     try {
       const r = await runner(["voiceos-windows", "folders"], { timeoutMs: 5000 });
       if (!r.code && !r.timedOut) {
@@ -356,7 +357,7 @@ function scan(roots: Root[], supported: Set<string>, other: Set<string>, now: nu
 /** Date added for the candidates most likely to be shown (best query score, then newest ctime); everyone else keeps birthtime → mtime. */
 async function assignArrival(files: Candidate[], q: Query, runner: Runner): Promise<void> {
   if (!files.length) return;
-  if (process.platform === "win32") {
+  if (isWindowsRunner(runner)) {
     try {
       const r = await runner(["voiceos-windows", "attributes", ...files.map(f => f.path)], { timeoutMs: 5000 });
       if (!r.code && !r.timedOut) {

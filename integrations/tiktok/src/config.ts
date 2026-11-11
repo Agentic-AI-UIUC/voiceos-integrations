@@ -10,7 +10,7 @@
  *   --home=<dir>                                            where Downloads/Desktop/… are looked up
  */
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, posix, win32 } from "node:path";
 
 /** IMMUTABLE once installed: VoiceOS keys settings and secrets off it. */
 export const INTEGRATION_ID = "com.voiceos.generated.tiktok";
@@ -81,8 +81,8 @@ export function argument(argv: string[], name: string): string | undefined {
 
 /** VoiceOS's per-integration state folder (the Manus convention), so Studio reinstalls of this folder don't wipe it. */
 export function defaultStateDir(home: string, platform: NodeJS.Platform = process.platform, appData = process.env.APPDATA): string {
-  if (platform === "win32") return join(appData || join(home, "AppData", "Roaming"), "VoiceOS", "integration-state", INTEGRATION_ID);
-  return join(home, "Library", "Application Support", "VoiceOS", "integration-state", INTEGRATION_ID);
+  if (platform === "win32") return win32.join(appData || win32.join(home, "AppData", "Roaming"), "VoiceOS", "integration-state", INTEGRATION_ID);
+  return posix.join(home, "Library", "Application Support", "VoiceOS", "integration-state", INTEGRATION_ID);
 }
 
 export function loadConfig(env: Record<string, string | undefined>, argv: string[] = []): Config {

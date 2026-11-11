@@ -720,7 +720,7 @@ function parseSources(c: Ctx): void {
   };
   take(c, /\bscreen ?(?:recordings?|recorded|records?|rec|captures?|cap|casts?|grabs?|videos?)\b|\bscreencasts?\b|\brecord(?:ed|ing)? (?:of )?(?:my|the) screen\b/, () => addSource("screen_recording", "screen recording"));
   // folders before "downloaded": the Downloads folder is a place, a download is a source
-  take(c, /\b(?:(?:in|from|on|inside|under|out of) )?(?:my |the )?(downloads?|desktop|movies)(?: folder)?\b/, (m) => {
+  take(c, /\b(?:(?:in|from|on|inside|under|out of) )?(?:my |the )?(downloads?|desktop|movies|videos)(?: folder)?\b/, (m) => {
     const f = m[1].startsWith("download") ? "Downloads" : m[1] === "desktop" ? "Desktop" : "Movies";
     // "my movies" without a preposition or "folder" is just "my videos".
     if (f === "Movies" && !/^(in|from|on|inside|under|out of) |folder$/.test(m[0].trim())) return;

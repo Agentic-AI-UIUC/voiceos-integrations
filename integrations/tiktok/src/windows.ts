@@ -110,9 +110,12 @@ export async function windowsOperation(base: Runner, job: Record<string, unknown
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }
 
+const nativeRunners = new WeakSet<Runner>();
+export const isWindowsRunner = (runner: Runner): boolean => nativeRunners.has(runner);
+
 /** Converts our small OS command protocol to native Windows operations. Other binaries run unchanged. */
 export function windowsRunner(base: Runner): Runner {
-  return async (cmd, opts = {}) => {
+  const runner: Runner = async (cmd, opts = {}) => {
     const name = basename(cmd[0]).toLowerCase();
     if (name === "voiceos-windows") return windowsOperation(base, { operation: cmd[1], paths: cmd.slice(2) }, opts);
     if (name === "pbcopy") return windowsOperation(base, { operation: "clipboard", text: opts.stdin ?? "" }, opts);
@@ -160,4 +163,6 @@ export function windowsRunner(base: Runner): Runner {
     const jobs = inputs.map((source, i) => ({ source, dest: script ? join(dest, mode === "fit" ? `${i}.oriented.jpg` : `${i}.jpg`) : isDir ? join(dest, basename(source)) : dest, mode, width, height, quality, format }));
     return windowsOperation(base, { operation: "convert", jobs }, opts);
   };
+  nativeRunners.add(runner);
+  return runner;
 }

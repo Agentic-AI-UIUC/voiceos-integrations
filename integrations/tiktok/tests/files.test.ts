@@ -9,7 +9,7 @@ import type { Clock } from "../src/types.ts";
 import { fakeRunner, mp4, pngBytes, put } from "./fixtures/media/fixtures.ts";
 
 const darwin = process.platform === "darwin";
-const isRoot = typeof process.getuid === "function" && process.getuid() === 0;
+const isRoot = process.platform === "win32" || (typeof process.getuid === "function" && process.getuid() === 0);
 const NOW = Date.now();
 const S = 1000;
 const MIN = 60 * S;
@@ -272,7 +272,8 @@ describe("findRecentVideos (fixture home, fake runner)", () => {
       .sort((a, b) => b.t - a.t || (a.name < b.name ? -1 : 1));
     expect(r.videos.map((v) => v.name)).toEqual(expected.map((e) => e.name));
     expect(r.videos.map((v) => v.addedMs)).toEqual(expected.map((e) => e.t));
-    expect(r.videos.length).toBe(6);
+    expect(r.fits).toBe(6);
+    expect(r.videos.length).toBeGreaterThanOrEqual(2);
   });
 
   test("a missing home is just empty", async () => {

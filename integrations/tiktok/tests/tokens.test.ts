@@ -9,7 +9,7 @@ import type { BundleRef, Clock, FileRef, ImageRef, PostRef } from "../src/types.
 const T0 = Date.UTC(2026, 10, 3, 18, 0, 0);
 const MIN = 60_000;
 /** Root ignores permission bits, so the permission case only means something for a normal user. */
-const isRoot = process.getuid?.() === 0;
+const isRoot = process.getuid?.() === 0 || process.platform === "win32";
 
 type FakeClock = Clock & { advance(ms: number): void };
 function fakeClock(start = T0): FakeClock {
