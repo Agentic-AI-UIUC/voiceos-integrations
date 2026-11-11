@@ -118,7 +118,22 @@ test("gaReconnectUrl starts a first connection through the project's enabled aut
   expect(a.calls.at(-1)).toBe('POST /connected_accounts/link {"auth_config_id":"ac_on","user_id":"u1"}');
 });
 
-test("gaReconnectUrl fails clearly when the project has no Google Analytics auth config", async () => {
-  const a = api({ "GET /connected_accounts": { items: [] }, "GET /auth_configs": { items: [] } });
-  await expect(gaReconnectUrl(a.request, "u1")).rejects.toThrow(/auth config/);
+test("with no Google Analytics auth config in the project, gaReconnectUrl creates a Composio-managed one (no dashboard step)", async () => {
+  const a = api({
+    "GET /connected_accounts": { items: [] },
+    "GET /auth_configs": { items: [] },
+    "POST /auth_configs": { auth_config: { id: "ac_new" } },
+    "POST /connected_accounts/link": { redirect_url: "https://connect/first" },
+  });
+  expect(await gaReconnectUrl(a.request, "u1")).toBe("https://connect/first");
+  expect(a.calls).toContain('POST /auth_configs {"toolkit":{"slug":"google_analytics"},"auth_config":{"type":"use_composio_managed_auth","name":"Google Analytics (VoiceOS)"}}');
+  expect(a.calls.at(-1)).toBe('POST /connected_accounts/link {"auth_config_id":"ac_new","user_id":"u1"}');
+});
+
+test("if the key can't create an auth config, gaReconnectUrl fails with what to do", async () => {
+  const request: ComposioRequest = async (method, path) => {
+    if (method === "POST" && path === "/auth_configs") throw new ComposioError("Composio HTTP 403: forbidden", "composio", 403);
+    return { items: [] };
+  };
+  await expect(gaReconnectUrl(request, "u1")).rejects.toThrow(/full-access/);
 });

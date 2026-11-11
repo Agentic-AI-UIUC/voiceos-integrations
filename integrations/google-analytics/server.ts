@@ -21,9 +21,10 @@
  *     .env never ships with Publish; each developer keeps their own.
  *   - TEMPORARY, for testing: the Setup page also has an optional "Composio API
  *     key" field that wins over .env. Remove it from the manifest before release.
- *   - In platform.composio.dev → Auth Configs, create a Google Analytics auth
- *     config (OAuth2, Composio managed). Users then connect from the reconnect
- *     link on the error card. Composio refreshes the token.
+ *   - No dashboard step: the first connect creates a Composio-managed Google
+ *     Analytics auth config if the project has none (needs a full-access key).
+ *     Users connect from the reconnect link on the error card. Composio
+ *     refreshes the token.
  *
  * Tool names and input schemas must stay identical to voiceos.integration.json.
  * Descriptions differ on purpose: the manifest's is the short line the Actions
@@ -371,7 +372,7 @@ export async function gaLinkStatus(request: ComposioRequest, userId: string): Pr
  * account is re-authorized in place (Composio's refresh; status → INITIATED
  * until the user finishes), so the user never ends up with a dead ACTIVE
  * account next to a new one. Only with no account at all does it start a
- * first connection through the project's enabled auth config.
+ * first connection through the project's enabled auth config, created if missing.
  * Only called when reconnecting is already the fix: a Google 401 means the
  * refresh token is gone (Composio refreshes expired access tokens itself).
  */
@@ -382,9 +383,26 @@ export async function gaReconnectUrl(request: ComposioRequest, userId: string): 
   if (newest) return (await request("POST", `/connected_accounts/${newest.id}/refresh`, {}))?.redirect_url;
 
   const configs: { id: string; status?: string }[] = (await request("GET", "/auth_configs?toolkit_slug=google_analytics"))?.items ?? [];
-  const config = configs.find((c) => c.status === "ENABLED");
-  if (!config) throw new Error("The Composio project has no enabled Google Analytics auth config.");
-  return (await request("POST", "/connected_accounts/link", { auth_config_id: config.id, user_id: userId }))?.redirect_url;
+  const authConfigId = configs.find((c) => c.status === "ENABLED")?.id ?? (await createAuthConfig(request));
+  return (await request("POST", "/connected_accounts/link", { auth_config_id: authConfigId, user_id: userId }))?.redirect_url;
+}
+
+/** A Composio-managed OAuth2 auth config, so a new Composio project needs no dashboard step (as GitHub and Todoist do). */
+async function createAuthConfig(request: ComposioRequest): Promise<string> {
+  try {
+    const res = await request("POST", "/auth_configs", {
+      toolkit: { slug: "google_analytics" },
+      auth_config: { type: "use_composio_managed_auth", name: "Google Analytics (VoiceOS)" },
+    });
+    const id = res?.auth_config?.id ?? res?.id;
+    if (typeof id !== "string") throw new Error("Composio created a Google Analytics auth config without an id.");
+    return id;
+  } catch (err) {
+    if (err instanceof ComposioError && err.status === 403) {
+      throw new Error("This Composio API key can't create the Google Analytics auth config. Use a full-access project key.");
+    }
+    throw err;
+  }
 }
 
 export interface DescribedError {

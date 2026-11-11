@@ -6,14 +6,13 @@ access goes through Composio (OAuth2, Composio managed). All runtime code is in 
 
 ## Setup
 
-1. **Composio key.** Copy `.env.example` to `.env` and set `COMPOSIO_API_KEY`. The Setup page
-   also has a temporary "Composio API key" field; remove it from `voiceos.integration.json`
-   before release.
-2. **Auth config (once per Composio project).** platform.composio.dev → Auth Configs → create
-   **Google Analytics** (OAuth2, Composio managed).
-3. **Property ID.** On the Setup page, enter the GA4 property ID: Google Analytics → Admin →
+1. **Composio key.** Copy `.env.example` to `.env` and set `COMPOSIO_API_KEY` (a full-access
+   project key). The Setup page also has a temporary "Composio API key" field; remove it from
+   `voiceos.integration.json` before release. Nothing to set up in the Composio dashboard: the
+   first connect creates the Google Analytics auth config if the project has none.
+2. **Property ID.** On the Setup page, enter the GA4 property ID: Google Analytics → Admin →
    Property → Property details. It's digits only. The `G-…` code is the Measurement ID and won't work.
-4. **Connect.** Ask any GA question. The first answer is a card with a **Reconnect Google
+3. **Connect.** Ask any GA question. The first answer is a card with a **Reconnect Google
    Analytics** link; open it and sign in to Google. Each install has its own Composio user, so
    installs never share a Google account.
 
