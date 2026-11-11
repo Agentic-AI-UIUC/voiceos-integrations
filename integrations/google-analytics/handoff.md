@@ -42,23 +42,24 @@ Composio setup and the dev loop.
 - Loading feedback comes from VoiceOS itself ("Google Analytics: <tool>" in the notch).
 - Disconnecting is left to the app store's integration removal (the ticket owner agreed).
 
-## Verified (2026-11-10, macOS, VoiceOS)
+## Verified (2026-11-10/11, macOS, VoiceOS)
 
 - All three tools, by voice, one call per question: realtime by page, realtime with a filter,
   period comparison, an event-count filter, metadata by category, and a property the account
   can't access (403, no reconnect prompt).
 - Revoked the Google access at myaccount.google.com/connections, got the card's reconnect link,
   signed in again, and the next question worked on the same Composio account.
-- 52 tests (`bun test`), including one that keeps manifest and server schemas in sync and one
+- A fresh install (own Composio user) showed the reconnect link, Google sign-in worked, and the
+  next question returned live data.
+- A standard report with real numbers: 20 page views over the last 7 days across 4 page paths,
+  and 13 `sign_up_click` events through the filter. The agent's spoken answers matched.
+- Recovery from a wrong field name. Typed "metric pageViews": run_report failed with 400, the
+  agent called get_metadata (search "view"), then retried with screenPageViews. All within 2 s.
+- 56 tests (`bun test`), including one that keeps manifest and server schemas in sync and one
   that checks the Studio preview samples against them.
 
 ## Not yet verified
 
-- **A standard report with real numbers.** The test property is new, and GA had no standard
-  report data on the day. The request and response shapes (totals, comparison, filter) come from
-  real GA responses, and realtime (same row and totals code) works with real data.
-- **Recovery from a wrong field name** (400 → get_metadata → retry). The agent used the right
-  names in every test, so this path never ran.
 - **Expired token** (Composio status EXPIRED). It can't be forced. It goes through the same
   classification and reconnect link as the revoke, which was verified.
 - **Windows.** No code is OS-specific, and run.cmd is the Studio's own.
@@ -147,7 +148,9 @@ The agent gets flat arguments; server.ts builds GA's nested request.
    and each one adds an argument the agent can misuse.
 8. **Rows as `{field: value}`, metrics as numbers.** GA returns values separately from their
    headers, as strings. Rates such as bounceRate are fractions (0.42, not 42%); the description
-   must say so (taken from GA docs, not yet seen in our data).
+   must say so (taken from GA docs, not yet seen in our data). GA's totals count each user once:
+   4 page rows with 2, 2, 2 and 1 active users had a total of 2, not 7. So a grouped query's totals answer
+   "how many users"; no second query without dimensions is needed.
 9. **Dates passed through in GA's own formats** (YYYY-MM-DD, today, yesterday, NdaysAgo). The
    agent turns "last month" into dates. Reports return the property's `time_zone` so the agent
    can say which "today" it means, and the property setting is never changed.

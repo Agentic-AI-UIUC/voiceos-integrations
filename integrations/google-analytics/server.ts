@@ -592,7 +592,7 @@ const sortArgs = {
 };
 
 // Shared by both report tools: how to read what comes back.
-const READING_RESULTS = "If a result has reconnect: true, the Google connection must be renewed: tell the user in one sentence and point them to the Reconnect link on the card; don't retry until they say they've signed in. Results: rows are {field: value}; totals are GA's own totals over every matching row, so use them for \"how many in total\" rather than adding up rows (rows stop at limit, row_count says how many matched). User counts can repeat across rows (one person viewing two pages), so for unique users overall, query without dimensions. Rates such as bounceRate and engagementRate are fractions (0.42 = 42%); durations are seconds.";
+const READING_RESULTS = "If a result has reconnect: true, the Google connection must be renewed: tell the user in one sentence and point them to the Reconnect link on the card; don't retry until they say they've signed in. Results: rows are {field: value}; totals are GA's own totals over every matching row, so use them for \"how many in total\" rather than adding up rows (rows stop at limit, row_count says how many matched). Totals already count each user once, so a grouped query's totals answer \"how many users\" too. Rates such as bounceRate and engagementRate are fractions (0.42 = 42%); durations are seconds.";
 
 export function createServer(
   ga: ReturnType<typeof createGa>,
