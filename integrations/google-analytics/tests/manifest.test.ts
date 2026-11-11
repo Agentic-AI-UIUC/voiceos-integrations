@@ -70,6 +70,6 @@ test("a reconnect link goes only on the card: the model gets reconnect: true, ne
   await client.connect(clientSide);
   const res: any = await client.callTool({ name: "run_realtime_report", arguments: {} });
   const { _voiceos_glance, ...forModel } = JSON.parse(res.content[0].text);
-  expect(forModel).toEqual({ error: "Google Analytics access was revoked. Open the reconnect link on this card to sign in to Google.", reconnect: true });
+  expect(forModel).toEqual({ error: "Google Analytics access was revoked. Open Connect Google Analytics on this card to sign in to Google.", reconnect: true });
   expect(JSON.stringify(_voiceos_glance)).toContain("https://connect.example/abc");
 });

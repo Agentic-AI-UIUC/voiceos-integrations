@@ -23,7 +23,7 @@
  *     key" field that wins over .env. Remove it from the manifest before release.
  *   - No dashboard step: the first connect creates a Composio-managed Google
  *     Analytics auth config if the project has none (needs a full-access key).
- *     Users connect from the reconnect link on the error card. Composio
+ *     Users connect from Connect Google Analytics on the error card. Composio
  *     refreshes the token.
  *
  * Tool names and input schemas must stay identical to voiceos.integration.json.
@@ -436,7 +436,7 @@ export async function describeError(
       : status === "EXPIRED" ? "The Google Analytics connection has expired."
       : "Google Analytics access was revoked.";
     const url = await reconnectUrl?.().catch((e) => (console.error("reconnect link failed:", e), undefined));
-    if (url) return { error: `${why} Open the reconnect link on this card to sign in to Google.`, reconnect: true, reconnect_url: url };
+    if (url) return { error: `${why} Open Connect Google Analytics on this card to sign in to Google.`, reconnect: true, reconnect_url: url };
     return fail(`${why} Ask whoever set up this integration to ${AUTH_CONFIG_HELP}.`, true);
   }
   if (err instanceof ComposioError && err.source === "composio" && err.status === 401) {
@@ -589,9 +589,9 @@ export function metadataCard(r: { dimensions: Record<string, string[]>; metrics:
 
 export function errorCard(error: string, reconnect: boolean, reconnectUrl?: string): RenderedWidget {
   return card([
-    vHeader({ title: "Google Analytics", trailing: reconnect ? "Reconnect needed" : undefined }),
+    vHeader({ title: "Google Analytics", trailing: reconnect ? "Connect needed" : undefined }),
     vNote(error),
-    reconnectUrl && vList([{ title: "Reconnect Google Analytics", trailing: "Open", href: reconnectUrl }]),
+    reconnectUrl && vList([{ title: "Connect Google Analytics", trailing: "Open", href: reconnectUrl }]),
   ]);
 }
 
@@ -620,7 +620,7 @@ const sortArgs = {
 };
 
 // Shared by both report tools: how to read what comes back.
-const READING_RESULTS = "If a result has reconnect: true, the Google connection must be renewed: tell the user in one sentence and point them to the Reconnect link on the card; don't retry in that same turn. On the user's next request, call the tool again even if they don't say they've signed in: they may have reconnected without saying so, and a stale \"still not connected\" answer from memory is wrong. Results: rows are {field: value}; totals are GA's own totals over every matching row, so use them for \"how many in total\" rather than adding up rows (rows stop at limit, row_count says how many matched). Totals already count each user once, so a grouped query's totals answer \"how many users\" too. Rates such as bounceRate and engagementRate are fractions (0.42 = 42%); durations are seconds.";
+const READING_RESULTS = "If a result has reconnect: true, the Google connection must be renewed: tell the user in one sentence and point them to Connect Google Analytics on the card; don't retry in that same turn. On the user's next request, call the tool again even if they don't say they've signed in: they may have reconnected without saying so, and a stale \"still not connected\" answer from memory is wrong. Results: rows are {field: value}; totals are GA's own totals over every matching row, so use them for \"how many in total\" rather than adding up rows (rows stop at limit, row_count says how many matched). Totals already count each user once, so a grouped query's totals answer \"how many users\" too. Rates such as bounceRate and engagementRate are fractions (0.42 = 42%); durations are seconds.";
 
 export function createServer(
   ga: ReturnType<typeof createGa>,

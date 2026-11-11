@@ -63,7 +63,7 @@ test("when reconnecting is the fix and a link is available, the user gets the li
   const revoked = new ComposioError("API request failed with status 401.", "tool", 401);
   const out = await describeError(revoked, linkStatus("ACTIVE"), async () => "https://connect.example/abc");
   expect(out).toEqual({
-    error: "Google Analytics access was revoked. Open the reconnect link on this card to sign in to Google.",
+    error: "Google Analytics access was revoked. Open Connect Google Analytics on this card to sign in to Google.",
     reconnect: true,
     reconnect_url: "https://connect.example/abc",
   });

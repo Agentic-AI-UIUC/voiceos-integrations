@@ -12,7 +12,7 @@ access goes through Composio (OAuth2, Composio managed). All runtime code is in 
    first connect creates the Google Analytics auth config if the project has none.
 2. **Property ID.** On the Setup page, enter the GA4 property ID: Google Analytics → Admin →
    Property → Property details. It's digits only. The `G-…` code is the Measurement ID and won't work.
-3. **Connect.** Ask any GA question. The first answer is a card with a **Reconnect Google
+3. **Connect.** Ask any GA question. The first answer is a card with a **Connect Google
    Analytics** link; open it and sign in to Google. Each install has its own Composio user, so
    installs never share a Google account.
 
@@ -32,16 +32,16 @@ These are the only three tools (the approved ones). None asks for confirmation, 
 
 | # | Say or do | Expect |
 |---|---|---|
-| 1 | Fresh install, ask a GA question | Card with **Reconnect Google Analytics**; after signing in, just ask again and it works |
+| 1 | Fresh install, ask a GA question | Card with **Connect Google Analytics**; after signing in, just ask again and it works |
 | 2 | "How many page views in the last 7 days?" | One total, no list of rows |
 | 3 | "Top pages in the last 7 days" | Total plus up to 5 pages, largest first |
 | 4 | "Page views this week vs last week" | Totals with a +/− % change, or "from 0" if last week had none |
 | 5 | "How many people are on my site right now?" | Live count (last 30 minutes) |
 | 6 | "What metrics can I query?" | Field card; the list scrolls |
 | 7 | Type: "Run a report with the metric pageViews" | Agent fixes it by itself (pageViews → screenPageViews) and answers |
-| 8 | Ask about a property the account can't see | "Can't access this GA4 property", with no reconnect link |
+| 8 | Ask about a property the account can't see | "Can't access this GA4 property", with no connect link |
 | 9 | A new property with no data yet | "No data for this period" (standard reports lag up to a day) |
-| 10 | Revoke access at myaccount.google.com/connections, then ask again | "Access was revoked" + reconnect link; after reconnecting, asking again works |
+| 10 | Revoke access at myaccount.google.com/connections, then ask again | "Access was revoked" + Connect Google Analytics; after signing in again, asking again works |
 
 While a tool runs, the notch shows "Google Analytics: <tool>". That's VoiceOS's own loading state.
 
@@ -67,7 +67,7 @@ properties, or keep relying on the Setup hint (step 3 above).
   rules. `tests/manifest.test.ts` keeps their names and input schemas in sync.
 - **After a Google revoke, Composio still reports ACTIVE**; Google returns 401. The code treats
   the 401 as "reconnect".
-- **The reconnect link appears only on the card.** VoiceOS strips the card before the model
+- **The connect link appears only on the card.** VoiceOS strips the card before the model
   reads a result, so the agent never sees the link.
 - **GA totals count each user once**, so a grouped query's totals are the real user count.
 - Run `bun test` before every change. The tests use response shapes captured from real GA calls.

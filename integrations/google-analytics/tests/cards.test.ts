@@ -98,13 +98,13 @@ test("a metadata card counts the fields and lists every one of them, metrics fir
 test("an error card carries the plain-words message, and says when reconnecting is the fix", () => {
   const t = text(errorCard("Google Analytics access was revoked. Reconnect the Google account.", true));
   expect(t).toContain("Google Analytics access was revoked.");
-  expect(t).toContain("Reconnect needed");
-  expect(text(errorCard("Quota used up.", false))).not.toContain("Reconnect needed");
+  expect(t).toContain("Connect needed");
+  expect(text(errorCard("Quota used up.", false))).not.toContain("Connect needed");
 });
 
-test("an error card with a reconnect link shows a row the user can open", () => {
+test("an error card with a connect link shows a row the user can open", () => {
   const c = errorCard("Google Analytics access was revoked.", true, "https://connect.example/abc");
-  expect(text(c)).toContain("Reconnect Google Analytics");
+  expect(text(c)).toContain("Connect Google Analytics");
   expect(c.html).toContain('href="https://connect.example/abc"');
 });
 
