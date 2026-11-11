@@ -1,9 +1,11 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { renderCustom, markHtml, esc, clip } from "./widgetKit.ts";
 
-const server = new McpServer({ name: "calendly", version: "1.1.0" });
+const server = new McpServer({ name: "calendly", version: "2.0.0" });
 const ACCENT = "#006bff"; // Calendly brand blue
 
 // --- Shared SVG Icons (16x16, currentColor) ---
@@ -95,46 +97,197 @@ function getLocationDetails(loc?: { type?: string; location?: string; join_url?:
   return { label: loc.location || "Web Conference", icon: ICON.video, url };
 }
 
-async function fetchCalendly(endpoint: string, apiKey: string, options: RequestInit = {}) {
-  const url = endpoint.startsWith("https://") ? endpoint : `https://api.calendly.com${endpoint}`;
-  const res = await fetch(url, {
-    ...options,
-    headers: {
-      Authorization: `Bearer ${apiKey.trim()}`,
-      "Content-Type": "application/json",
-      ...(options.headers || {}),
+// --- Composio connection ---
+// Every Calendly call goes through Composio, which holds the user's Calendly
+// OAuth2 connection and refreshes its token. Composio never hands the token out
+// (it masks it), so each call goes through its proxy, which adds the token.
+
+const CALENDLY_API = "https://api.calendly.com";
+const COMPOSIO_API = "https://backend.composio.dev/api/v3.1";
+const TOOLKIT = "calendly";
+
+/**
+ * Fills empty variables from the .env next to this file: run.sh's fallback
+ * runtime (Node) doesn't read .env, and a blank settings field shouldn't hide
+ * the key kept there. Tests turn this off with CALENDLY_DOTENV=off.
+ */
+function loadEnvFile() {
+  if (process.env.CALENDLY_DOTENV === "off") return;
+  let text = "";
+  try {
+    text = readFileSync(fileURLToPath(new URL(".env", import.meta.url)), "utf8");
+  } catch {
+    return; // no .env: calls report the missing key
+  }
+  for (const line of text.split(/\r?\n/)) {
+    const m = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$/);
+    if (m && !process.env[m[1]]?.trim()) process.env[m[1]] = m[2].replace(/^(["'])(.*)\1$/, "$2");
+  }
+}
+loadEnvFile();
+
+/** The Composio project key, and the user and (optionally) auth config Calendly is connected under. */
+type Auth = { apiKey: string; userId: string; authConfigId?: string };
+
+function getAuth(): { auth: Auth } | { missing: string } {
+  const apiKey = process.env.COMPOSIO_API_KEY?.trim();
+  if (!apiKey) return { missing: "Add your Composio API key (COMPOSIO_API_KEY) in settings, or in this integration's .env." };
+  return {
+    auth: {
+      apiKey,
+      userId: process.env.COMPOSIO_USER_ID?.trim() || "default",
+      authConfigId: process.env.COMPOSIO_AUTH_CONFIG_ID?.trim() || undefined,
     },
-    signal: AbortSignal.timeout(8000),
+  };
+}
+
+/** A key that changes when the credentials do, for caches. */
+function authKey(auth: Auth): string {
+  return `${auth.apiKey}:${auth.userId}:${auth.authConfigId ?? ""}`;
+}
+
+const NOT_CONNECTED = "Calendly isn't connected yet. Ask me to connect Calendly, approve access in your browser, then ask again.";
+const STILL_CONNECTING = "Calendly is still connecting. Finish approving access in your browser, then ask again.";
+const RECONNECT = "Your Calendly connection expired or was revoked. Ask me to connect Calendly again, then retry.";
+
+/**
+ * A failure that never reached Calendly. The status makes writes report it as a
+ * plain failure, not an unknown outcome; `reconnect` marks connecting again as the fix.
+ */
+function composioFailure(message: string, status: number, reconnect = false) {
+  return Object.assign(new Error(message), { status, reconnect });
+}
+
+/** One call to Composio's own API (not the proxy). */
+async function composio(auth: Auth, method: string, path: string, body?: unknown): Promise<any> {
+  const res = await fetch(`${COMPOSIO_API}${path}`, {
+    method,
+    headers: { "x-api-key": auth.apiKey, "Content-Type": "application/json" },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    signal: AbortSignal.timeout(10000),
   });
-  if (!res.ok) {
-    let errMsg = `Calendly API error: ${res.status} ${res.statusText}`;
-    try {
-      const errJson = await res.json();
-      if (errJson.message) errMsg = errJson.message;
-      else if (errJson.errors && errJson.errors[0]?.message) errMsg = errJson.errors[0].message;
-      // Calendly puts the useful part of a 400 (which field, and why) in `details`.
-      const details = Array.isArray(errJson.details)
-        ? errJson.details.map((d: any) => [d?.parameter, d?.message].filter(Boolean).join(": ")).filter(Boolean).join("; ")
-        : "";
-      if (details) errMsg = `${errMsg} ${details}`;
-    } catch {
-      // ignore JSON parse error
+  const text = await res.text();
+  let json: any = null;
+  try {
+    json = text ? JSON.parse(text) : null;
+  } catch {
+    // handled below
+  }
+  if (res.ok) return json;
+  const why = json?.error?.message || json?.message || `${res.status} ${res.statusText}`;
+  const hint = res.status === 401 ? " Check the Composio API key in settings." : res.status === 429 ? " Try again later." : "";
+  // A Composio server error leaves no status: a write may or may not have happened.
+  if (res.status >= 500) throw new Error(`Composio error: ${why}`);
+  throw composioFailure(`Composio error: ${why}${hint}`, res.status);
+}
+
+/** The user's Calendly connections in Composio, newest first. */
+async function calendlyAccounts(auth: Auth, statuses?: string): Promise<any[]> {
+  const q = new URLSearchParams({ toolkit_slugs: TOOLKIT, user_ids: auth.userId });
+  if (statuses) q.set("statuses", statuses);
+  if (auth.authConfigId) q.set("auth_config_ids", auth.authConfigId);
+  const items: any[] = (await composio(auth, "GET", `/connected_accounts?${q}`))?.items ?? [];
+  return items.sort((a, b) => String(b.created_at ?? "").localeCompare(String(a.created_at ?? "")));
+}
+
+/** What to tell the user when there's no ACTIVE connection, from the newest one there is. */
+function connectionProblem(accounts: any[]): string {
+  const status = String(accounts[0]?.status ?? "").toUpperCase();
+  if (status === "INITIATED" || status === "INITIALIZING") return STILL_CONNECTING;
+  return accounts.length ? RECONNECT : NOT_CONNECTED;
+}
+
+// The connection only changes when the user reconnects; a failed call drops it so the next one looks again.
+let cachedAccount: { key: string; id: string } | null = null;
+
+async function connectedAccountId(auth: Auth): Promise<string> {
+  const key = authKey(auth);
+  if (cachedAccount?.key === key) return cachedAccount.id;
+  const active = await calendlyAccounts(auth, "ACTIVE");
+  if (!active.length) {
+    const all = await calendlyAccounts(auth).catch(() => []);
+    throw composioFailure(connectionProblem(all), 401, true);
+  }
+  cachedAccount = { key, id: active[0].id };
+  return active[0].id;
+}
+
+async function fetchCalendly(endpoint: string, auth: Auth, options: RequestInit = {}) {
+  const account = await connectedAccountId(auth);
+  // Relative paths resolve against the connection's base URL (api.calendly.com).
+  // Query strings go in `parameters`, which is the format Composio documents.
+  const url = new URL(endpoint.startsWith("https://") ? endpoint : `${CALENDLY_API}${endpoint}`);
+  const parameters = [...url.searchParams].map(([name, value]) => ({ name, value, type: "query" }));
+  const res = await fetch(`${COMPOSIO_API}/tools/execute/proxy`, {
+    method: "POST",
+    headers: { "x-api-key": auth.apiKey, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      endpoint: url.pathname,
+      method: (options.method || "GET").toUpperCase(),
+      ...(typeof options.body === "string" ? { body: JSON.parse(options.body) } : {}),
+      ...(parameters.length ? { parameters } : {}),
+      connected_account_id: account,
+      user_id: auth.userId,
+    }),
+    signal: AbortSignal.timeout(10000),
+  });
+  let reply: any = null;
+  try {
+    reply = await res.json();
+  } catch {
+    // handled below
+  }
+
+  if (typeof reply?.status !== "number" || reply?.error) {
+    // Composio itself refused, so the request never reached Calendly...
+    if (res.status >= 400 && res.status < 500) {
+      cachedAccount = null;
+      const why = reply?.error?.message || reply?.message || `${res.status} ${res.statusText}`;
+      if (res.status === 401) throw composioFailure(`Composio error: ${why} Check the Composio API key in settings.`, 401);
+      // The connection was removed, or Composio couldn't refresh its token.
+      if (res.status === 404 || res.status === 422 || /ConnectedAccount/i.test(String(reply?.error?.slug ?? ""))) {
+        throw composioFailure(`${RECONNECT} (Composio: ${why})`, res.status, true);
+      }
+      throw composioFailure(`Composio error: ${why}${res.status === 429 ? " Try again later." : ""}`, res.status);
     }
-    if (res.status === 429) {
-      const limit = res.headers.get("x-ratelimit-limit");
-      const resetS = Number(res.headers.get("x-ratelimit-reset"));
+    // ...but after a Composio server error or an unreadable answer, it may have.
+    // No status, so writes report an unknown outcome instead of a failure.
+    throw new Error(`Composio didn't return Calendly's answer (${res.status} ${res.statusText}).`);
+  }
+
+  // Calendly's own answer, forwarded with Calendly's status.
+  const status: number = reply.status;
+  const data = reply.data;
+  if (status < 200 || status >= 300) {
+    const errJson: any = data && typeof data === "object" ? data : {};
+    let errMsg = errJson.message || errJson.errors?.[0]?.message || `Calendly API error: ${status}`;
+    // Calendly puts the useful part of a 400 (which field, and why) in `details`.
+    const details = Array.isArray(errJson.details)
+      ? errJson.details.map((d: any) => [d?.parameter, d?.message].filter(Boolean).join(": ")).filter(Boolean).join("; ")
+      : "";
+    if (details) errMsg = `${errMsg} ${details}`;
+    const scopes: string[] = Array.isArray(errJson.required_scopes) ? errJson.required_scopes.map(String) : [];
+    if (scopes.length) {
+      errMsg = `Your Calendly connection in Composio doesn't have permission for this: it needs ${scopes.join(", ")}.`;
+    }
+    if (status === 429) {
+      const headers: Record<string, string> = {};
+      for (const [k, v] of Object.entries(reply.headers || {})) headers[k.toLowerCase()] = String(v);
+      const limit = headers["x-ratelimit-limit"];
+      const resetS = Number(headers["x-ratelimit-reset"]);
       // X-RateLimit-Reset is a countdown in seconds (per Calendly's docs), not the window length.
       const wait = resetS >= 3600 ? `~${Math.round(resetS / 3600)}h` : resetS > 0 ? `~${Math.ceil(resetS / 60)} min` : "";
       errMsg = `Calendly rate limit reached${limit ? ` (limit ${limit} on this plan)` : ""}.${wait ? ` Resets in ${wait}.` : " Try again later."}`;
     }
-    const err = new Error(errMsg);
-    (err as any).status = res.status;
-    throw err;
+    // Calendly no longer accepts the token: Composio couldn't refresh it, or access was revoked in Calendly.
+    if (status === 401) {
+      cachedAccount = null;
+      throw Object.assign(new Error(RECONNECT), { status, reconnect: true });
+    }
+    throw Object.assign(new Error(errMsg), { status, scopes });
   }
-  // Some writes (e.g. undoing a no-show) answer 204 with no body. Bun's res.json()
-  // reads that as null, but Node's (run.sh's fallback runtime) throws.
-  const text = await res.text();
-  return text ? JSON.parse(text) : null;
+  // Some writes (e.g. undoing a no-show) answer 204 with no body.
+  return data ?? null;
 }
 
 function renderErrorCard(title: string, message: string, height = 130) {
@@ -181,8 +334,8 @@ function errorResult(message: string, extra: Record<string, unknown> = {}) {
   );
 }
 
-function missingKeyResult() {
-  return errorResult("Add your Calendly Personal Access Token in settings.", { error: "Missing CALENDLY_API_KEY" });
+function missingKeyResult(message: string) {
+  return errorResult(message, { error: "Missing Calendly credentials" });
 }
 
 /**
@@ -221,12 +374,13 @@ server.registerTool(
     } as any,
   },
   async (args: any) => {
-    const apiKey = process.env.CALENDLY_API_KEY?.trim();
-    if (!apiKey) return missingKeyResult();
+    const creds = getAuth();
+    if ("missing" in creds) return missingKeyResult(creds.missing);
+    const auth = creds.auth;
 
     try {
       const count = Math.min(Math.max(args?.count ?? 5, 1), 10);
-      const userRes = await fetchCalendly("/users/me", apiKey);
+      const userRes = await fetchCalendly("/users/me", auth);
       const user = userRes?.resource;
       const userUri = user?.uri;
       const schedulingUrl = user?.scheduling_url || "";
@@ -238,7 +392,7 @@ server.registerTool(
       const nowIso = new Date().toISOString();
       const eventsRes = await fetchCalendly(
         `/scheduled_events?user=${encodeURIComponent(userUri)}&status=active&min_start_time=${encodeURIComponent(nowIso)}&sort=start_time:asc&count=${count}`,
-        apiKey
+        auth
       );
       const rawEvents = eventsRes?.collection || [];
 
@@ -249,7 +403,7 @@ server.registerTool(
           const uuid = extractUuid(ev.uri);
           let invitees: any[] = [];
           try {
-            const invRes = await fetchCalendly(`/scheduled_events/${encodeURIComponent(uuid)}/invitees?count=2`, apiKey);
+            const invRes = await fetchCalendly(`/scheduled_events/${encodeURIComponent(uuid)}/invitees?count=2`, auth);
             invitees = invRes?.collection || [];
           } catch {
             // non-fatal
@@ -410,11 +564,12 @@ server.registerTool(
     } as any,
   },
   async (args: any) => {
-    const apiKey = process.env.CALENDLY_API_KEY?.trim();
-    if (!apiKey) return missingKeyResult();
+    const creds = getAuth();
+    if ("missing" in creds) return missingKeyResult(creds.missing);
+    const auth = creds.auth;
 
     try {
-      const userRes = await fetchCalendly("/users/me", apiKey);
+      const userRes = await fetchCalendly("/users/me", auth);
       const user = userRes?.resource;
       const userUri = user?.uri;
 
@@ -425,7 +580,7 @@ server.registerTool(
       const activeOnly = args?.active_only ?? true;
       const etRes = await fetchCalendly(
         `/event_types?user=${encodeURIComponent(userUri)}${activeOnly ? "&active=true" : ""}`,
-        apiKey
+        auth
       );
       const eventTypes = etRes?.collection || [];
 
@@ -515,14 +670,15 @@ server.registerTool(
     } as any,
   },
   async (args: any) => {
-    const apiKey = process.env.CALENDLY_API_KEY?.trim();
-    if (!apiKey) return missingKeyResult();
+    const creds = getAuth();
+    if ("missing" in creds) return missingKeyResult(creds.missing);
+    const auth = creds.auth;
 
     const uuid = extractUuid(args.event_uuid);
     if (!uuid) return errorResult("Please provide a valid event UUID.");
 
     try {
-      const eventRes = await fetchCalendly(`/scheduled_events/${encodeURIComponent(uuid)}`, apiKey);
+      const eventRes = await fetchCalendly(`/scheduled_events/${encodeURIComponent(uuid)}`, auth);
       const ev = eventRes?.resource;
 
       if (!ev) {
@@ -531,7 +687,7 @@ server.registerTool(
 
       let invitees: any[] = [];
       try {
-        const invRes = await fetchCalendly(`/scheduled_events/${encodeURIComponent(uuid)}/invitees`, apiKey);
+        const invRes = await fetchCalendly(`/scheduled_events/${encodeURIComponent(uuid)}/invitees`, auth);
         invitees = invRes?.collection || [];
       } catch {
         // non-fatal
@@ -637,8 +793,9 @@ server.registerTool(
     } as any,
   },
   async (args: any) => {
-    const apiKey = process.env.CALENDLY_API_KEY?.trim();
-    if (!apiKey) return missingKeyResult();
+    const creds = getAuth();
+    if ("missing" in creds) return missingKeyResult(creds.missing);
+    const auth = creds.auth;
 
     const uuid = extractUuid(args.event_uuid);
     if (!uuid) return errorResult("Please provide the event UUID to cancel.");
@@ -647,7 +804,7 @@ server.registerTool(
     try {
       // The card shows what the model passed, so check it against the real meeting
       // before cancelling: a mixed-up UUID must not cancel a different meeting.
-      const ev = (await fetchCalendly(`/scheduled_events/${encodeURIComponent(uuid)}`, apiKey))?.resource;
+      const ev = (await fetchCalendly(`/scheduled_events/${encodeURIComponent(uuid)}`, auth))?.resource;
       if (!ev) throw new Error("Meeting not found.");
       const meetingTitle = ev.name || "Scheduled Meeting";
       const when = formatEventTime(ev.start_time).label;
@@ -664,7 +821,7 @@ server.registerTool(
 
       const reason: string | undefined = args.reason?.trim() || undefined;
       cancelSent = true;
-      await fetchCalendly(`/scheduled_events/${encodeURIComponent(uuid)}/cancellation`, apiKey, {
+      await fetchCalendly(`/scheduled_events/${encodeURIComponent(uuid)}/cancellation`, auth, {
         method: "POST",
         body: JSON.stringify(reason ? { reason } : {}),
       });
@@ -715,13 +872,13 @@ server.registerTool(
 type CalendlyUser = { uri: string; timezone: string; scheduling_url: string };
 let cachedUser: { key: string; user: CalendlyUser } | null = null;
 
-async function getUser(apiKey: string): Promise<CalendlyUser> {
-  if (cachedUser?.key === apiKey) return cachedUser.user;
-  const res = await fetchCalendly("/users/me", apiKey);
+async function getUser(auth: Auth): Promise<CalendlyUser> {
+  if (cachedUser?.key === authKey(auth)) return cachedUser.user;
+  const res = await fetchCalendly("/users/me", auth);
   const r = res?.resource;
   if (!r?.uri) throw new Error("Unable to identify Calendly user from access token.");
   const user = { uri: r.uri, timezone: r.timezone || "UTC", scheduling_url: r.scheduling_url || "" };
-  cachedUser = { key: apiKey, user };
+  cachedUser = { key: authKey(auth), user };
   return user;
 }
 
@@ -730,8 +887,8 @@ async function getUser(apiKey: string): Promise<CalendlyUser> {
  * slug, or (partial) name. With no reference, uses the only active type, or
  * throws listing the options so the model can ask the user which one.
  */
-async function resolveEventType(apiKey: string, userUri: string, ref?: string): Promise<any> {
-  const res = await fetchCalendly(`/event_types?user=${encodeURIComponent(userUri)}&active=true&count=100`, apiKey);
+async function resolveEventType(auth: Auth, userUri: string, ref?: string): Promise<any> {
+  const res = await fetchCalendly(`/event_types?user=${encodeURIComponent(userUri)}&active=true&count=100`, auth);
   const types: any[] = res?.collection || [];
   if (types.length === 0) throw new Error("No active event types found in Calendly. Create one first.");
   const names = types.map((t) => `"${t.name}"`).join(", ");
@@ -825,12 +982,13 @@ server.registerTool(
     } as any,
   },
   async (args: any) => {
-    const apiKey = process.env.CALENDLY_API_KEY?.trim();
-    if (!apiKey) return missingKeyResult();
+    const creds = getAuth();
+    if ("missing" in creds) return missingKeyResult(creds.missing);
+    const auth = creds.auth;
     try {
-      const user = await getUser(apiKey);
+      const user = await getUser(auth);
       const tz = user.timezone;
-      const et = await resolveEventType(apiKey, user.uri, args?.event_type);
+      const et = await resolveEventType(auth, user.uri, args?.event_type);
       const date = args?.date || todayIn(tz);
       const days = Math.min(Math.max(args?.days ?? 1, 1), 7);
       const [y, mo, d] = date.split("-").map(Number);
@@ -847,7 +1005,7 @@ server.registerTool(
         `/event_type_available_times?event_type=${encodeURIComponent(et.uri)}` +
           `&start_time=${encodeURIComponent(new Date(rangeStart).toISOString())}` +
           `&end_time=${encodeURIComponent(new Date(rangeEnd).toISOString())}`,
-        apiKey
+        auth
       );
       const slots = (res?.collection || [])
         .filter((s: any) => s.status === "available")
@@ -913,8 +1071,9 @@ server.registerTool(
     } as any,
   },
   async (args: any) => {
-    const apiKey = process.env.CALENDLY_API_KEY?.trim();
-    if (!apiKey) return missingKeyResult();
+    const creds = getAuth();
+    if ("missing" in creds) return missingKeyResult(creds.missing);
+    const auth = creds.auth;
 
     // Validate before touching the API so a bad dictation never books anything.
     const name = String(args?.invitee_name ?? "").trim();
@@ -934,8 +1093,8 @@ server.registerTool(
     let et: any;
     let bookingSent = false;
     try {
-      const user = await getUser(apiKey);
-      et = await resolveEventType(apiKey, user.uri, args?.event_type);
+      const user = await getUser(auth);
+      et = await resolveEventType(auth, user.uri, args?.event_type);
       const tz = args?.invitee_timezone?.trim() || user.timezone;
 
       const body: Record<string, unknown> = {
@@ -953,7 +1112,7 @@ server.registerTool(
       }
 
       bookingSent = true;
-      const created = await fetchCalendly("/invitees", apiKey, { method: "POST", body: JSON.stringify(body) });
+      const created = await fetchCalendly("/invitees", auth, { method: "POST", body: JSON.stringify(body) });
       const inv = created?.resource;
       if (!inv?.event) throw new Error("Calendly did not return the booked event.");
       const eventUuid = extractUuid(inv.event);
@@ -962,7 +1121,7 @@ server.registerTool(
       // point, so a failed read must not be reported as a failed booking.
       let ev: any = null;
       try {
-        ev = (await fetchCalendly(`/scheduled_events/${encodeURIComponent(eventUuid)}`, apiKey))?.resource ?? null;
+        ev = (await fetchCalendly(`/scheduled_events/${encodeURIComponent(eventUuid)}`, auth))?.resource ?? null;
       } catch (err: any) {
         console.error("book_meeting: read-back failed:", err?.message);
       }
@@ -1068,8 +1227,8 @@ function displayHours(text: string): string {
   return text.split(", ").map((r) => { const [a, b] = r.split("-"); return `${clock(a)}–${clock(b)}`; }).join(", ");
 }
 
-async function getSchedule(apiKey: string, eventTypeUri: string) {
-  const res = await fetchCalendly(`/event_type_availability_schedules?event_type=${encodeURIComponent(eventTypeUri)}`, apiKey);
+async function getSchedule(auth: Auth, eventTypeUri: string) {
+  const res = await fetchCalendly(`/event_type_availability_schedules?event_type=${encodeURIComponent(eventTypeUri)}`, auth);
   const rule = res?.collection?.[0]?.availability_rule;
   if (!rule?.timezone) throw new Error("Calendly didn't return an availability schedule for this event type.");
   const rules: Rule[] = (Array.isArray(rule.rules) ? rule.rules : []).map((r: any) => ({ ...r, intervals: cleanIntervals(r.intervals) }));
@@ -1122,12 +1281,13 @@ server.registerTool(
     } as any,
   },
   async (args: any) => {
-    const apiKey = process.env.CALENDLY_API_KEY?.trim();
-    if (!apiKey) return missingKeyResult();
+    const creds = getAuth();
+    if ("missing" in creds) return missingKeyResult(creds.missing);
+    const auth = creds.auth;
     try {
-      const user = await getUser(apiKey);
-      const et = await resolveEventType(apiKey, user.uri, args?.event_type);
-      const sched = await getSchedule(apiKey, et.uri);
+      const user = await getUser(auth);
+      const et = await resolveEventType(auth, user.uri, args?.event_type);
+      const sched = await getSchedule(auth, et.uri);
       const weekly = weeklyHours(sched.rules);
       const today = todayIn(sched.timezone);
       const overrides = sched.rules
@@ -1178,8 +1338,9 @@ server.registerTool(
     } as any,
   },
   async (args: any) => {
-    const apiKey = process.env.CALENDLY_API_KEY?.trim();
-    if (!apiKey) return missingKeyResult();
+    const creds = getAuth();
+    if ("missing" in creds) return missingKeyResult(creds.missing);
+    const auth = creds.auth;
 
     // Validate before touching the API, so a misheard time changes nothing.
     let target: Target;
@@ -1194,9 +1355,9 @@ server.registerTool(
 
     let changeSent = false;
     try {
-      const user = await getUser(apiKey);
-      const et = await resolveEventType(apiKey, user.uri, args?.event_type);
-      const sched = await getSchedule(apiKey, et.uri);
+      const user = await getUser(auth);
+      const et = await resolveEventType(auth, user.uri, args?.event_type);
+      const sched = await getSchedule(auth, et.uri);
       const label = targetLabel(target);
       if (target.type === "date" && target.date < todayIn(sched.timezone)) return errorResult(`${label} is in the past.`);
 
@@ -1230,7 +1391,7 @@ server.registerTool(
       if (target.type === "date" && newIntervals) rules.push({ type: "date", date: target.date, intervals: newIntervals });
 
       changeSent = true;
-      const saved = await fetchCalendly(`/event_type_availability_schedules?event_type=${encodeURIComponent(et.uri)}`, apiKey, {
+      const saved = await fetchCalendly(`/event_type_availability_schedules?event_type=${encodeURIComponent(et.uri)}`, auth, {
         method: "PATCH",
         body: JSON.stringify({ availability_rule: { timezone: sched.timezone, rules } }),
       });
@@ -1267,7 +1428,7 @@ server.registerTool(
       });
     } catch (err: any) {
       if (changeSent && err?.status === undefined) return outcomeUnknownResult("availability change");
-      const hint = err?.status === 403 ? " Your Calendly token may not have permission to change availability." : "";
+      const hint = err?.status === 403 && !err?.scopes?.length ? " Your Calendly connection may not have permission to change availability." : "";
       return errorResult(`${err?.message || "Failed to update availability."}${hint}`);
     }
   }
@@ -1320,7 +1481,7 @@ const dateLabel = (date: string) => {
   return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString("en-US", { timeZone: "UTC", month: "short", day: "numeric" });
 };
 const permissionHint = (err: any, what: string) =>
-  err?.status === 403 ? ` Your Calendly token may not have permission to ${what}.` : "";
+  err?.status === 403 && !err?.scopes?.length ? ` Your Calendly connection may not have permission to ${what}.` : "";
 
 // ==========================================
 // TOOL 9: recent_events (Read)
@@ -1338,10 +1499,11 @@ server.registerTool(
     } as any,
   },
   async (args: any) => {
-    const apiKey = process.env.CALENDLY_API_KEY?.trim();
-    if (!apiKey) return missingKeyResult();
+    const creds = getAuth();
+    if ("missing" in creds) return missingKeyResult(creds.missing);
+    const auth = creds.auth;
     try {
-      const user = await getUser(apiKey);
+      const user = await getUser(auth);
       const days = Math.min(Math.max(args?.days ?? 7, 1), 30);
       const count = Math.min(Math.max(args?.count ?? 5, 1), 10);
       const email = String(args?.invitee_email ?? "").trim();
@@ -1354,7 +1516,7 @@ server.registerTool(
               `&max_start_time=${encodeURIComponent(new Date(now).toISOString())}` +
               `&sort=start_time:desc&count=${count}` +
               (email ? `&invitee_email=${encodeURIComponent(email)}` : ""),
-            apiKey
+            auth
           )
         )?.collection || [];
 
@@ -1363,7 +1525,7 @@ server.registerTool(
           const uuid = extractUuid(ev.uri);
           let invitees: any[] = [];
           try {
-            invitees = (await fetchCalendly(`/scheduled_events/${encodeURIComponent(uuid)}/invitees?status=active&count=10`, apiKey))?.collection || [];
+            invitees = (await fetchCalendly(`/scheduled_events/${encodeURIComponent(uuid)}/invitees?status=active&count=10`, auth))?.collection || [];
           } catch {
             // non-fatal: the meeting still lists without its invitees
           }
@@ -1416,10 +1578,11 @@ server.registerTool(
     } as any,
   },
   async (args: any) => {
-    const apiKey = process.env.CALENDLY_API_KEY?.trim();
-    if (!apiKey) return missingKeyResult();
+    const creds = getAuth();
+    if ("missing" in creds) return missingKeyResult(creds.missing);
+    const auth = creds.auth;
     try {
-      const user = await getUser(apiKey);
+      const user = await getUser(auth);
       const tz = user.timezone;
       const date = args?.date || todayIn(tz);
       if (!isRealDate(date)) throw new Error(`${date} is not a real date.`);
@@ -1432,7 +1595,7 @@ server.registerTool(
         `/user_busy_times?user=${encodeURIComponent(user.uri)}` +
           `&start_time=${encodeURIComponent(new Date(rangeStart).toISOString())}` +
           `&end_time=${encodeURIComponent(new Date(rangeEnd).toISOString())}`,
-        apiKey
+        auth
       );
       const SOURCE: Record<string, string> = { calendly: "Calendly meeting", reserved: "Reserved in Calendly", external: "Other calendar" };
       const busy = (res?.collection || [])
@@ -1490,12 +1653,13 @@ server.registerTool(
     } as any,
   },
   async (args: any) => {
-    const apiKey = process.env.CALENDLY_API_KEY?.trim();
-    if (!apiKey) return missingKeyResult();
+    const creds = getAuth();
+    if ("missing" in creds) return missingKeyResult(creds.missing);
+    const auth = creds.auth;
     try {
-      const user = await getUser(apiKey);
-      const et = await resolveEventType(apiKey, user.uri, args?.event_type);
-      const res = await fetchCalendly("/scheduling_links", apiKey, {
+      const user = await getUser(auth);
+      const et = await resolveEventType(auth, user.uri, args?.event_type);
+      const res = await fetchCalendly("/scheduling_links", auth, {
         method: "POST",
         body: JSON.stringify({ max_event_count: 1, owner: et.uri, owner_type: "EventType" }),
       });
@@ -1539,8 +1703,9 @@ server.registerTool(
     } as any,
   },
   async (args: any) => {
-    const apiKey = process.env.CALENDLY_API_KEY?.trim();
-    if (!apiKey) return missingKeyResult();
+    const creds = getAuth();
+    if ("missing" in creds) return missingKeyResult(creds.missing);
+    const auth = creds.auth;
 
     const uuid = extractUuid(args?.event_uuid);
     if (!uuid) return errorResult("Please provide the event UUID.");
@@ -1548,7 +1713,7 @@ server.registerTool(
 
     let sent = false;
     try {
-      const ev = (await fetchCalendly(`/scheduled_events/${encodeURIComponent(uuid)}`, apiKey))?.resource;
+      const ev = (await fetchCalendly(`/scheduled_events/${encodeURIComponent(uuid)}`, auth))?.resource;
       if (!ev) throw new Error("Meeting not found.");
       const title = ev.name || "Scheduled Meeting";
       const when = formatEventTime(ev.start_time).label;
@@ -1566,7 +1731,7 @@ server.registerTool(
       }
 
       const invitees: any[] =
-        (await fetchCalendly(`/scheduled_events/${encodeURIComponent(uuid)}/invitees?status=active&count=100`, apiKey))?.collection || [];
+        (await fetchCalendly(`/scheduled_events/${encodeURIComponent(uuid)}/invitees?status=active&count=100`, auth))?.collection || [];
       if (!invitees.length) return errorResult(`"${title}" has no invitees to mark.`, { changed: false });
       const emails = invitees.map((i) => i.email).join(", ");
       const wanted = String(args?.invitee_email ?? "").trim().toLowerCase();
@@ -1583,11 +1748,11 @@ server.registerTool(
       let changed = false;
       if (!undo && !inv.no_show) {
         sent = true;
-        await fetchCalendly("/invitee_no_shows", apiKey, { method: "POST", body: JSON.stringify({ invitee: inv.uri }) });
+        await fetchCalendly("/invitee_no_shows", auth, { method: "POST", body: JSON.stringify({ invitee: inv.uri }) });
         changed = true;
       } else if (undo && inv.no_show?.uri) {
         sent = true;
-        await fetchCalendly(`/invitee_no_shows/${encodeURIComponent(extractUuid(inv.no_show.uri))}`, apiKey, { method: "DELETE" });
+        await fetchCalendly(`/invitee_no_shows/${encodeURIComponent(extractUuid(inv.no_show.uri))}`, auth, { method: "DELETE" });
         changed = true;
       }
 
@@ -1643,8 +1808,9 @@ server.registerTool(
     } as any,
   },
   async (args: any) => {
-    const apiKey = process.env.CALENDLY_API_KEY?.trim();
-    if (!apiKey) return missingKeyResult();
+    const creds = getAuth();
+    if ("missing" in creds) return missingKeyResult(creds.missing);
+    const auth = creds.auth;
 
     // Validate before touching the API, so a misheard value creates nothing.
     const name = String(args?.name ?? "").trim();
@@ -1659,7 +1825,7 @@ server.registerTool(
 
     let sent = false;
     try {
-      const user = await getUser(apiKey);
+      const user = await getUser(auth);
       const today = todayIn(user.timezone);
       const startDate = startArg || today;
       const endDate = endArg || addDays(startDate, 13);
@@ -1671,7 +1837,7 @@ server.registerTool(
       const location = !locText ? undefined : kind ? { kind } : { kind: "custom", location: locText };
 
       sent = true;
-      const res = await fetchCalendly("/one_off_event_types", apiKey, {
+      const res = await fetchCalendly("/one_off_event_types", auth, {
         method: "POST",
         body: JSON.stringify({
           name,
@@ -1731,10 +1897,11 @@ server.registerTool(
     } as any,
   },
   async (args: any) => {
-    const apiKey = process.env.CALENDLY_API_KEY?.trim();
-    if (!apiKey) return missingKeyResult();
+    const creds = getAuth();
+    if ("missing" in creds) return missingKeyResult(creds.missing);
+    const auth = creds.auth;
     try {
-      const user = await getUser(apiKey);
+      const user = await getUser(auth);
       const days = Math.min(Math.max(args?.days ?? 30, 1), 90);
       const email = String(args?.attendee_email ?? "").trim();
       const eventUuid = extractUuid(String(args?.event_uuid ?? ""));
@@ -1742,7 +1909,7 @@ server.registerTool(
       if (eventUuid) params.set("event", `https://api.calendly.com/scheduled_events/${eventUuid}`);
       if (email) params.set("attendee", email);
 
-      const list: any[] = (await fetchCalendly(`/meeting_recaps?${params}`, apiKey))?.collection || [];
+      const list: any[] = (await fetchCalendly(`/meeting_recaps?${params}`, auth))?.collection || [];
       const time = (r: any) => Date.parse(r.start_time || r.created_at || "") || 0;
       list.sort((a, b) => time(b) - time(a));
       if (!list.length) {
@@ -1756,7 +1923,7 @@ server.registerTool(
       }
 
       // The list leaves out the notes themselves, so load the latest recap in full.
-      const recap = (await fetchCalendly(`/meeting_recaps/${encodeURIComponent(extractUuid(list[0].uri))}`, apiKey))?.resource ?? list[0];
+      const recap = (await fetchCalendly(`/meeting_recaps/${encodeURIComponent(extractUuid(list[0].uri))}`, auth))?.resource ?? list[0];
       const summary = recap.summary_md ? clip(recap.summary_md, 4000) : null;
       const actionItems = recap.action_items_md ? clip(recap.action_items_md, 2000) : null;
       const discussion = recap.discussion_md ? clip(recap.discussion_md, 3000) : null;
@@ -1788,8 +1955,148 @@ server.registerTool(
         _voiceos_glance: glance(body, itemCount ? 168 : 150),
       });
     } catch (err: any) {
-      const hint = err?.status === 403 ? " Meeting recaps need Calendly Notetaker on your plan, and a token that's allowed to read them." : "";
+      const hint =
+        err?.status !== 403 ? ""
+        : err?.scopes?.includes("meeting_recaps:read")
+          ? " Composio's built-in Calendly app doesn't ask for that, so recaps need your own Calendly OAuth app in Composio with the meeting_recaps:read scope."
+          : " Meeting recaps need Calendly Notetaker on your plan, and a connection that's allowed to read them.";
       return errorResult(`${err?.message || "Failed to fetch the meeting recap."}${hint}`);
+    }
+  }
+);
+
+// ==========================================
+// TOOL 15: connect_calendly (connects through Composio; changes nothing in Calendly)
+// ==========================================
+// Composio's Connect Link sends the user through Calendly's OAuth2 sign-in, and
+// Composio keeps and refreshes the token from then on.
+
+/** The Calendly auth config to connect through: the setting, else the one the user connected through before, else the newest. */
+async function pickAuthConfig(auth: Auth, previous: any[]): Promise<string> {
+  if (auth.authConfigId) return auth.authConfigId;
+  const items: any[] = (await composio(auth, "GET", `/auth_configs?${new URLSearchParams({ toolkit_slug: TOOLKIT })}`))?.items ?? [];
+  const enabled = items
+    .filter((c) => String(c.status ?? "ENABLED").toUpperCase() === "ENABLED")
+    .sort((a, b) => String(b.created_at ?? "").localeCompare(String(a.created_at ?? "")));
+  if (!enabled.length) {
+    throw composioFailure("Your Composio project has no Calendly auth config. In Composio, add Calendly under Auth Configs (Composio-managed OAuth2 works), then try again.", 404);
+  }
+  const usedBefore = previous.map((a) => a.auth_config?.id).find((id) => enabled.some((c) => c.id === id));
+  return usedBefore ?? enabled[0].id;
+}
+
+/** Only links to Composio's or Calendly's sign-in pages are shown as buttons. */
+function isSignInLink(url: unknown): url is string {
+  try {
+    const u = new URL(String(url));
+    return u.protocol === "https:" && /(^|\.)(composio\.dev|calendly\.com)$/.test(u.hostname);
+  } catch {
+    return false;
+  }
+}
+
+const CONNECT_CSS = `.ls-btn{display:inline-block;margin-top:2px;padding:7px 14px;border-radius:8px;background:var(--accent);color:#fff;font-size:12.5px;font-weight:600;text-decoration:none}`;
+
+server.registerTool(
+  "connect_calendly",
+  {
+    title: "Connect Calendly",
+    description:
+      "Connect the user's Calendly account through Composio (OAuth2), or check whether it's connected. Use when the user asks to connect, link, sign in to, or reconnect Calendly, asks if Calendly is connected, or when another Calendly tool says Calendly isn't connected or the connection expired. If it isn't connected, this returns a sign-in link for the user to open; it changes nothing in Calendly.",
+    inputSchema: {} as any,
+  },
+  async () => {
+    const creds = getAuth();
+    if ("missing" in creds) return missingKeyResult(creds.missing);
+    const auth = creds.auth;
+    try {
+      const accounts = await calendlyAccounts(auth);
+      const active = accounts.find((a) => String(a.status).toUpperCase() === "ACTIVE");
+      if (active) {
+        cachedAccount = { key: authKey(auth), id: active.id };
+        const me = (await fetchCalendly("/users/me", auth))?.resource ?? {};
+        const body = `
+<div class="ls-card">
+  <div class="ls-hd">${markHtml()}<span class="ls-badge good">Connected</span></div>
+  <div class="ls-title">${esc(clip(me.name || "Calendly", 44))}</div>
+  <div class="ls-sub">${esc(clip(me.email || "", 52))}</div>
+  <div class="ls-foot">Connected through Composio</div>
+</div>`;
+        return textResult({ connected: true, name: me.name, email: me.email, timezone: me.timezone, _voiceos_glance: glance(body, 130) });
+      }
+
+      const reconnecting = accounts.length > 0;
+      const authConfigId = await pickAuthConfig(auth, accounts);
+      const link = await composio(auth, "POST", "/connected_accounts/link", { auth_config_id: authConfigId, user_id: auth.userId });
+      if (!isSignInLink(link?.redirect_url)) throw new Error("Composio didn't return a sign-in link.");
+      cachedAccount = null;
+      cachedUser = null;
+      const url: string = link.redirect_url;
+      const body = `
+<div class="ls-card">
+  <div class="ls-hd">${markHtml()}<span class="ls-badge">${reconnecting ? "Reconnect needed" : "Not connected"}</span></div>
+  <div class="ls-title">${reconnecting ? "Reconnect Calendly" : "Connect Calendly"}</div>
+  <div class="ls-sub">Approve access in your browser, then ask again.</div>
+  <a class="ls-btn" href="${esc(url)}">${reconnecting ? "Reconnect Calendly" : "Connect Calendly"}</a>
+</div>`;
+      const card = renderCustom({ accent: ACCENT, css: LS_CSS + CONNECT_CSS, body, height: 150 });
+      return textResult({
+        connected: false,
+        connect_url: url,
+        expires_at: link.expires_at,
+        next_step: "Open the link, approve access to Calendly in the browser, then ask again.",
+        _voiceos_glance: { blocks: [{ type: "widget", html: card.html, height: card.height }] },
+      });
+    } catch (err: any) {
+      return errorResult(err?.message || "Couldn't connect Calendly.");
+    }
+  }
+);
+
+// ==========================================
+// TOOL 16: disconnect_calendly (Act)
+// ==========================================
+server.registerTool(
+  "disconnect_calendly",
+  {
+    title: "Disconnect Calendly",
+    description:
+      "Disconnect the user's Calendly account: removes its connection in Composio, so VoiceOS can no longer use Calendly until it's connected again. Meetings in Calendly don't change. Use only when the user explicitly asks to disconnect, unlink, or sign out of Calendly.",
+    inputSchema: {} as any,
+  },
+  async () => {
+    const creds = getAuth();
+    if ("missing" in creds) return missingKeyResult(creds.missing);
+    const auth = creds.auth;
+    let sent = false;
+    try {
+      const accounts = await calendlyAccounts(auth);
+      if (!accounts.length) {
+        const body = `
+<div class="ls-card">
+  <div class="ls-hd">${markHtml()}<span class="ls-badge">Not connected</span></div>
+  <div class="ls-empty">Calendly wasn't connected, so nothing changed.</div>
+</div>`;
+        return textResult({ disconnected: false, changed: false, message: "Calendly wasn't connected, so there was nothing to disconnect.", _voiceos_glance: glance(body, 120) });
+      }
+      for (const a of accounts) {
+        sent = true;
+        // Revoke the token with Calendly first, best effort: deleting the connection is what cuts VoiceOS off.
+        await composio(auth, "POST", `/connected_accounts/${encodeURIComponent(a.id)}/revoke`, {}).catch(() => {});
+        await composio(auth, "DELETE", `/connected_accounts/${encodeURIComponent(a.id)}`);
+      }
+      cachedAccount = null;
+      cachedUser = null;
+      const body = `
+<div class="ls-card">
+  <div class="ls-hd">${markHtml()}<span class="ls-badge bad">Disconnected</span></div>
+  <div class="ls-title">Calendly is disconnected</div>
+  <div class="ls-sub">Your meetings didn't change. Ask to connect Calendly to use it again.</div>
+</div>`;
+      return textResult({ disconnected: true, changed: true, connections_removed: accounts.length, _voiceos_glance: glance(body, 120) });
+    } catch (err: any) {
+      if (sent && err?.status === undefined) return outcomeUnknownResult("disconnect");
+      return errorResult(err?.message || "Couldn't disconnect Calendly.");
     }
   }
 );

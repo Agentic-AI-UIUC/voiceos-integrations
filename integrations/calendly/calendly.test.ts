@@ -6,13 +6,16 @@
  *
  *  - "contract" tests need no credentials and run everywhere, including CI.
  *  - "fake Calendly API" tests also run everywhere. They point server.ts at a
- *    local fake API (see calendly.fake.ts) to cover failures a real account
- *    can't produce on demand, like timeouts. They prove our logic, not that
- *    Calendly behaves this way: that's what the live tests are for.
- *  - "live" tests hit the real Calendly API with CALENDLY_API_KEY (Bun loads
- *    it from a local, gitignored .env) and cross-check every tool result
- *    against a direct Calendly API call. They skip when no key is present,
- *    e.g. in CI on a fork PR, where repository secrets are unavailable.
+ *    local fake Composio and fake Calendly (see calendly.fake.ts) to cover
+ *    failures a real account can't produce on demand, like timeouts and
+ *    expired connections. They prove our logic, not that Composio or Calendly
+ *    behave this way: that's what the live tests are for.
+ *  - "live" tests hit the real Calendly API through Composio, with
+ *    COMPOSIO_API_KEY and COMPOSIO_USER_ID (Bun loads them from a local,
+ *    gitignored .env) and a connected Calendly account. They cross-check every
+ *    tool result against a direct Calendly API call made through Composio.
+ *    They skip when no key is present, e.g. in CI on a fork PR, where
+ *    repository secrets are unavailable.
  *  - The cancel test is destructive, so it only runs when you also set
  *    CALENDLY_CANCEL_TEST_UUID to a throwaway booking you made for this.
  *  - The booking test creates a real meeting (Calendly emails the invitee)
@@ -29,9 +32,14 @@
 import { describe, test, expect, afterAll, beforeEach } from "bun:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { copyFileSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import manifest from "./voiceos.integration.json";
 
-const API_KEY = process.env.CALENDLY_API_KEY?.trim() || "";
+const COMPOSIO_KEY = process.env.COMPOSIO_API_KEY?.trim() || "";
+const COMPOSIO_USER = process.env.COMPOSIO_USER_ID?.trim() || "default";
+const COMPOSIO = "https://backend.composio.dev/api/v3.1";
 const CANCEL_UUID = process.env.CALENDLY_CANCEL_TEST_UUID?.trim() || "";
 const BOOKING_EMAIL = process.env.CALENDLY_BOOKING_TEST_EMAIL?.trim() || "";
 const AVAILABILITY_TEST = process.env.CALENDLY_AVAILABILITY_TEST === "1";
@@ -42,16 +50,19 @@ const TIMEOUT = 30_000;
 
 const clients: Client[] = [];
 
-async function startServer(env: Record<string, string>, bunArgs: string[] = []): Promise<Client> {
+async function startServer(env: Record<string, string>, bunArgs: string[] = [], cwd = import.meta.dir): Promise<Client> {
   const baseEnv: Record<string, string> = {};
   for (const [k, v] of Object.entries(process.env)) {
-    if (v !== undefined && k !== "CALENDLY_API_KEY") baseEnv[k] = v;
+    if (v !== undefined && !k.startsWith("COMPOSIO_")) baseEnv[k] = v;
   }
+  // Credentials only come from each test, never from a local .env: the empty
+  // values stop Bun from loading it, and CALENDLY_DOTENV stops the server's own loader.
+  const noCredentials = { COMPOSIO_API_KEY: "", COMPOSIO_USER_ID: "", COMPOSIO_AUTH_CONFIG_ID: "", CALENDLY_DOTENV: "off" };
   const transport = new StdioClientTransport({
     command: process.execPath, // the bun running these tests
     args: [...bunArgs, "server.ts"],
-    cwd: import.meta.dir,
-    env: { ...baseEnv, ...env },
+    cwd,
+    env: { ...baseEnv, ...noCredentials, ...env },
     stderr: "inherit",
   });
   const client = new Client({ name: "calendly-test", version: "1.0.0" });
@@ -107,12 +118,30 @@ function confirmationKeys(toolName: string): string[] {
   return keys;
 }
 
+/** A direct Calendly API call for the live tests, through Composio's proxy like the server's. */
+let liveAccount = "";
 async function calendly(path: string) {
-  const res = await fetch(`https://api.calendly.com${path}`, {
-    headers: { Authorization: `Bearer ${API_KEY}` },
+  const headers = { "x-api-key": COMPOSIO_KEY, "Content-Type": "application/json" };
+  if (!liveAccount) {
+    const q = new URLSearchParams({ toolkit_slugs: "calendly", user_ids: COMPOSIO_USER, statuses: "ACTIVE" });
+    liveAccount = (await (await fetch(`${COMPOSIO}/connected_accounts?${q}`, { headers })).json())?.items?.[0]?.id ?? "";
+    if (!liveAccount) throw new Error(`No active Calendly connection in Composio for user ${COMPOSIO_USER}`);
+  }
+  const url = new URL(`https://api.calendly.com${path}`);
+  const res = await fetch(`${COMPOSIO}/tools/execute/proxy`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      endpoint: url.pathname,
+      method: "GET",
+      connected_account_id: liveAccount,
+      user_id: COMPOSIO_USER,
+      parameters: [...url.searchParams].map(([name, value]) => ({ name, value, type: "query" })),
+    }),
   });
-  if (!res.ok) throw new Error(`Calendly ${path} -> ${res.status}`);
-  return res.json() as Promise<any>;
+  const reply: any = await res.json();
+  if (reply?.status !== 200) throw new Error(`Calendly ${path} -> ${reply?.status ?? res.status}`);
+  return reply.data;
 }
 
 const uuidOf = (uri: string) => uri.split("/").filter(Boolean).pop()!;
@@ -133,7 +162,14 @@ describe("contract (no credentials)", () => {
 
   test("only the acting tools declare a confirmation card", () => {
     const withConfirm = manifest.tools.filter((t: any) => t.confirmation).map((t: any) => t.name).sort();
-    expect(withConfirm).toEqual(["book_meeting", "cancel_event", "create_one_off_meeting", "mark_no_show", "update_availability"]);
+    expect(withConfirm).toEqual(["book_meeting", "cancel_event", "create_one_off_meeting", "disconnect_calendly", "mark_no_show", "update_availability"]);
+  });
+
+  test("disconnect_calendly confirmation card asks first, with nothing to edit", () => {
+    expect(confirmationKeys("disconnect_calendly")).toEqual([]);
+    const tool: any = manifest.tools.find((t: any) => t.name === "disconnect_calendly");
+    expect(tool.confirmation.root.confirmLabel).toBe("Disconnect");
+    expect(tool.confirmation.root.html).toContain("Your meetings don't change");
   });
 
   test("mark_no_show confirmation card shows the meeting and the invitee, and the meeting is required", () => {
@@ -167,8 +203,8 @@ describe("contract (no credentials)", () => {
   });
 
   test("book_meeting rejects bad input before calling Calendly", async () => {
-    // A fake token: if validation were skipped, Calendly would reject it with a 401 instead.
-    const client = await startServer({ CALENDLY_API_KEY: "not-a-real-token" });
+    // A fake key: if validation were skipped, Composio would reject it with a 401 instead.
+    const client = await startServer({ COMPOSIO_API_KEY: "not-a-real-key" });
     const future = new Date(Date.now() + 86_400_000).toISOString();
     const badEmail = await callError(client, "book_meeting", { start_time: future, invitee_name: "A", invitee_email: "nope" });
     expect(badEmail.message).toContain("not a valid email");
@@ -180,14 +216,24 @@ describe("contract (no credentials)", () => {
     expect(badTime.message).toContain("not a valid start time");
   }, TIMEOUT);
 
-  test("network permission lists only the API host the code calls", () => {
+  test("network permission lists only Composio, which every Calendly call goes through", () => {
     const net = manifest.permissions.find((p: any) => p.kind === "network") as any;
-    expect(net.domains).toEqual(["api.calendly.com"]);
+    expect(net.domains).toEqual(["backend.composio.dev"]);
   });
 
-  test("missing token returns an error from every tool, not data", async () => {
-    // Explicit empty value: bun would otherwise load the key from a local .env.
-    const client = await startServer({ CALENDLY_API_KEY: "" });
+  test("every setting the server reads is optional and listed in .env.example", async () => {
+    const prefs: any[] = (manifest as any).preferences;
+    const names = ["COMPOSIO_API_KEY", "COMPOSIO_USER_ID", "COMPOSIO_AUTH_CONFIG_ID"];
+    expect(prefs.map((p) => p.name)).toEqual(names);
+    // The key can live in .env instead, and the others have defaults, so no field is required.
+    for (const p of prefs) expect(p.required).toBe(false);
+    expect(prefs.filter((p) => p.type === "password").map((p) => p.name)).toEqual(["COMPOSIO_API_KEY"]);
+    const example = await Bun.file(`${import.meta.dir}/.env.example`).text();
+    for (const n of names) expect(example).toContain(`${n}=`);
+  });
+
+  test("a missing Composio key returns an error from every tool, not data", async () => {
+    const client = await startServer({});
     const calls: [string, Record<string, unknown>][] = [
       ["upcoming_events", {}],
       ["event_types", {}],
@@ -203,11 +249,14 @@ describe("contract (no credentials)", () => {
       ["mark_no_show", { event_uuid: "x", event_name: "x", start_time: "2020-01-15T15:00:00Z" }],
       ["create_one_off_meeting", { name: "Chat", duration: 45 }],
       ["meeting_recap", {}],
+      ["connect_calendly", {}],
+      ["disconnect_calendly", {}],
     ];
     expect(calls.map(([name]) => name).sort()).toEqual(manifest.tools.map((t: any) => t.name).sort());
     for (const [name, args] of calls) {
       const payload = await callError(client, name, args);
       expect(payload.events).toBeUndefined();
+      expect(payload.message).toContain("COMPOSIO_API_KEY");
     }
   }, TIMEOUT);
 });
@@ -265,7 +314,7 @@ describe("fake Calendly API (no credentials)", () => {
   };
 
   const defaultRoutes = (): Record<string, (body?: any) => Response> => ({
-    "GET /users/me": () => Response.json({ resource: { uri: `${API}/users/me-1`, timezone: "America/Chicago", scheduling_url: "https://calendly.com/me" } }),
+    "GET /users/me": () => Response.json({ resource: { uri: `${API}/users/me-1`, name: "Thomas Lee", email: "me@example.com", timezone: "America/Chicago", scheduling_url: "https://calendly.com/me" } }),
     "GET /event_types": () => Response.json({ collection: [EVENT_TYPE] }),
     "GET /event_type_available_times": () => Response.json({ collection: [] }),
     "GET /scheduled_events/evt-1": () => Response.json({ resource: SARAH }),
@@ -294,29 +343,104 @@ describe("fake Calendly API (no credentials)", () => {
   });
 
   let routes = defaultRoutes();
-  let requests: { key: string; search: string; body: any }[] = [];
+  let requests: { key: string; search: string; body: any; via: "composio" | "direct" }[] = [];
+
+  // The fake Composio: Calendly connections, auth configs, sign-in links, and the
+  // proxy, which answers from the same fake Calendly routes and wraps each answer
+  // the way Composio does.
+  const ACCOUNT = { id: "ca_fake", status: "ACTIVE", user_id: "user-1", toolkit: { slug: "calendly" }, auth_config: { id: "ac_used" }, created_at: "2026-11-01T00:00:00Z" };
+  const AUTH_CONFIGS = [
+    { id: "ac_used", status: "ENABLED", created_at: "2026-10-01T00:00:00Z" },
+    { id: "ac_newer", status: "ENABLED", created_at: "2026-11-05T00:00:00Z" },
+  ];
+  const SIGN_IN = "https://connect.composio.dev/link/lk_123";
+  let accounts: any[] = [];
+  let authConfigs: any[] = [];
+  let composioCalls: { key: string; search: string; apiKey: string | null; authorization: string | null; body: any }[] = [];
+  let composioFails: ((call: { key: string; body: any }) => Response | undefined) | null = null; // Composio itself failing
+  const proxied = () => composioCalls.filter((c) => c.key === "POST /tools/execute/proxy");
+  const composioCall = (key: string) => composioCalls.filter((c) => c.key === key);
+  const composioError = (status: number, message: string, slug?: string) =>
+    Response.json({ error: { message, status, ...(slug ? { slug } : {}) } }, { status });
+
+  const fakeComposio = async (req: Request, url: URL) => {
+    const path = url.pathname.replace("/composio/api/v3.1", "");
+    const key = `${req.method} ${path}`;
+    const text = await req.text();
+    const body = text ? JSON.parse(text) : undefined;
+    composioCalls.push({ key, search: url.search, apiKey: req.headers.get("x-api-key"), authorization: req.headers.get("authorization"), body });
+    const failure = composioFails?.({ key, body });
+    if (failure) return failure;
+
+    if (key === "GET /connected_accounts") {
+      const q = url.searchParams;
+      const statuses = q.get("statuses")?.split(",");
+      const items = accounts.filter(
+        (a) =>
+          a.user_id === q.get("user_ids") &&
+          a.toolkit.slug === q.get("toolkit_slugs") &&
+          (!statuses || statuses.includes(a.status)) &&
+          (!q.get("auth_config_ids") || a.auth_config.id === q.get("auth_config_ids"))
+      );
+      return Response.json({ items });
+    }
+    if (key === "GET /auth_configs") return Response.json({ items: authConfigs });
+    if (key === "POST /connected_accounts/link") {
+      accounts.push({ id: "ca_new", status: "INITIATED", user_id: body.user_id, toolkit: { slug: "calendly" }, auth_config: { id: body.auth_config_id }, created_at: "2026-11-11T00:00:00Z" });
+      return Response.json({ redirect_url: SIGN_IN, connected_account_id: "ca_new", expires_at: "2026-11-11T00:10:00Z" }, { status: 201 });
+    }
+    const one = path.match(/^\/connected_accounts\/([^/]+)(\/revoke)?$/);
+    if (one && req.method === "POST" && one[2]) return Response.json({ revoked_tokens: ["access_token"] });
+    if (one && req.method === "DELETE" && !one[2]) {
+      accounts = accounts.filter((a) => a.id !== one[1]);
+      return Response.json({ success: true });
+    }
+    if (key === "POST /tools/execute/proxy") {
+      // Like Composio, only this user's ACTIVE connection can be used.
+      if (!accounts.some((a) => a.id === body.connected_account_id && a.status === "ACTIVE" && a.user_id === body.user_id)) {
+        return composioError(404, "Connected account not found", "Proxy_ConnectedAccountNotFound");
+      }
+      const query = new URLSearchParams((body.parameters || []).filter((p: any) => p.type === "query").map((p: any) => [p.name, p.value]));
+      const calendlyKey = `${body.method} ${body.endpoint}`;
+      requests.push({ key: calendlyKey, search: query.size ? `?${query}` : "", body: body.body, via: "composio" });
+      const res = routes[calendlyKey]?.(body.body) ?? Response.json({ message: `No fake route for ${calendlyKey}` }, { status: 404 });
+      if (res.headers.get("x-fake-timeout")) return res;
+      const answer = await res.text();
+      return Response.json({ data: answer ? JSON.parse(answer) : null, status: res.status, headers: Object.fromEntries(res.headers) });
+    }
+    return composioError(404, `No fake Composio route for ${key}`);
+  };
+
   const api = Bun.serve({
     port: 0,
     async fetch(req) {
       const url = new URL(req.url);
+      if (url.pathname.startsWith("/composio/api/v3.1/")) return fakeComposio(req, url);
+      // Straight to Calendly: the server should never do this.
       const key = `${req.method} ${url.pathname}`;
       const text = await req.text();
       const body = text ? JSON.parse(text) : undefined;
-      requests.push({ key, search: url.search, body });
+      requests.push({ key, search: url.search, body, via: "direct" });
       return routes[key]?.(body) ?? Response.json({ message: `No fake route for ${key}` }, { status: 404 });
     },
   });
   const sent = (key: string) => requests.filter((r) => r.key === key);
   const CANCEL_POST = "POST /scheduled_events/evt-1/cancellation";
 
+  const FAKE_ENV = () => ({ COMPOSIO_API_KEY: "ck_fake", COMPOSIO_USER_ID: "user-1", CALENDLY_FAKE_URL: api.url.origin });
+  const PRELOAD = ["--preload", "./calendly.fake.ts"];
+  /** A new server, for tests that need one that hasn't looked up the connection yet. */
+  const freshServer = (env: Record<string, string> = {}) => startServer({ ...FAKE_ENV(), ...env }, PRELOAD);
+
   let client: Client;
   beforeEach(async () => {
     routes = defaultRoutes();
     requests = [];
-    client ??= await startServer(
-      { CALENDLY_API_KEY: "fake-token", CALENDLY_FAKE_URL: api.url.origin },
-      ["--preload", "./calendly.fake.ts"]
-    );
+    composioCalls = [];
+    composioFails = null;
+    accounts = [{ ...ACCOUNT }];
+    authConfigs = AUTH_CONFIGS.map((c) => ({ ...c }));
+    client ??= await startServer(FAKE_ENV(), PRELOAD);
   });
   afterAll(() => api.stop(true));
 
@@ -795,17 +919,229 @@ describe("fake Calendly API (no credentials)", () => {
     routes["GET /meeting_recaps"] = () => Response.json({ message: "Permission Denied" }, { status: 403 });
     expect((await callError(client, "meeting_recap")).message).toContain("Notetaker");
   }, TIMEOUT);
+
+  // --- Composio: the connection, and what goes through the proxy ---
+  test("every Calendly call goes through Composio's proxy with the key and connection, never straight to Calendly", async () => {
+    const payload = await call(client, "recent_events", { days: 3, invitee_email: "sarah@example.com" });
+    expect(payload.events.map((e: any) => e.uuid)).toEqual(["evt-past"]);
+    expect(requests.length).toBeGreaterThan(0);
+    expect(requests.filter((r) => r.via === "direct")).toEqual([]);
+    for (const p of proxied()) {
+      expect(p.apiKey).toBe("ck_fake");
+      expect(p.authorization).toBeNull(); // Composio adds Calendly's token, not us
+      expect(p.body).toMatchObject({ connected_account_id: "ca_fake", user_id: "user-1", method: "GET" });
+      expect(p.body.endpoint).toStartWith("/");
+      expect(p.body.endpoint).not.toContain("?");
+    }
+    const list = proxied().find((p) => p.body.endpoint === "/scheduled_events")!;
+    expect(list.body.parameters).toContainEqual({ name: "sort", value: "start_time:desc", type: "query" });
+    expect(list.body.parameters).toContainEqual({ name: "invitee_email", value: "sarah@example.com", type: "query" });
+  }, TIMEOUT);
+
+  test("the connection is looked up by user and toolkit, then reused", async () => {
+    const fresh = await freshServer();
+    await call(fresh, "upcoming_events");
+    await call(fresh, "event_types");
+    const lookups = composioCall("GET /connected_accounts");
+    expect(lookups).toHaveLength(1);
+    const q = new URLSearchParams(lookups[0].search);
+    expect(q.get("toolkit_slugs")).toBe("calendly");
+    expect(q.get("user_ids")).toBe("user-1");
+    expect(q.get("statuses")).toBe("ACTIVE");
+  }, TIMEOUT);
+
+  test("a write sends its body through the proxy and reports what Calendly confirmed", async () => {
+    const payload = await call(client, "cancel_event", { ...CANCEL_ARGS, reason: "Conflict" });
+    expect(payload.canceled).toBe(true);
+    const post = proxied().find((p) => p.body.method === "POST")!;
+    expect(post.body).toMatchObject({ endpoint: "/scheduled_events/evt-1/cancellation", body: { reason: "Conflict" } });
+  }, TIMEOUT);
+
+  test("with no connection, tools say to connect Calendly, without calling Calendly", async () => {
+    accounts = [];
+    const payload = await callError(await freshServer(), "upcoming_events");
+    expect(payload.message).toContain("isn't connected");
+    expect(payload.outcome).toBeUndefined();
+    expect(requests).toEqual([]);
+  }, TIMEOUT);
+
+  test("a connection still waiting for approval says to finish in the browser", async () => {
+    accounts = [{ ...ACCOUNT, status: "INITIATED" }];
+    expect((await callError(await freshServer(), "upcoming_events")).message).toContain("still connecting");
+  }, TIMEOUT);
+
+  test("an expired connection says to connect again", async () => {
+    accounts = [{ ...ACCOUNT, status: "EXPIRED" }];
+    expect((await callError(await freshServer(), "upcoming_events")).message).toContain("expired or was revoked");
+  }, TIMEOUT);
+
+  test("a connection that expires mid-session says to reconnect, and the next call looks again", async () => {
+    await call(client, "upcoming_events");
+    accounts[0].status = "EXPIRED"; // Composio couldn't refresh the token
+    expect((await callError(client, "upcoming_events")).message).toContain("expired or was revoked");
+    accounts[0].status = "ACTIVE";
+    const before = composioCall("GET /connected_accounts").length;
+    await call(client, "upcoming_events");
+    expect(composioCall("GET /connected_accounts").length).toBe(before + 1);
+  }, TIMEOUT);
+
+  test("a write on an expired connection is a plain failure, since it never reached Calendly", async () => {
+    composioFails = ({ body }) => (body?.method === "POST" ? composioError(422, "Connection expired", "ConnectedAccount_Expired") : undefined);
+    const payload = await callError(client, "cancel_event", CANCEL_ARGS);
+    expect(payload.outcome).toBeUndefined();
+    expect(payload.message).toContain("connect Calendly again");
+  }, TIMEOUT);
+
+  test("Calendly rejecting the token says to connect again", async () => {
+    routes["GET /users/me"] = () => Response.json({ title: "Unauthenticated", message: "The access token is invalid" }, { status: 401 });
+    expect((await callError(client, "upcoming_events")).message).toContain("expired or was revoked");
+  }, TIMEOUT);
+
+  test("a bad Composio key says to check it", async () => {
+    composioFails = () => composioError(401, "Invalid API key");
+    const payload = await callError(await freshServer(), "upcoming_events");
+    expect(payload.message).toContain("Invalid API key");
+    expect(payload.message).toContain("Composio API key");
+    // Also when only the proxy refuses it, after the connection was found.
+    composioFails = ({ key }) => (key === "POST /tools/execute/proxy" ? composioError(401, "Invalid API key") : undefined);
+    expect((await callError(client, "upcoming_events")).message).toContain("Check the Composio API key");
+  }, TIMEOUT);
+
+  test("a missing Calendly permission is named once, for any tool", async () => {
+    routes["POST /scheduling_links"] = () =>
+      Response.json({ title: "Insufficient scope", message: "This operation requires the scopes listed in the 'required_scopes' array.", required_scopes: ["scheduling_links:write"] }, { status: 403 });
+    const payload = await callError(client, "create_booking_link");
+    expect(payload.message).toBe("Your Calendly connection in Composio doesn't have permission for this: it needs scheduling_links:write.");
+  }, TIMEOUT);
+
+  test("a missing Calendly permission is named, and recaps explain Composio's built-in app", async () => {
+    routes["GET /meeting_recaps"] = () =>
+      Response.json({ title: "Insufficient scope", message: "This operation requires the scopes listed in the 'required_scopes' array.", required_scopes: ["meeting_recaps:read"] }, { status: 403 });
+    const payload = await callError(client, "meeting_recap");
+    expect(payload.message).toContain("meeting_recaps:read");
+    expect(payload.message).toContain("your own Calendly OAuth app");
+  }, TIMEOUT);
+
+  test("a write that hits a Composio server error reports an unknown outcome, so it isn't retried blindly", async () => {
+    composioFails = ({ body }) => (body?.method === "POST" ? composioError(502, "Bad gateway") : undefined);
+    expect((await callError(client, "cancel_event", CANCEL_ARGS)).outcome).toBe("unknown");
+  }, TIMEOUT);
+
+  test("an answer with no body, like undoing a no-show, comes through the proxy", async () => {
+    routes["GET /scheduled_events/evt-past/invitees"] = () => Response.json({ collection: [{ ...PAST_INVITEE, no_show: { uri: `${API}/invitee_no_shows/ns-1` } }] });
+    const payload = await call(client, "mark_no_show", { ...NO_SHOW_ARGS, undo: true });
+    expect(sent("DELETE /invitee_no_shows/ns-1")).toHaveLength(1);
+    expect(payload).toMatchObject({ changed: true, no_show: false });
+  }, TIMEOUT);
+
+  test("the Composio key comes from the server's .env when the setting is blank, and a filled setting wins", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "calendly-env-"));
+    for (const f of ["server.ts", "widgetKit.ts", "calendly.fake.ts"]) copyFileSync(join(import.meta.dir, f), join(dir, f));
+    // A junction, so Windows doesn't need admin rights or Developer Mode (other systems ignore the type).
+    symlinkSync(join(import.meta.dir, "node_modules"), join(dir, "node_modules"), "junction");
+    writeFileSync(join(dir, ".env"), 'COMPOSIO_API_KEY="ck_from_env"\nCOMPOSIO_USER_ID=user-1\n');
+    try {
+      const blank = await startServer({ ...FAKE_ENV(), COMPOSIO_API_KEY: "", COMPOSIO_USER_ID: "", CALENDLY_DOTENV: "" }, PRELOAD, dir);
+      await call(blank, "upcoming_events");
+      expect(composioCalls.at(-1)?.apiKey).toBe("ck_from_env");
+      const filled = await startServer({ ...FAKE_ENV(), COMPOSIO_API_KEY: "ck_setting", CALENDLY_DOTENV: "" }, PRELOAD, dir);
+      await call(filled, "upcoming_events");
+      expect(composioCalls.at(-1)?.apiKey).toBe("ck_setting");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, TIMEOUT);
+
+  // --- connect_calendly ---
+  test("connect_calendly reports the connected Calendly account", async () => {
+    const payload = await call(client, "connect_calendly");
+    expect(payload).toMatchObject({ connected: true, name: "Thomas Lee", email: "me@example.com" });
+    expect(composioCall("POST /connected_accounts/link")).toHaveLength(0);
+    expectGlance(payload);
+  }, TIMEOUT);
+
+  test("connect_calendly gives a sign-in link through the auth config used before, to reconnect", async () => {
+    accounts = [{ ...ACCOUNT, status: "EXPIRED" }];
+    const payload = await call(client, "connect_calendly");
+    expect(payload).toMatchObject({ connected: false, connect_url: SIGN_IN });
+    expect(composioCall("POST /connected_accounts/link")[0].body).toEqual({ auth_config_id: "ac_used", user_id: "user-1" });
+    const html = payload._voiceos_glance.blocks[0].html;
+    expect(html).toContain(`href="${SIGN_IN}"`);
+    expect(html).toContain("Reconnect Calendly");
+  }, TIMEOUT);
+
+  test("connect_calendly with no connection yet uses the newest auth config", async () => {
+    accounts = [];
+    const payload = await call(client, "connect_calendly");
+    expect(composioCall("POST /connected_accounts/link")[0].body.auth_config_id).toBe("ac_newer");
+    expect(payload._voiceos_glance.blocks[0].html).toContain("Connect Calendly");
+  }, TIMEOUT);
+
+  test("COMPOSIO_AUTH_CONFIG_ID chooses the auth config", async () => {
+    accounts = [];
+    await call(await freshServer({ COMPOSIO_AUTH_CONFIG_ID: "ac_pick" }), "connect_calendly");
+    expect(composioCall("POST /connected_accounts/link")[0].body.auth_config_id).toBe("ac_pick");
+    expect(composioCall("GET /auth_configs")).toHaveLength(0);
+  }, TIMEOUT);
+
+  test("connect_calendly explains a Composio project with no Calendly auth config", async () => {
+    accounts = [];
+    authConfigs = [];
+    expect((await callError(client, "connect_calendly")).message).toContain("no Calendly auth config");
+  }, TIMEOUT);
+
+  test("connect_calendly won't show a sign-in link that isn't Composio's or Calendly's", async () => {
+    accounts = [];
+    composioFails = ({ key }) => (key === "POST /connected_accounts/link" ? Response.json({ redirect_url: "https://evil.example/login" }) : undefined);
+    expect((await callError(client, "connect_calendly")).message).toContain("didn't return a sign-in link");
+  }, TIMEOUT);
+
+  // --- disconnect_calendly ---
+  test("disconnect_calendly revokes and removes the connection, and later calls say to connect", async () => {
+    await call(client, "upcoming_events");
+    const payload = await call(client, "disconnect_calendly");
+    expect(payload).toMatchObject({ disconnected: true, connections_removed: 1 });
+    expect(composioCall("POST /connected_accounts/ca_fake/revoke")).toHaveLength(1);
+    expect(composioCall("DELETE /connected_accounts/ca_fake")).toHaveLength(1);
+    expect(accounts).toEqual([]);
+    expect((await callError(client, "upcoming_events")).message).toContain("isn't connected");
+  }, TIMEOUT);
+
+  test("disconnect_calendly with nothing connected changes nothing", async () => {
+    accounts = [];
+    const payload = await call(client, "disconnect_calendly");
+    expect(payload).toMatchObject({ disconnected: false, changed: false });
+    expect(composioCalls.filter((c) => c.key.startsWith("DELETE"))).toEqual([]);
+  }, TIMEOUT);
+
+  test("disconnect_calendly still removes the connection when revoking isn't supported", async () => {
+    composioFails = ({ key }) => (key.endsWith("/revoke") ? composioError(501, "Not supported for this auth scheme") : undefined);
+    expect((await call(client, "disconnect_calendly")).disconnected).toBe(true);
+    expect(accounts).toEqual([]);
+  }, TIMEOUT);
+
+  test("a disconnect that hits a Composio server error reports an unknown outcome", async () => {
+    composioFails = ({ key }) => (key.startsWith("DELETE") ? composioError(502, "Bad gateway") : undefined);
+    expect((await callError(client, "disconnect_calendly")).outcome).toBe("unknown");
+  }, TIMEOUT);
 });
 
 // ---------------------------------------------------------------------------
-describe.skipIf(!API_KEY)("live Calendly API", () => {
+describe.skipIf(!COMPOSIO_KEY)("live Calendly API, through Composio", () => {
   let client: Client;
   let userUri = "";
 
-  test("server starts with the real token", async () => {
-    client = await startServer({ CALENDLY_API_KEY: API_KEY });
+  test("server starts with the real Composio key", async () => {
+    client = await startServer({ COMPOSIO_API_KEY: COMPOSIO_KEY, COMPOSIO_USER_ID: COMPOSIO_USER });
     userUri = (await calendly("/users/me")).resource.uri;
     expect(userUri).toStartWith("https://api.calendly.com/users/");
+  }, TIMEOUT);
+
+  test("connect_calendly reports the connected account, without making a sign-in link", async () => {
+    const me = (await calendly("/users/me")).resource;
+    const payload = await call(client, "connect_calendly");
+    expect(payload).toMatchObject({ connected: true, email: me.email, timezone: me.timezone });
+    expectGlance(payload);
   }, TIMEOUT);
 
   test("upcoming_events(count: 10) returns every meeting Calendly returns", async () => {

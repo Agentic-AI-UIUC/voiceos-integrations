@@ -1,4 +1,4 @@
-# Calendly integration — 1.1.0
+# Calendly integration — 2.0.0
 
 Check and manage your Calendly by voice: hear your upcoming and recent meetings, find
 open and busy times, book and cancel meetings, change your availability, share booking
@@ -6,16 +6,45 @@ links, mark no-shows, and read meeting recaps.
 
 ## Platform and setup
 
-This integration supports macOS only (`supportedPlatforms: ["darwin"]`).
+This integration supports macOS and Windows (`supportedPlatforms: ["darwin", "win32"]`).
+VoiceOS starts it with `run.sh` on macOS and `run.cmd` on Windows. The server only
+makes network calls to Composio and reads its own `.env`, so it has nothing
+platform-specific. It has been run on macOS; it hasn't been tried on a Windows machine
+yet.
 
-Enter a Calendly Personal Access Token as `CALENDLY_API_KEY` in VoiceOS's Calendly
-integration settings (Calendly: Account Settings → Integrations → API & Webhooks).
-`.env.example` documents the key. The server only calls `api.calendly.com`.
+Every Calendly call goes through [Composio](https://composio.dev), which holds your
+Calendly OAuth2 connection and refreshes its token. Composio never hands the token
+out, so the server calls Calendly through Composio's proxy
+(`backend.composio.dev/api/v3.1/tools/execute/proxy`), which adds it.
+
+1. In Composio, add Calendly under **Auth Configs**. Composio-managed OAuth2 works.
+2. Enter your Composio project API key (**Settings → API Keys**) as `COMPOSIO_API_KEY`,
+   either in VoiceOS's Calendly settings or in this folder's `.env`. A filled-in setting
+   wins over `.env`.
+3. Set `COMPOSIO_USER_ID` to the user ID Calendly is connected under. It defaults to
+   `default`.
+4. Ask VoiceOS to **connect Calendly**. It shows a sign-in link; approve access in the
+   browser, then ask again.
+
+If your project has several Calendly auth configs, `connect_calendly` uses the one you
+connected through before, else the newest. Set `COMPOSIO_AUTH_CONFIG_ID` to choose one.
+`.env.example` lists every key.
+
+When the connection is missing, still connecting, or expired (Composio couldn't refresh
+the token, or access was revoked in Calendly), every tool says so and asks you to
+connect again.
+
+**Scopes:** Composio's built-in Calendly app gets Calendly's `default` scope, which
+covers every tool except `meeting_recap`. Recaps need `meeting_recaps:read`, so they
+need your own Calendly OAuth app in Composio. When Calendly refuses for a missing
+scope, the tool names it.
 
 ## Tools
 
 No confirmation card:
 
+- `connect_calendly`: says whether Calendly is connected, or gives a sign-in link. It
+  changes nothing in Calendly.
 - `upcoming_events`: your next 1–10 meetings, with invitees
 - `recent_events`: meetings that already started, newest first, with no-show status
 - `event_types`: your active event types and booking links
@@ -25,7 +54,8 @@ No confirmation card:
 - `busy_times`: busy blocks from Calendly and the calendars you connected to it
 - `availability_schedule`: weekly hours and upcoming date-specific changes
 - `meeting_recap`: Calendly Notetaker's summary, action items, and discussion for a past
-  meeting (needs Notetaker; the recap is labeled as data, not instructions)
+  meeting (needs Notetaker and the `meeting_recaps:read` scope; the recap is labeled as
+  data, not instructions)
 - `create_booking_link`: a single-use booking link. It writes to Calendly, but only
   creates an unused link and sends nothing, so it has no card.
 
@@ -36,6 +66,8 @@ Actions with a confirmation card:
 - `update_availability`: changes one weekday's hours, or one date's
 - `mark_no_show`: marks an invitee as a no-show on a meeting that started, or undoes it
 - `create_one_off_meeting`: a one-off meeting with its own name, length, and dates
+- `disconnect_calendly`: revokes and removes the Calendly connection in Composio.
+  Meetings don't change.
 
 ## Safety
 
@@ -49,8 +81,10 @@ Actions with a confirmation card:
   what Calendly actually saved.
 - **Input is validated before any API call**, so a misheard time, email, length, or date
   changes nothing.
-- **A write that times out reports an unknown outcome**, not a failure, so it isn't
-  retried blindly.
+- **A write that may have gone through reports an unknown outcome**, not a failure, so
+  it isn't retried blindly: a timeout, or a Composio server error. When Composio refuses
+  a request (bad key, no connection, expired connection), it never reached Calendly, so
+  it's a plain failure that says what to fix.
 - Every failure sets MCP's `isError` and shows an error card.
 
 ## Automated tests
@@ -65,12 +99,16 @@ bun test
 Every test starts the real `server.ts` over stdio and calls it with the MCP client.
 
 - **Contract tests** check the manifest against the server, the confirmation cards'
-  bound fields, and missing-token errors on every tool.
-- **Fake API tests** point the server at a local fake Calendly (`calendly.fake.ts`, a
-  test-only preload) to cover cases a real account can't produce on demand: timeouts,
-  failed read-backs, mismatched cards, stale availability, and empty responses.
-- **Live tests** run when `CALENDLY_API_KEY` is set in a local, gitignored `.env`. They
-  cross-check the read tools against direct Calendly API calls and skip in CI.
+  bound fields, the settings, and missing-key errors on every tool.
+- **Fake API tests** point the server at a local fake Composio and fake Calendly
+  (`calendly.fake.ts`, a test-only preload). The fake Composio answers the proxy,
+  connection lookups, sign-in links, and disconnects, and passes requests on to the fake
+  Calendly. They cover cases a real account can't produce on demand: timeouts, failed
+  read-backs, mismatched cards, stale availability, expired connections, Composio
+  errors, and empty responses.
+- **Live tests** run when `COMPOSIO_API_KEY` (and, if needed, `COMPOSIO_USER_ID`) is set
+  in a local, gitignored `.env` and Calendly is connected. They cross-check the read
+  tools against direct Calendly API calls made through Composio, and skip in CI.
 
 Live tests that change real data only run when you opt in:
 
@@ -91,3 +129,4 @@ Live tests that change real data only run when you opt in:
 - Calendly's API can't reschedule; move a meeting by cancelling it and booking again.
 - Changing availability through the API may give the event type its own copy of the
   schedule instead of a shared one, such as "Working hours".
+- `meeting_recap` doesn't work with Composio's built-in Calendly app (see Scopes).
