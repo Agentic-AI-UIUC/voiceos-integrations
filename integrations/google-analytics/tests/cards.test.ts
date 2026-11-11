@@ -18,7 +18,10 @@ test("change vs the previous period: signed percent, good when up, except for bo
   expect(change("sessions", 125, 100)).toEqual({ delta: "+25%", tone: "good" });
   expect(change("sessions", 90, 100)).toEqual({ delta: "−10%", tone: "bad" });
   expect(change("bounceRate", 0.6, 0.5)).toEqual({ delta: "+20%", tone: "bad" });
-  expect(change("sessions", 5, 0)).toEqual({}); // no baseline, no percent
+  // No baseline, no percent: say what it grew from instead of nothing.
+  expect(change("sessions", 5, 0)).toEqual({ delta: "from 0", tone: "good" });
+  expect(change("bounceRate", 0.4, 0)).toEqual({ delta: "from 0%", tone: "bad" });
+  expect(change("sessions", 0, 0)).toEqual({});
 });
 
 test("period labels spell out GA's date words", () => {

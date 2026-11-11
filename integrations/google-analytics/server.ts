@@ -466,9 +466,16 @@ export function fmtMetric(field: string, n: number): string {
   return String(+n.toFixed(2));
 }
 
-/** Change from the previous period as a signed percent; up is good, except for bounce rate. No baseline, no percent. */
+/**
+ * Change from the previous period as a signed percent; up is good, except for bounce rate.
+ * A zero baseline has no percent, so it says "from 0" instead: without it a "vs previous"
+ * card showed only this period's number, with no sign of what it was compared to.
+ */
 export function change(field: string, current: number, previous: number): { delta?: string; tone?: Tone } {
-  if (!previous) return {};
+  if (!previous) {
+    if (!current) return {};
+    return { delta: `from ${fmtMetric(field, 0)}`, tone: field === "bounceRate" ? "bad" : "good" };
+  }
   const pct = Math.round(((current - previous) / previous) * 100);
   const better = field === "bounceRate" ? pct < 0 : pct > 0;
   return { delta: `${pct > 0 ? "+" : pct < 0 ? "−" : ""}${Math.abs(pct)}%`, tone: pct === 0 ? "neutral" : better ? "good" : "bad" };
