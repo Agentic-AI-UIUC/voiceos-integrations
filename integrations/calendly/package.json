@@ -1,0 +1,12 @@
+{
+  "name": "calendly",
+  "version": "2.0.0",
+  "private": true,
+  "description": "View, book, and cancel Calendly meetings through Composio (OAuth2), find open and busy times, change your availability, share booking links, mark no-shows, and read meeting recaps.",
+  "type": "module",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.28.0",
+    "zod": "^3.24.0",
+    "tsx": "^4.20.2"
+  }
+}
