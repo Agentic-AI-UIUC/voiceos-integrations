@@ -71,7 +71,8 @@ describe("reads against the mock", () => {
     expect(stats.blocks).toHaveLength(1);
     const body = mock.executes("TIKTOK_GET_USER_STATS")[0].body;
     expect(body).toMatchObject({ user_id: mock.userId, connected_account_id: mock.connectedAccountId, version: TIKTOK_TOOLKIT_VERSION });
-    expect(body.arguments.fields).toHaveLength(10);
+    // The stats, basic and profile fields; avatar_url too (the card's sharper picture).
+    expect(body.arguments.fields).toHaveLength(11);
 
     const list = await h.call("list_videos", { max_count: 2 });
     expect(mock.executes("TIKTOK_LIST_VIDEOS")[0].body.arguments).toEqual({ max_count: 2 });

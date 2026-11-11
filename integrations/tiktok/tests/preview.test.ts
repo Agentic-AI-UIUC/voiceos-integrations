@@ -196,9 +196,13 @@ describe("videoPreview with ffmpeg (fake)", () => {
       expect(c.cmd).toContain("scale=80:80:force_original_aspect_ratio=decrease:flags=area");
       expect(c.opts?.timeoutMs).toBe(2_500);
     }
-    // Only the middle run writes the poster, fitted into a 427 px square (240 × 427 for 9:16).
+    // Only the middle run writes the poster, fitted into a 427 px square (240 × 427 for 9:16): at -q:v 3, with a
+    // coarser copy and a smaller one of the same frame beside it for a busy frame over the cap.
     expect(f.calls.map((c) => c.cmd.some((a) => a.endsWith("poster.jpg")))).toEqual([false, true, false]);
-    expect(f.calls[1].cmd).toContain("scale=427:427:force_original_aspect_ratio=decrease:flags=bicubic");
+    expect(f.calls[1].cmd).toContain("scale=427:427:force_original_aspect_ratio=decrease:flags=lanczos");
+    const qs = f.calls[1].cmd.flatMap((a, i, all) => (a === "-q:v" ? [`${all[i + 1]}:${basename(all[i + 7] ?? "")}`] : []));
+    expect(qs).toEqual(["3:poster.jpg", "8:poster-safe.jpg", "6:poster-small.jpg"]);
+    expect(f.calls[1].cmd).toContain("scale=256:256:force_original_aspect_ratio=decrease:flags=lanczos");
     expect(p.poster).toBe(`data:image/jpeg;base64,${Buffer.from(JPEG).toString("base64")}`);
     expect(p.micro).toMatch(PREVIEW2_RE);
     expect(p.micro!.length).toBeLessThanOrEqual(1_100);
@@ -409,7 +413,7 @@ describe("photoPreview (fake sips)", () => {
     // One canvas pass over the photos in carousel order, one sRGB pass, one BMP pass; the temp folder is gone.
     expect(calls.map((c) => c[1])).toEqual(["-j", "--matchTo", "-s"]);
     expect(calls[0].slice(3, 6)).toEqual(paths);
-    expect(calls[1]).toContain("60");
+    expect(calls[1].slice(3, 6)).toEqual(["-s", "formatOptions", "72"]);
     expect(calls[2].slice(1, 7)).toEqual(["-s", "format", "bmp", "-z", "128", "96"]);
     expect(readdirSync(tmp)).toEqual([]);
   });

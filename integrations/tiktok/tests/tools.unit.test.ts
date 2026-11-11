@@ -442,13 +442,13 @@ describe("reads", () => {
   test("get_user_stats asks for the stats + basic fields, adds the profile fields on request, and keeps only those", async () => {
     const h = await harness();
     const { j, blocks } = await h.call("get_user_stats", {});
-    expect(h.client.execs[0].args.fields).toEqual(["follower_count", "following_count", "likes_count", "video_count", "display_name", "username", "avatar_url_100"]);
+    expect(h.client.execs[0].args.fields).toEqual(["follower_count", "following_count", "likes_count", "video_count", "display_name", "username", "avatar_url_100", "avatar_url"]);
     expect(j).toMatchObject({ ok: true, username: "maya.makes", follower_count: 12_345, likes_count: 1_234_567, video_count: 48 });
     expect(j.bio_description).toBeUndefined();
     expect(j.summary).toBe("You have 12.3K followers and 1.23M likes across 48 public videos.".replace("1.23M", j.summary.match(/and (\S+) likes/)[1]));
     expect(blocks).toHaveLength(1);
     const p = await h.call("get_user_stats", { include_profile: true });
-    expect(h.client.execs[1].args.fields).toHaveLength(10);
+    expect(h.client.execs[1].args.fields).toHaveLength(11);
     expect(p.j).toMatchObject({ bio_description: "Baker in Lisbon", is_verified: false, profile_deep_link: "https://vm.tiktok.com/abc/" });
   });
 
@@ -469,7 +469,7 @@ describe("reads", () => {
       return base(a);
     };
     const { j } = await h.call("get_user_stats", { include_profile: true });
-    expect(h.client.execs.map((e) => e.args.fields.length)).toEqual([10, 7]);
+    expect(h.client.execs.map((e) => e.args.fields.length)).toEqual([11, 8]);
     expect(j).toMatchObject({ ok: true, profile_unavailable: true, follower_count: 12_345 });
     expect(j.bio_description).toBeUndefined();
   });
@@ -544,13 +544,40 @@ describe("reads", () => {
     const one = await h.call("query_videos", { video_ids: [many[2].id] });
     expect(h.client.slugs()).toEqual(["TIKTOK_LIST_VIDEOS", "TIKTOK_QUERY_VIDEOS"]);
     expect(one.j).toMatchObject({ channel_avg_views: 4500, channel_avg_posts: 8 });
-    expect(h.images.asked.at(-1)).toEqual({ url: many[2].cover_image_url, width: 200 });
+    // The hero tile's cover: longest side 312 px (2× its 156).
+    expect(h.images.asked.at(-1)).toEqual({ url: many[2].cover_image_url, width: 312 });
     expect(detail.mock.calls[0][2]).toEqual({ cover: "data:image/jpeg;base64,/9j/BIG", channelAvgViews: 4500 });
     // A later page (cursor) doesn't replace the memory; after 30 minutes it's gone.
     await h.call("list_videos", { cursor: 1 });
     expect((await h.call("query_videos", { video_ids: [many[2].id] })).j.channel_avg_views).toBe(4500);
     h.clock.advance(31 * MIN);
     expect((await h.call("query_videos", { video_ids: [many[2].id] })).j.channel_avg_views).toBeUndefined();
+  });
+
+  test("get_user_stats prefers the sharper 168 px avatar_url for the card when TikTok sends both", async () => {
+    const h = await harness();
+    const sharp = "https://p16-sign.tiktokcdn-us.com/a~c5_168x168.jpeg";
+    h.client.responders.TIKTOK_GET_USER_STATS = () => ({ user: { ...USER, avatar_url: sharp } });
+    h.images.pictures.set(sharp, "data:image/jpeg;base64,/9j/SH");
+    const card = cardSpy("statsCard");
+    const { j } = await h.call("get_user_stats", { include_profile: true });
+    expect(h.images.asked).toEqual([{ url: sharp, width: undefined }]);
+    expect(card.mock.calls[0][0]).toMatchObject({ avatar_data: "data:image/jpeg;base64,/9j/SH" });
+    // The data keeps the 100 px URL it always had, and never the other one.
+    expect(j.avatar_url_100).toBe(USER.avatar_url_100);
+    expect(JSON.stringify({ ...j, _voiceos_glance: undefined })).not.toContain("c5_168x168");
+    // One that isn't on TikTok's image CDN gives way to the 100 px one that is.
+    h.images.asked.length = 0;
+    h.client.responders.TIKTOK_GET_USER_STATS = () => ({ user: { ...USER, avatar_url: "https://example.com/a.jpeg" } });
+    await h.call("get_user_stats", {});
+    expect(h.images.asked).toEqual([{ url: USER.avatar_url_100, width: undefined }]);
+  });
+
+  test("list_videos with one public post draws it as the hero, so its cover is asked for at hero size", async () => {
+    const h = await harness();
+    h.client.responders.TIKTOK_LIST_VIDEOS = () => ({ videos: [VIDEOS[0]], has_more: false });
+    await h.call("list_videos", {});
+    expect(h.images.asked).toEqual([{ url: VIDEOS[0].cover_image_url, width: 312 }]);
   });
 
   test("query_videos for several posts asks for their covers at list size", async () => {
@@ -619,7 +646,8 @@ describe("agent-only helpers", () => {
     const h = await harness({ videos: [video("Downloads/final_export.mp4"), video("Desktop/b-roll.mov", { mime: "video/quicktime", width: 1920, height: 1080 })] });
     const card = cardSpy("videoCandidatesCard");
     const { j } = await h.call("find_recent_videos", {});
-    expect(h.previews.calls.map((c) => [c.name, c.opts.posterWidth])).toEqual([["final_export.mp4", 160], ["b-roll.mov", 160]]);
+    // Twice each tile's CSS width (the notch is a 2× display): the lead's hero tile, then the small rows.
+    expect(h.previews.calls.map((c) => [c.name, c.opts.posterWidth])).toEqual([["final_export.mp4", 216], ["b-roll.mov", 64]]);
     const [a, b] = j.videos;
     expect(a.preview).toMatch(/^p1\.23~/);
     expect(a.preview).not.toBe(b.preview);
@@ -627,7 +655,7 @@ describe("agent-only helpers", () => {
     // The poster is the card's picture only: not in the data.
     expect(JSON.stringify({ ...j, _voiceos_glance: undefined })).not.toContain("data:image");
     const shown = card.mock.calls[0][0].videos;
-    expect(shown.map((v: any) => v.poster)).toEqual(["data:image/jpeg;base64,/9j/16016", "data:image/jpeg;base64,/9j/16010"]);
+    expect(shown.map((v: any) => v.poster)).toEqual(["data:image/jpeg;base64,/9j/21616", "data:image/jpeg;base64,/9j/6410"]);
     expect(shown[1]).toMatchObject({ width: 1920, height: 1080 });
     // No frames to be had (no ffmpeg, no Quick Look): tokens and the card as before.
     h.previews.off = true;

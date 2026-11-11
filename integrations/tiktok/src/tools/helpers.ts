@@ -5,7 +5,7 @@
  * and opaque tokens.
  */
 import { UNTRUSTED_NOTE } from "../captions.ts";
-import { bundleCard, creatorCard, errorCard, imageCandidatesCard, videoCandidatesCard } from "../cards.ts";
+import { bundleCard, creatorCard, errorCard, galleryCell, imageCandidatesCard, videoCandidatesCard } from "../cards.ts";
 import { TikTokError, privacyLabel } from "../errors.ts";
 import { ago, bytes, duration, durationSpoken } from "../format.ts";
 import { revealInFinder } from "../finderApps.ts";
@@ -51,7 +51,7 @@ export function queryCreatorInfo(args: Args, deps: Deps, extra: ToolExtra): Prom
       durationSec = file.duration_sec;
       look = within(
         deps
-          .preview(file.path, { duration_sec: file.duration_sec, width: file.width, height: file.height }, { posterWidth: CREATOR_POSTER_WIDTH, micro: false, motion: true, signal })
+          .preview(file.path, { duration_sec: file.duration_sec, width: file.width, height: file.height }, { posterWidth: CREATOR_POSTER_WIDTH, posterWide: CREATOR_POSTER_WIDE, micro: false, motion: true, signal })
           .then((p) => ({ poster: p.poster, motion: p.motion }), () => ({})),
         CREATOR_MEDIA_WAIT_MS,
       ).then((p) => ({
@@ -153,8 +153,10 @@ export function queryCreatorInfo(args: Args, deps: Deps, extra: ToolExtra): Prom
   });
 }
 
-/** The posting-as card's frame: one hero tile (108 × 192 CSS px), so 240 px wide. */
+/** The posting-as card's frame: one hero tile (108 × 192 CSS px), so 240 px wide (≥ 2× for the notch's 2× display). */
 const CREATOR_POSTER_WIDTH = 240;
+/** A landscape video runs across the posting-as card (358 × 201 CSS px), so its frame is 716 px wide. */
+const CREATOR_POSTER_WIDE = 716;
 /** How long the posting-as card waits for the video's loop (usually cached from find_recent_videos). */
 const CREATOR_MEDIA_WAIT_MS = 6_000;
 
@@ -172,8 +174,14 @@ function within<T>(p: Promise<T>, ms: number): Promise<T | undefined> {
 const VIDEO_FOLDERS = ["Downloads", "Desktop", "Movies"];
 const IMAGE_FOLDERS = ["Downloads", "Desktop", "Pictures", "Screenshots"];
 
-/** Posters on the candidates card: small row tiles, so 160 px wide (a 9:16 frame comes out 160 × 284). */
-export const CANDIDATE_POSTER_WIDTH = 160;
+/**
+ * Posters on the candidates card, twice their tile's CSS width (the notch is a 2× display): the lead's hero tile
+ * (108 × 192) 216 px wide; the original list's small rows (27 × 48) 64; a gallery's cells twice the cell
+ * (224 for two videos, 138 for five or six: galleryPosterWidth).
+ */
+export const CANDIDATE_POSTER_WIDTH = 216;
+export const CANDIDATE_ROW_POSTER_WIDTH = 64;
+export const galleryPosterWidth = (n: number) => 2 * galleryCell(n, true).w;
 /** All posters on one candidates card together, so the card stays well inside its size budget. */
 const CANDIDATE_POSTERS_MAX_CHARS = 150_000;
 
@@ -227,7 +235,10 @@ export function findRecentVideosTool(args: Args, deps: Deps, extra: ToolExtra): 
       shown.map((v, i) =>
         deps
           // The lead (best or newest) also gets its moving loop: it plays big on this card.
-          .preview(v.path, { duration_sec: v.duration_sec, width: v.width, height: v.height }, { posterWidth: CANDIDATE_POSTER_WIDTH, signal, ...(gallery ? { motion: "small" as const } : i === 0 ? { motion: true } : {}) })
+          .preview(v.path, { duration_sec: v.duration_sec, width: v.width, height: v.height }, {
+            posterWidth: gallery ? galleryPosterWidth(shown.length) : i === 0 ? CANDIDATE_POSTER_WIDTH : CANDIDATE_ROW_POSTER_WIDTH, signal,
+            ...(gallery ? { motion: "small" as const, cells: shown.length } : i === 0 ? { motion: true } : {}),
+          })
           .catch((): VideoPreview => ({})),
       ),
     );

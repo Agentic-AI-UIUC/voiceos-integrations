@@ -10,6 +10,7 @@ import {
   orderText,
   creatorCard,
   errorCard,
+  galleryCell,
   imageCandidatesCard,
   imageSize,
   postDetailsCard,
@@ -1064,6 +1065,99 @@ describe("the video playing (moving loops)", () => {
     const w = videoCandidatesCard({ videos: [{ ...base, name: "a.mp4", motion: big }, { ...base, name: "b.mp4" }, { ...base, name: "c.mp4" }, { ...base, name: "d.mp4" }], query_matched: true, denied_folders: [] });
     expect(w.html.length).toBeLessThan(290_000);
     expect(markup(w)).toContain("tt-m-mo");
+  });
+});
+
+describe("sharp loops on a 2× notch: AVIF, WebP stills, seam-proof filmstrips, gallery shares", () => {
+  /** An AVIF's ftyp (brand avis or avif) and an `ispe` property with its size, padded to `bytes`. */
+  const avif = (w: number, h: number, bytes = 64, brand = "avis") => {
+    const b = new Uint8Array(Math.max(48, bytes));
+    const dv = new DataView(b.buffer);
+    dv.setUint32(0, 28);
+    b.set(new TextEncoder().encode(`ftyp${brand}`), 4);
+    dv.setUint32(28, 20);
+    b.set(new TextEncoder().encode("ispe"), 32);
+    dv.setUint32(40, w);
+    dv.setUint32(44, h);
+    return `data:image/avif;base64,${Buffer.from(b).toString("base64")}`;
+  };
+  const webp = (chunk: "VP8X" | "VP8 " | "VP8L", w: number, h: number) => {
+    const b = new Uint8Array(40);
+    b.set(new TextEncoder().encode(`RIFF\0\0\0\0WEBP${chunk}`), 0);
+    if (chunk === "VP8X") b.set([(w - 1) & 0xff, ((w - 1) >> 8) & 0xff, 0, (h - 1) & 0xff, ((h - 1) >> 8) & 0xff, 0], 24);
+    if (chunk === "VP8 ") b.set([0, 0, 0, 0x9d, 0x01, 0x2a, w & 0xff, w >> 8, h & 0xff, h >> 8], 20);
+    if (chunk === "VP8L") {
+      const bits = ((w - 1) | ((h - 1) << 14)) >>> 0;
+      b.set([0x2f, bits & 0xff, (bits >>> 8) & 0xff, (bits >>> 16) & 0xff, (bits >>> 24) & 0xff], 20);
+    }
+    return `data:image/webp;base64,${Buffer.from(b).toString("base64")}`;
+  };
+
+  test("cardMotion takes an animated AVIF like a WebP; a filmstrip is JPEG only, with its smeared edge kept", () => {
+    const loop = avif(216, 384);
+    expect(cardMotion({ src: loop })).toEqual({ src: loop });
+    expect(cardMotion({ src: loop, frames: 16, fps: 8 })).toBeUndefined();
+    expect(cardMotion({ src: webp("VP8X", 216, 384), frames: 16 })).toBeUndefined();
+    expect(cardMotion({ src: PORTRAIT, frames: 16, fps: 8, edge: 0.013889 })).toEqual({ src: PORTRAIT, frames: 16, fps: 8, edge: 0.013889 });
+    // An edge that makes no sense is dropped, not trusted.
+    for (const edge of [-1, 0.5, Number.NaN, "0.01"]) expect(cardMotion({ src: PORTRAIT, frames: 16, fps: 8, edge })).toEqual({ src: PORTRAIT, frames: 16, fps: 8 });
+    expect(cardMotion({ src: `data:image/avif;base64,${"A".repeat(130_000)}` })).toBeUndefined();
+  });
+
+  test("a filmstrip shows only the frame inside its border: wider by the edges, shifted left by one", () => {
+    const strip = { src: PORTRAIT, frames: 16, fps: 8, edge: 0.013889 };
+    const w = writeResultCard({ outcome: "inbox", kind: "video", mode: "drafts", name: "a.mp4", poster: PORTRAIT, motion: strip });
+    expectValid(w);
+    expect(markup(w)).toContain('style="width:1644.4448%;left:-1.3889%;animation-duration:2.000s;animation-timing-function:steps(16)"');
+  });
+
+  test("an AVIF loop plays on the hero tiles", () => {
+    const loop = { src: avif(216, 384, 90_000) };
+    const done = writeResultCard({ outcome: "posted", kind: "video", mode: "direct", name: "a.mp4", poster: PORTRAIT, motion: loop });
+    expectValid(done);
+    expect(markup(done)).toContain(`<img class="tt-m-i tt-m-mo" src="${loop.src}" alt="">`);
+    const posting = creatorCard({ creator_nickname: "Tiny AI Lab", privacy_labels: ["SELF_ONLY"], can_post: true, kind: "video", file_name: "a.mp4", width: 1080, height: 1920, poster: PORTRAIT, motion: loop });
+    expectValid(posting);
+    expect(markup(posting)).toContain('<span class="tt-m z-h has-i is-mo"');
+  });
+
+  test("WebP and AVIF stills are drawable (Windows covers); imageSize reads them so tiles take their shape", () => {
+    const tall = avif(1080, 1920, 64, "avif");
+    expect(cardImage(tall)).toBe(tall);
+    expect(cardImage(webp("VP8X", 720, 1280))).toBeDefined();
+    expect(imageSize(tall)).toEqual({ w: 1080, h: 1920 });
+    expect(imageSize(webp("VP8X", 720, 1280))).toEqual({ w: 720, h: 1280 });
+    expect(imageSize(webp("VP8 ", 1280, 720))).toEqual({ w: 1280, h: 720 });
+    expect(imageSize(webp("VP8L", 300, 400))).toEqual({ w: 300, h: 400 });
+    expect(imageSize(`data:image/webp;base64,${Buffer.from("RIFF\0\0\0\0WEBPJUNK").toString("base64")}`)).toBeUndefined();
+    // A landscape WebP cover gets a landscape tile.
+    const w = videoListCard({ videos: [video({ id: "a" })], has_more: false }, NOW, { covers: { a: webp("VP8X", 1280, 720) } });
+    expectValid(w);
+    expect(markup(w)).toContain("is-w");
+  });
+
+  test("galleryCell is the box the gallery draws, and the cells' loop shares add up to the card's budget", () => {
+    expect([2, 3, 4, 5, 6].map((k) => galleryCell(k, true)).map((c) => [c.w, c.h])).toEqual([[112, 150], [102, 136], [83, 124], [69, 92], [69, 92]]);
+    expect(galleryCell(2, false)).toMatchObject({ w: 175, h: 98 });
+    for (const k of [2, 3, 4, 5, 6]) expect(galleryCell(k, true).chars * k).toBeLessThanOrEqual(196_000);
+    const base = { folder: "Downloads", duration_label: "0:30", size_label: "9 MB", added_label: "today", width: 1080, height: 1920, poster: PORTRAIT };
+    const w = videoCandidatesCard({ videos: [0, 1, 2].map((i) => ({ ...base, name: `clip-${i}.mp4`, number: i + 1 })), query_matched: true, denied_folders: [], confidence: "likely" });
+    expect(markup(w)).toContain('style="width:102px;height:136px"');
+  });
+
+  test("a gallery's loops can be bigger than a still (two cells: ~98K each) and all of them play", () => {
+    const base = { folder: "Downloads", duration_label: "0:30", size_label: "9 MB", added_label: "today", width: 1080, height: 1920, poster: PORTRAIT };
+    const two = [0, 1].map((i) => ({ ...base, name: `clip-${i}.mp4`, number: i + 1, motion: { src: avif(224, 398, 72_000 + i) } }));
+    const w = videoCandidatesCard({ videos: two, query_matched: true, denied_folders: [], confidence: "ambiguous" });
+    expectValid(w);
+    for (const v of two) expect(w.html).toContain(v.motion.src);
+    expect(w.html.length).toBeLessThan(290_000);
+    // Six at their share each: every one plays.
+    const six = [0, 1, 2, 3, 4, 5].map((i) => ({ ...base, name: `c${i}.mp4`, number: i + 1, motion: { src: avif(138, 246, Math.floor((galleryCell(6, true).chars - 40) * 0.75) - i) } }));
+    const g = videoCandidatesCard({ videos: six, query_matched: true, denied_folders: [], confidence: "likely" });
+    expectValid(g);
+    for (const v of six) expect(g.html).toContain(v.motion.src);
+    expect(g.html.length).toBeLessThan(290_000);
   });
 });
 

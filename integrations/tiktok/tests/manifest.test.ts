@@ -17,6 +17,7 @@ import { join } from "node:path";
 import { buildConfirmation, CARD_KEYS, RECEIPT_CORE_JS } from "../confirm-card/build.ts";
 import { COMPOSIO_BASE, COMPOSIO_UPLOAD_HOST, INTEGRATION_ID, INTEGRATION_VERSION, MEDIA_RELAY_BASE, TIKTOK_IMAGE_HOSTS, loadConfig } from "../src/config.ts";
 import { TRANSCRIPT_HOOK, isHookTool } from "../src/conversation.ts";
+import { hostMatches } from "../src/covers.ts";
 import { CAPABILITY_GUIDANCE, createDeps, createServer } from "../src/mcpServer.ts";
 import { TOOL_META, photoToolsEnabled } from "../src/tools.ts";
 
@@ -114,12 +115,12 @@ describe("identity and runtime (must not drift from the installed integration)",
 });
 
 describe("permissions", () => {
-  test("network to Composio, its upload host, TikTok's two image CDN hosts and the media relay only, plus background and notify for the writes", () => {
+  test("network to Composio, its upload host, TikTok's image CDN and the media relay only, plus background and notify for the writes", () => {
     expect(manifest.permissions).toEqual([
       {
         kind: "network",
         domains: [
-          "backend.composio.dev", COMPOSIO_UPLOAD_HOST, "p16-common-sign.tiktokcdn-us.com", "p19-common-sign.tiktokcdn-us.com",
+          "backend.composio.dev", COMPOSIO_UPLOAD_HOST, "*.tiktokcdn-us.com", "*.tiktokcdn.com", "*.tiktokcdn-eu.com",
           ...(MEDIA_RELAY_BASE ? [new URL(MEDIA_RELAY_BASE).hostname] : []),
         ],
       },
@@ -131,8 +132,11 @@ describe("permissions", () => {
       { kind: "transcript", scope: "agent" },
     ]);
     if (MEDIA_RELAY_BASE) expect(new URL(MEDIA_RELAY_BASE).protocol).toBe("https:");
-    // Exact hosts: VoiceOS has no wildcards, and src/covers.ts fetches only these.
-    for (const h of TIKTOK_IMAGE_HOSTS) expect(h).toMatch(/^p\d+-[a-z0-9-]+\.tiktokcdn(-us)?\.com$/);
+    // TikTok's CDN families only, one label deep (src/covers.ts hostMatches): VoiceOS takes wildcard domains (its
+    // bundled grokbot integration declares "*.cursorvm.com"), and src/covers.ts fetches only what these match.
+    for (const h of TIKTOK_IMAGE_HOSTS) expect(h).toMatch(/^\*\.tiktokcdn(-us|-eu)?\.com$/);
+    // Every other domain is an exact host.
+    for (const d of manifest.permissions[0].domains.filter((x: string) => !TIKTOK_IMAGE_HOSTS.includes(x))) expect(d).not.toContain("*");
   });
 
   test("the network list is exactly the hosts src/config.ts calls", () => {
@@ -140,11 +144,11 @@ describe("permissions", () => {
       new URL(COMPOSIO_BASE).hostname, COMPOSIO_UPLOAD_HOST, ...TIKTOK_IMAGE_HOSTS, ...(MEDIA_RELAY_BASE ? [new URL(MEDIA_RELAY_BASE).hostname] : []),
     ];
     expect(manifest.permissions.find((p: any) => p.kind === "network").domains).toEqual(hosts);
-    // No fetch in src/ goes to a literal host the permission doesn't list.
+    // No fetch in src/ goes to a literal host the permission doesn't list (or match, for a wildcard).
     const strays = sourceFiles(join(ROOT, "src")).flatMap((file) =>
       [...readFileSync(file, "utf8").matchAll(/\bfetch\w*\(\s*["'`](https?:\/\/[^"'`/$]+)/g)]
         .map((m) => new URL(m[1]).hostname)
-        .filter((host) => !hosts.includes(host))
+        .filter((host) => !hosts.some((p) => hostMatches(host, p)))
         .map((host) => `${file.slice(ROOT.length + 1)} → ${host}`),
     );
     expect(strays).toEqual([]);
@@ -208,7 +212,8 @@ describe("setup fields", () => {
   });
 
   test("every variable src/ reads is declared (an undeclared process.env.X is silently empty), and every field is read", () => {
-    const OS_VARS = new Set(["HOME", "TMPDIR", "APPDATA", "USERPROFILE", "USER", "LOGNAME", "PATH", "SHELL", "TERM", "LANG", "LC_ALL", "LC_CTYPE", "TZ"]);
+    // Windows' own folders too (src/preview.ts looks for ffmpeg.exe where winget and Chocolatey put it).
+    const OS_VARS = new Set(["HOME", "TMPDIR", "APPDATA", "LOCALAPPDATA", "PROGRAMDATA", "USERPROFILE", "USER", "LOGNAME", "PATH", "SHELL", "TERM", "LANG", "LC_ALL", "LC_CTYPE", "TZ"]);
     const source = sourceFiles(join(ROOT, "src")).map((f) => readFileSync(f, "utf8")).join("\n");
     // process.env.X, Bun.env.X, env?.X, env["X"] anywhere; config.ts also reads through its text("X") helper.
     const config = readFileSync(join(ROOT, "src/config.ts"), "utf8");

@@ -14,7 +14,7 @@ import { join, posix, win32 } from "node:path";
 
 /** IMMUTABLE once installed: VoiceOS keys settings and secrets off it. */
 export const INTEGRATION_ID = "com.voiceos.generated.tiktok";
-export const INTEGRATION_VERSION = "1.3.0";
+export const INTEGRATION_VERSION = "1.3.1";
 
 /** The Composio TikTok toolkit version every execute call pins. Bump only after re-checking Composio's tool schemas at the new version and re-testing every tool. */
 export const TIKTOK_TOOLKIT_VERSION = "20261101_00";
@@ -35,12 +35,14 @@ export const ACCENT = "#fe2c55";
 export const COMPOSIO_UPLOAD_HOST = "temp.4d4f16c61d89ec64e760039c4ec50717.r2.cloudflarestorage.com";
 
 /**
- * TikTok's image CDN, for the profile picture and post covers on the result cards (src/covers.ts). Exact hosts
- * only (VoiceOS has no wildcard domains): the ones TikTok's avatar_url_100 and cover_image_url pointed at, seen
- * live on 2026-11-05. A URL on any other host is skipped and the card shows its fallback tile; the build adds
- * these to the manifest's network permission.
+ * TikTok's image CDN, for the profile picture and post covers on the result cards (src/covers.ts), as host
+ * patterns: "*.<domain>" is exactly one DNS label under the domain (p16-sign.tiktokcdn-us.com, sf16-va.tiktokcdn.com),
+ * never the bare domain, a deeper name or a lookalike. TikTok rotates the hosts it hands out, so a list of exact hosts
+ * left pictures missing. The one source for both: src/covers.ts fetches only what these match, and the build writes
+ * them into the manifest's network permission as they are (VoiceOS accepts wildcard domains; its own bundled
+ * integrations declare them). A refused host is logged by name ("image refused domain …").
  */
-export const TIKTOK_IMAGE_HOSTS: readonly string[] = Object.freeze(["p16-common-sign.tiktokcdn-us.com", "p19-common-sign.tiktokcdn-us.com"]);
+export const TIKTOK_IMAGE_HOSTS: readonly string[] = Object.freeze(["*.tiktokcdn-us.com", "*.tiktokcdn.com", "*.tiktokcdn-eu.com"]);
 
 export interface Config {
   /** COMPOSIO_API_KEY (password preference). Undefined when unset. */

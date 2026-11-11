@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { statusCard } from "./cards.ts";
 import { ComposioClient, type ExecOptions } from "./client.ts";
 import { registerHooks, type FocusReader } from "./conversation.ts";
-import { INTEGRATION_VERSION, type Config } from "./config.ts";
+import { COMPOSIO_BASE, INTEGRATION_VERSION, type Config } from "./config.ts";
 import { RemoteImages } from "./covers.ts";
 import { photoPreview, videoPreview, type PhotoPreview, type PhotoPreviewOptions, type PreviewInfo, type PreviewOptions, type VideoPreview } from "./preview.ts";
 import { findRecentImages, findRecentVideos, type FindImagesOptions, type FindVideosOptions, type FoundVideos } from "./files.ts";
@@ -161,7 +161,8 @@ export function createDeps(cfg: Config, overrides: Partial<Deps> = {}): Deps {
     // Persisted next to spent-receipts.json, so "did it go up?" and "what did I post?" survive a Reload (ledger.ts).
     ledger: overrides.ledger ?? new Ledger(clock, { file: join(cfg.stateDir, LEDGER_FILE), account: cfg.connectedAccountId }),
     queue: overrides.queue ?? new WriteQueue(),
-    images: overrides.images ?? new RemoteImages({ runner, clock }),
+    // A test server (loopback Composio, whose made-up picture URLs sit on TikTok's CDN hosts) never fetches them.
+    images: overrides.images ?? new RemoteImages({ runner, clock, offline: cfg.baseUrl !== COMPOSIO_BASE }),
     preview: overrides.preview ?? ((path, info, opts) => videoPreview(path, info, runner, opts)),
     photoPreview: overrides.photoPreview ?? ((paths, opts) => photoPreview(paths, runner, opts)),
     channel: overrides.channel ?? new ChannelMemo(),

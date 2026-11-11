@@ -34,40 +34,50 @@ import type { MediaKind, VideoDetails, VideoSummary, Widget, WriteMode } from ".
 // Images: data URIs only, validated, and budgeted per card
 // ---------------------------------------------------------------------------
 
-/** The only images a card draws: base64 JPEG, PNG or WebP data URIs (WebP: the moving loops). Anything else is ignored. */
-export const CARD_IMAGE_RE = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/;
-/** A moving loop: one animated WebP, or a JPEG filmstrip. */
-const MOTION_RE = /^data:image\/(jpeg|webp);base64,[A-Za-z0-9+/=]+$/;
-/** A loop as data-URI characters (src/preview.ts MAX_MOTION_URI). */
-const MAX_MOTION_CHARS = 125_000;
+/**
+ * The only images a card draws: base64 JPEG, PNG, WebP or AVIF data URIs (animated WebP and AVIF: the moving loops;
+ * WebP stills: covers on Windows). Anything else is ignored.
+ */
+export const CARD_IMAGE_RE = /^data:image\/(jpeg|png|webp|avif);base64,[A-Za-z0-9+/=]+$/;
+/** A moving loop: one animated AVIF or WebP, or a JPEG filmstrip. */
+const MOTION_RE = /^data:image\/(jpeg|webp|avif);base64,[A-Za-z0-9+/=]+$/;
+/** A loop as data-URI characters (src/preview.ts makes them this size at most: ~94 KB of AVIF). */
+export const MAX_MOTION_CHARS = 125_000;
 
-/** A video's moving loop (src/preview.ts VideoMotion), validated: an animated WebP, or a filmstrip of 2-30 frames. */
+/**
+ * A video's moving loop (src/preview.ts VideoMotion), validated: an animated AVIF or WebP, or a JPEG filmstrip of
+ * 2-30 frames. A filmstrip's `edge` is the smeared border each frame carries on both sides, as a fraction of the
+ * frame's width: the card shows only the frame inside it, so a step never shows a sliver of the next frame.
+ */
 export interface CardMotion {
   src: string;
   frames?: number;
   fps?: number;
+  edge?: number;
 }
 export function cardMotion(m: unknown): CardMotion | undefined {
   if (!m || typeof m !== "object") return undefined;
-  const { src, frames, fps } = m as { src?: unknown; frames?: unknown; fps?: unknown };
+  const { src, frames, fps, edge } = m as { src?: unknown; frames?: unknown; fps?: unknown; edge?: unknown };
   if (typeof src !== "string" || src.length > MAX_MOTION_CHARS || !MOTION_RE.test(src)) return undefined;
-  if (frames === undefined) return src.startsWith("data:image/webp") ? { src } : undefined;
+  if (frames === undefined) return src.startsWith("data:image/webp") || src.startsWith("data:image/avif") ? { src } : undefined;
+  if (!src.startsWith("data:image/jpeg")) return undefined;
   if (typeof frames !== "number" || !Number.isInteger(frames) || frames < 2 || frames > 30) return undefined;
   const rate = typeof fps === "number" && Number.isFinite(fps) && fps >= 1 && fps <= 30 ? fps : 8;
-  return { src, frames, fps: rate };
+  const bleed = typeof edge === "number" && Number.isFinite(edge) && edge > 0 && edge <= 0.1 ? edge : 0;
+  return { src, frames, fps: rate, ...(bleed ? { edge: bleed } : {}) };
 }
-/** One image, as data-URI characters (a 45 KB poster is about 60,000). */
+/** One still, as data-URI characters (src/preview.ts keeps posters ≤ 58,000). */
 const MAX_IMAGE_CHARS = 64_000;
 /** All the images on one card, so a card stays near 200 KB and far under the kit's 300,000-character cap. Earlier (higher) images win. */
 const CARD_IMAGE_BUDGET = 200_000;
 
-/** The image if it's a data URI a card may draw, else undefined. */
-export function cardImage(src: unknown): string | undefined {
-  if (typeof src !== "string" || src.length > MAX_IMAGE_CHARS) return undefined;
+/** The image if it's a data URI a card may draw (at most `max` characters), else undefined. */
+export function cardImage(src: unknown, max = MAX_IMAGE_CHARS): string | undefined {
+  if (typeof src !== "string" || src.length > Math.min(max, MAX_MOTION_CHARS)) return undefined;
   return CARD_IMAGE_RE.test(src) ? src : undefined;
 }
 
-type Images = ((src: unknown) => string | undefined) & {
+type Images = ((src: unknown, max?: number) => string | undefined) & {
   /** Characters still free. */
   left?: () => number;
   /** Give back what an image no longer needs (a poster a loop replaced). */
@@ -76,8 +86,8 @@ type Images = ((src: unknown) => string | undefined) & {
 
 function imageBudget(total = CARD_IMAGE_BUDGET): Images {
   let left = total;
-  const take = ((src: unknown) => {
-    const ok = cardImage(src);
+  const take = ((src: unknown, max?: number) => {
+    const ok = cardImage(src, max);
     if (!ok || ok.length > left) return undefined;
     left -= ok.length;
     return ok;
@@ -87,7 +97,10 @@ function imageBudget(total = CARD_IMAGE_BUDGET): Images {
   return take;
 }
 
-/** Pixel size from a PNG's IHDR or a JPEG's SOF marker (the first ~18 KB is enough), so a tile can take the frame's own shape. */
+/**
+ * Pixel size from a PNG's IHDR, a JPEG's SOF marker, a WebP's VP8/VP8L/VP8X header or an AVIF's `ispe` property
+ * (the first ~18 KB is enough), so a tile can take the frame's own shape.
+ */
 export function imageSize(uri: string | undefined): { w: number; h: number } | undefined {
   if (!uri) return undefined;
   const comma = uri.indexOf(",");
@@ -101,10 +114,33 @@ export function imageSize(uri: string | undefined): { w: number; h: number } | u
     return undefined;
   }
   const u16 = (i: number) => (bytes[i] << 8) | bytes[i + 1];
+  const u32 = (i: number) => ((bytes[i] << 24) | (bytes[i + 1] << 16) | (bytes[i + 2] << 8) | bytes[i + 3]) >>> 0;
+  const tag = (i: number) => String.fromCharCode(bytes[i], bytes[i + 1], bytes[i + 2], bytes[i + 3]);
+  const sized = (w: number, h: number) => (w > 0 && h > 0 ? { w, h } : undefined);
   if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes.length >= 24) {
     const w = (bytes[16] << 24) | (bytes[17] << 16) | u16(18);
     const h = (bytes[20] << 24) | (bytes[21] << 16) | u16(22);
     return w > 0 && h > 0 ? { w, h } : undefined;
+  }
+  if (bytes.length >= 30 && tag(0) === "RIFF" && tag(8) === "WEBP") {
+    const le24 = (i: number) => bytes[i] | (bytes[i + 1] << 8) | (bytes[i + 2] << 16);
+    const chunk = tag(12);
+    if (chunk === "VP8X") return sized(le24(24) + 1, le24(27) + 1);
+    if (chunk === "VP8 " && bytes[23] === 0x9d && bytes[24] === 0x01 && bytes[25] === 0x2a) {
+      return sized((bytes[26] | (bytes[27] << 8)) & 0x3fff, (bytes[28] | (bytes[29] << 8)) & 0x3fff);
+    }
+    if (chunk === "VP8L" && bytes[20] === 0x2f) {
+      const bits = (bytes[21] | (bytes[22] << 8) | (bytes[23] << 16) | (bytes[24] << 24)) >>> 0;
+      return sized((bits & 0x3fff) + 1, ((bits >>> 14) & 0x3fff) + 1);
+    }
+    return undefined;
+  }
+  if (bytes.length >= 16 && tag(4) === "ftyp" && /^avi[fs]$/.test(tag(8))) {
+    // The image spatial extents property (ispe): 4 bytes of version and flags, then width and height.
+    for (let i = 8; i + 16 <= bytes.length; i++) {
+      if (bytes[i] === 0x69 && tag(i) === "ispe") return sized(u32(i + 8), u32(i + 12));
+    }
+    return undefined;
   }
   if (bytes[0] !== 0xff || bytes[1] !== 0xd8) return undefined;
   let i = 2;
@@ -136,7 +172,7 @@ function isWide(src: string | undefined, w?: number, h?: number): boolean {
 // Styles (on top of the kit's variables: --ink-1..4, --line, --fill-1/2, --track, --good, --bad, --accent)
 // ---------------------------------------------------------------------------
 
-type TileSize = "xs" | "s" | "m" | "l" | "xl" | "h";
+type TileSize = "xs" | "s" | "m" | "l" | "xl" | "h" | "f";
 /** Portrait sizes (9:16); `.is-w` swaps them for a 16:9 source. */
 const TILE: Record<TileSize, { w: number; h: number; r: number }> = {
   xs: { w: 27, h: 48, r: 7 },
@@ -149,6 +185,15 @@ const TILE: Record<TileSize, { w: number; h: number; r: number }> = {
   /** A landscape video across the posting-as card (used lying down only: 358 × 201). */
   f: { w: 201, h: 358, r: 16 },
 };
+/**
+ * The biggest tiles a loop plays in, in CSS px (src/preview.ts makes loops and posters twice this size: the notch is
+ * a 2× display): the hero (find, posting-as and completion cards) for a portrait video, and the posting-as card's
+ * across-the-card tile for a landscape one. Smaller tiles (the status card's) show the same loop scaled down.
+ */
+export const LOOP_TILES = {
+  hero: { w: TILE.h.w, h: TILE.h.h },
+  across: { w: TILE.f.h, h: TILE.f.w },
+} as const;
 const TILE_CSS = (Object.entries(TILE) as Array<[TileSize, { w: number; h: number; r: number }]>)
   .map(([k, t]) => `.tt-m.z-${k}{width:${t.w}px;height:${t.h}px;border-radius:${t.r}px}.tt-m.z-${k}.is-w{width:${t.h}px;height:${t.w}px}`)
   .join("");
@@ -526,10 +571,14 @@ function tile(o: TileOpts): { html: string; w: number; h: number } {
     ? `<span class="tt-m-b is-${o.badge.tone}">${o.badge.icon === "check" ? icon("check", "tt-ck") : icon(o.badge.icon)}</span>`
     : "";
   // The loop sits over the poster; with reduced motion the poster shows instead (a filmstrip simply holds its first frame).
+  // A filmstrip's frames each carry a smeared border (`edge`): the strip is that much wider per frame and starts that far
+  // left, so every step lands inside a frame and scaling never blends in a sliver of its neighbour.
+  const edge = mo?.frames ? mo.edge ?? 0 : 0;
+  const stripBox = edge && mo?.frames ? `width:${+(mo.frames * (1 + 2 * edge) * 100).toFixed(4)}%;left:${+(-edge * 100).toFixed(4)}%` : `width:${(mo?.frames ?? 0) * 100}%`;
   const moving = !mo
     ? ""
     : mo.frames
-      ? `<span class="tt-m-fs"><img class="tt-m-fsi" src="${esc(mo.src)}" alt="" style="width:${mo.frames * 100}%;animation-duration:${(mo.frames / (mo.fps ?? 8)).toFixed(3)}s;animation-timing-function:steps(${mo.frames})"></span>`
+      ? `<span class="tt-m-fs"><img class="tt-m-fsi" src="${esc(mo.src)}" alt="" style="${stripBox};animation-duration:${(mo.frames / (mo.fps ?? 8)).toFixed(3)}s;animation-timing-function:steps(${mo.frames})"></span>`
       : `<img class="tt-m-i tt-m-mo" src="${esc(mo.src)}" alt="">`;
   const glyph = `<span class="tt-m-g">${o.kind === "photo" ? PHOTO_G : PLAY_G}${named ? `<span class="tt-m-n">${esc(named)}</span>` : ""}</span>`;
   const html = `<span class="${cls}" aria-hidden="true">${glyph}${o.src ? `<img class="tt-m-i" src="${esc(o.src)}" alt="">` : ""}${moving}${
@@ -1556,30 +1605,41 @@ function pickLead(v: PickVideo, src: string | undefined, eyebrow: string, best: 
 }
 
 /** The numbered gallery: 2–4 in a row, 5–6 as two rows of three. */
-function pickGallery(list: PickVideo[], images: (src: unknown) => string | undefined): Part {
-  const n = list.length;
-  const cols = n <= 4 ? n : 3;
-  const rowsN = Math.ceil(n / cols);
+/**
+ * One gallery cell's picture box for n videos (2-4 in a row, 5-6 as two rows of three), in CSS px: 3:4 when most
+ * are vertical, 16:9 when most are landscape. `chars` is what one cell's loop may cost so every cell's loop fits the
+ * card's picture budget together (src/preview.ts sizes a gallery's loops and posters from this, at twice the box).
+ */
+export function galleryCell(n: number, vertical: boolean): { w: number; h: number; chars: number; cols: number; rows: number } {
+  const k = Math.max(2, Math.min(6, Math.floor(isNum(n) ? n : 2)));
+  const cols = k <= 4 ? k : 3;
+  const rows = Math.ceil(k / cols);
   const cellW = (COL - 8 * (cols - 1)) / cols;
-  const tall = rowsN > 1 ? 92 : cols <= 2 ? 150 : cols === 3 ? 136 : 124;
+  const tall = rows > 1 ? 92 : cols <= 2 ? 150 : cols === 3 ? 136 : 124;
+  const w = Math.floor(Math.min(cellW, vertical ? tall * 0.75 : tall * 1.78));
+  const h = vertical ? tall : Math.round(Math.min(tall, w / 1.78));
+  return { w, h, chars: Math.floor((CARD_IMAGE_BUDGET - 4_000) / k), cols, rows };
+}
+
+function pickGallery(list: PickVideo[], images: Images): Part {
+  const n = list.length;
   const vertical = list.filter((v) => !isWide(undefined, v.width, v.height)).length >= list.filter((v) => isWide(undefined, v.width, v.height)).length;
   // Most are vertical: 3:4 boxes; most are landscape: 16:9 boxes. A video of the other shape fits inside its box.
-  const boxW = Math.floor(Math.min(cellW, vertical ? tall * 0.75 : tall * 1.78));
-  const boxH = vertical ? tall : Math.round(Math.min(tall, boxW / 1.78));
+  const { w: boxW, h: boxH, cols, rows: rowsN } = galleryCell(n, vertical);
   const subLines = rowsN > 1 ? 1 : 2;
   // Names that share a long beginning ("Screen Recording 2026-10-21 at …") show where they differ.
   const names = list.map((v) => cleanText(v.name));
   let common = 0;
   while (names.length > 1 && names.every((x) => x.length > common && x[common] === names[0][common])) common++;
   const shownName = (x: string) => (common > 14 && x.length - common >= 3 ? `…${x.slice(Math.max(0, common - 4)).trim()}` : x);
-  // Every cell gets its poster first; then, in order, a cell's small loop (a WebP: a filmstrip needs a box of its own
-  // shape) takes the poster's place while the budget allows, so no cell is ever left blank.
+  // Every cell gets its poster first; then, in order, a cell's small loop (an AVIF or WebP: a filmstrip needs a box of
+  // its own shape) takes the poster's place while the budget allows, so no cell is ever left blank.
   const posters = list.map((v) => images(v.poster));
   const shownSrc = list.map((v, i) => {
     const mo = cardMotion(v.motion);
     if (!mo || mo.frames) return posters[i];
     images.refund?.(posters[i]?.length ?? 0);
-    const loop = images(mo.src);
+    const loop = images(mo.src, MAX_MOTION_CHARS);
     if (loop) return loop;
     return posters[i] ? images(posters[i]) : undefined;
   });

@@ -1,15 +1,17 @@
 /**
  * Real frames of a local video, for the cards (UI brief, contract 3):
- *  - `poster`: a sharp JPEG data URI (≤ 45 KB) for result cards (find_recent_videos, the completion card,
- *    "did it go up?");
+ *  - `poster`: a sharp JPEG data URI (≤ 58,000 characters) for result cards (find_recent_videos, the completion
+ *    card, "did it go up?"), twice the CSS size of the tile it lands in (the notch is a 2× display);
  *  - `micro`: the micro preview (src/microPreview.ts): three tiny frames at ~15 %, ~50 % and ~85 % of the
  *    video, which the confirmation card decodes and crossfades. It travels as the write tools' `preview`
- *    argument, so it has to be small and the same every time for the same file.
+ *    argument, so it has to be small and the same every time for the same file;
+ *  - `motion`: the video playing, a seamless 3 s loop (videoMotion).
  *
- * Frame source: ffmpeg when it's installed (Homebrew paths, then PATH): one fast seek per frame, the poster
- * from the middle frame, micro frames as PPM (rgb24 with a size header) fitted into 80 × 80 (45 × 80 for a
- * 9:16 video, 80 × 45 for 16:9). Without ffmpeg, macOS's `qlmanage -t` thumbnail (one frame) and `sips` for
- * the poster's resize and the micro frame's BMP pixels: a poster and a one-frame micro preview.
+ * Frame source: ffmpeg when it's installed (Homebrew paths, then PATH; ffmpeg.exe on PATH or from winget, Scoop
+ * or Chocolatey on Windows): one fast seek per frame, the poster from the middle frame, micro frames as PPM
+ * (rgb24 with a size header) fitted into 80 × 80 (45 × 80 for a 9:16 video, 80 × 45 for 16:9). Without ffmpeg,
+ * macOS's `qlmanage -t` thumbnail (one frame) and `sips` for the poster's resize and the micro frame's BMP
+ * pixels: a poster and a one-frame micro preview (on Windows without ffmpeg: nothing, quietly).
  *
  * Best effort and time-boxed (2.5 s by default), cached by path + size + mtime, never throws (returns {}).
  * Temp files live in $TMPDIR/tiktok-preview-* and are removed. Logs carry the source, counts and a
@@ -18,13 +20,14 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, isAbsolute, join } from "node:path";
+import { LOOP_TILES, MAX_MOTION_CHARS, galleryCell } from "./cards.ts";
 import { SIPS, SRGB_PROFILE } from "./images.ts";
 import { VIDEO_FRAME_BOX, encodeStackFrame, encodeVideoFrame, joinStack, joinVideoPreview } from "./microPreview.ts";
 import { log } from "./proc.ts";
 import type { Runner } from "./types.ts";
 
 export interface VideoPreview {
-  /** data:image/jpeg;base64,…, ≤ 45 KB. */
+  /** data:image/jpeg;base64,…, ≤ MAX_POSTER_URI characters. */
   poster?: string;
   /** The micro preview string ("p2~…", src/microPreview.ts), ≤ 1,100 chars. */
   micro?: string;
@@ -33,15 +36,19 @@ export interface VideoPreview {
 }
 
 /**
- * A 2.5 s loop of the video at 8 fps, cropped to the card's 9:16 (16:9 for landscape): an animated WebP when
- * img2webp is installed, else a JPEG filmstrip (`frames` frames side by side) that the card plays with CSS
- * steps(). Either way one data URI, ≤ MAX_MOTION_URI characters.
+ * The video playing, cropped to the card's 9:16 (16:9 for landscape) at twice the CSS size of the tile it plays in:
+ * an animated AVIF (3 s at 24 fps, its end cross-faded into its start so the restart doesn't jump) when ffmpeg has
+ * the SVT-AV1 encoder; else an animated WebP (1.5 s at 12 fps) when img2webp is installed; else a JPEG filmstrip
+ * (`frames` frames side by side, 8 fps) that the card plays with CSS steps(). One data URI, ≤ MAX_MOTION_URI
+ * characters (a gallery cell's: its share of the card).
  */
 export interface VideoMotion {
   src: string;
   /** Filmstrips only: how many frames side by side, and their rate. */
   frames?: number;
   fps?: number;
+  /** Filmstrips only: the smeared border on each side of each frame, as a fraction of the frame's width (src/cards.ts). */
+  edge?: number;
 }
 
 export interface PreviewInfo {
@@ -53,6 +60,10 @@ export interface PreviewInfo {
 export interface PreviewOptions {
   /** Poster width for a 9:16 video (a 16:9 one gets the same pixel count lying down). Default 160; 0 = no poster. */
   posterWidth?: number;
+  /** Poster width for a landscape video that plays bigger than a portrait one would (the posting-as card's across tile). */
+  posterWide?: number;
+  /** A "small" loop's gallery: how many cells it has (2-6), so the loop is twice the cell's size and its share of the card. Default 2. */
+  cells?: number;
   /** Also make the micro preview. Default true. */
   micro?: boolean;
   signal?: AbortSignal;
@@ -73,24 +84,65 @@ export const DEFAULT_POSTER_WIDTH = 160;
 /** Micro frames fit in this square. */
 export const MICRO_BOX = VIDEO_FRAME_BOX;
 const FRAME_AT = [0.15, 0.5, 0.85] as const;
-const MAX_POSTER_URI = 45 * 1024;
+/**
+ * One poster as data-URI characters (~43 KB of JPEG): under a card's per-image cap (64,000) and the posting-as
+ * card's picture budget (60,000), so even the 716 × 402 across-the-card poster fits. A 216 × 384 one is ~20-30K.
+ */
+export const MAX_POSTER_URI = 58_000;
+/**
+ * The poster at ffmpeg's -q:v 3 (lower is better), and two copies of the same frame made beside it (one decode, tiny
+ * encodes) in case a busy frame is over the cap: coarser, then also smaller (a 716-wide 10-bit phone frame can be
+ * 140K characters at -q:v 3 and 83K at 8). The first one under the cap wins.
+ */
+const POSTER_RUNGS = [
+  { name: "poster.jpg", q: 3, scale: 1 },
+  { name: "poster-safe.jpg", q: 8, scale: 1 },
+  { name: "poster-small.jpg", q: 6, scale: 0.6 },
+] as const;
 const CACHE_MAX = 48;
 const CACHE_MS = 30 * 60_000;
 
+type Env = Record<string, string | undefined>;
 const FFMPEG_PATHS = ["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg"];
 let foundFfmpeg: string | null | undefined;
 
-/** ffmpeg on this Mac: Homebrew's paths first (VoiceOS's PATH has neither), then PATH. Looked up once. */
-export function findFfmpeg(env: Record<string, string | undefined> = process.env): string | undefined {
-  if (foundFfmpeg !== undefined) return foundFfmpeg ?? undefined;
-  const dirs = (env.PATH ?? "").split(delimiter).map((d) => d.replace(/^"|"$/g, "")).filter(isAbsolute);
-  const hit = [...(process.platform === "win32" ? [] : FFMPEG_PATHS), ...dirs.map((d) => join(d, process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg"))].find((p) => {
+/** PATH's absolute directories (Windows spells it Path; quotes around an entry are allowed). */
+function pathDirs(env: Env): string[] {
+  const key = Object.keys(env).find((k) => k.toUpperCase() === "PATH");
+  const raw = env.PATH ?? (key ? env[key] : undefined) ?? "";
+  return raw.split(delimiter).map((d) => d.trim().replace(/^"|"$/g, "")).filter((d) => d && isAbsolute(d));
+}
+
+/** The first of these that is a file. */
+function firstFile(paths: string[]): string | undefined {
+  return paths.find((p) => {
     try {
       return existsSync(p) && statSync(p).isFile();
     } catch {
       return false;
     }
   });
+}
+
+/** Where Windows package managers put a tool when VoiceOS's PATH predates the install: winget's links, Scoop's shims, Chocolatey's bin. */
+function windowsToolPaths(exe: string, env: Env): string[] {
+  const at = (base: string | undefined, ...parts: string[]) => (base ? [join(base, ...parts, exe)] : []);
+  return [
+    ...at(env.LOCALAPPDATA, "Microsoft", "WinGet", "Links"),
+    ...at(env.USERPROFILE, "scoop", "shims"),
+    ...at(env.ProgramData ?? env.PROGRAMDATA, "chocolatey", "bin"),
+  ];
+}
+
+/**
+ * ffmpeg on this computer, looked up once. On a Mac: Homebrew's paths first (VoiceOS's PATH has neither), then PATH.
+ * On Windows: ffmpeg.exe on PATH, then where winget, Scoop and Chocolatey put it. None is fine: posters only, no loop.
+ */
+export function findFfmpeg(env: Env = process.env, platform: string = process.platform): string | undefined {
+  if (foundFfmpeg !== undefined) return foundFfmpeg ?? undefined;
+  const win = platform === "win32";
+  const exe = win ? "ffmpeg.exe" : "ffmpeg";
+  const hit = firstFile([...(win ? [] : FFMPEG_PATHS), ...pathDirs(env).map((d) => join(d, exe)), ...(win ? windowsToolPaths(exe, env) : [])]);
   foundFfmpeg = hit ?? null;
   return hit;
 }
@@ -249,18 +301,20 @@ async function viaFfmpeg(bin: string, p: Plan, runner: Runner): Promise<VideoPre
   const times = frameTimes(p.duration);
   const middle = times.length === 3 ? 1 : 0;
   const scaleMicro = `scale=${MICRO_BOX}:${MICRO_BOX}:force_original_aspect_ratio=decrease:flags=area`;
-  const scalePoster = `scale=${p.box}:${p.box}:force_original_aspect_ratio=decrease:flags=bicubic`;
+  const scalePoster = (box: number) => `scale=${box}:${box}:force_original_aspect_ratio=decrease:flags=lanczos`;
   const runs = times.map(async (t, i) => {
-    const poster = p.box > 0 && i === middle ? join(p.dir, "poster.jpg") : undefined;
+    const posters = p.box > 0 && i === middle ? POSTER_RUNGS.map((r) => ({ ...r, file: join(p.dir, r.name) })) : [];
     const micro = p.micro ? join(p.dir, `m${i}.ppm`) : undefined;
-    if (!poster && !micro) return { poster: undefined, micro: undefined };
+    if (!posters.length && !micro) return { poster: undefined, micro: undefined };
     const cmd = [bin, "-nostdin", "-hide_banner", "-loglevel", "error", "-ss", String(t), "-i", `file:${p.path}`];
-    if (poster) cmd.push("-map", "0:v:0", "-frames:v", "1", "-vf", scalePoster, "-q:v", "5", "-f", "image2", "-c:v", "mjpeg", "-y", poster);
+    for (const r of posters) {
+      cmd.push("-map", "0:v:0", "-frames:v", "1", "-vf", scalePoster(Math.max(16, Math.round(p.box * r.scale))), "-q:v", String(r.q), "-f", "image2", "-c:v", "mjpeg", "-y", r.file);
+    }
     if (micro) cmd.push("-map", "0:v:0", "-frames:v", "1", "-vf", scaleMicro, "-pix_fmt", "rgb24", "-f", "image2", "-c:v", "ppm", "-y", micro);
     await runner(cmd, { timeoutMs: p.timeoutMs });
     // A failed run leaves no file (or a partial one, which the parsers refuse).
     return {
-      poster: poster ? posterUri(poster) : undefined,
+      poster: posters.reduce<string | undefined>((got, r) => got ?? posterUri(r.file), undefined),
       micro: micro ? microFrame(parsePpmFile(micro)) : undefined,
     };
   });
@@ -304,12 +358,15 @@ async function viaQuickLook(p: Plan, runner: Runner): Promise<VideoPreview> {
   const left = () => Math.max(300, p.timeoutMs - (Date.now() - started));
   const jobs: Array<Promise<Partial<VideoPreview>>> = [];
   if (p.box > 0) {
-    const out = join(p.dir, "poster.jpg");
     const target = fit(dims.w, dims.h, p.box);
     const resize = target.w < dims.w ? ["--resampleWidth", String(target.w)] : [];
-    jobs.push(
-      runner(["sips", "-s", "format", "jpeg", "-s", "formatOptions", "70", ...resize, src, "--out", out], { timeoutMs: left() }).then(() => ({ poster: posterUri(out) })),
-    );
+    // Quality 82, or 62 for a busy frame over the cap.
+    const encode = async (q: number) => {
+      const out = join(p.dir, `poster-${q}.jpg`);
+      await runner(["sips", "-s", "format", "jpeg", "-s", "formatOptions", String(q), ...resize, src, "--out", out], { timeoutMs: left() });
+      return posterUri(out);
+    };
+    jobs.push(encode(82).then(async (poster) => ({ poster: poster ?? (await encode(62)) })));
   }
   if (p.micro) {
     const out = join(p.dir, "m0.bmp");
@@ -358,10 +415,14 @@ export async function videoPreview(path: string, info: PreviewInfo, runner: Runn
     if (opts.signal?.aborted) return {};
     const st = statSync(path);
     const posterWidth = Math.max(0, Math.floor(opts.posterWidth ?? DEFAULT_POSTER_WIDTH));
+    // A landscape video's own poster width, when asked for (else its long side is the 9:16 poster's height).
+    const posterWide = posterWidth > 0 && isWideInfo(info) && opts.posterWide ? Math.max(0, Math.min(1_280, Math.floor(opts.posterWide))) : 0;
     const micro = opts.micro !== false;
     // The loop runs beside the frames, on its own cache and budget.
     const moving = opts.motion
-      ? videoMotion(path, info, runner, { ffmpeg: opts.ffmpeg, img2webp: opts.img2webp, tmpRoot: opts.tmpRoot, signal: opts.signal, small: opts.motion === "small" })
+      ? videoMotion(path, info, runner, {
+          ffmpeg: opts.ffmpeg, img2webp: opts.img2webp, tmpRoot: opts.tmpRoot, signal: opts.signal, small: opts.motion === "small", ...(opts.cells !== undefined ? { cells: opts.cells } : {}),
+        })
       : Promise.resolve(undefined);
     if (!posterWidth && !micro) {
       const motion = await moving;
@@ -371,13 +432,13 @@ export async function videoPreview(path: string, info: PreviewInfo, runner: Runn
       const motion = await moving;
       return motion ? { ...v, motion } : { ...v };
     };
-    const key = `${path}|${st.size}|${st.mtimeMs}|${posterWidth}|${micro ? 1 : 0}`;
+    const key = `${path}|${st.size}|${st.mtimeMs}|${posterWidth}|${posterWide}|${micro ? 1 : 0}`;
     const hit = cache.get(key);
     if (hit && Date.now() - hit.at <= CACHE_MS) return withMotion(hit.value);
     const pending = inflight.get(key);
     if (pending) return withMotion(await pending);
     const budget = Math.max(300, opts.budgetMs ?? PREVIEW_BUDGET_MS);
-    const work = make(path, info, runner, { posterWidth, micro, budget, ffmpeg: opts.ffmpeg, tmpRoot: opts.tmpRoot ?? tmpdir() });
+    const work = make(path, info, runner, { posterWidth, posterWide, micro, budget, ffmpeg: opts.ffmpeg, tmpRoot: opts.tmpRoot ?? tmpdir() });
     inflight.set(key, work);
     let timer: ReturnType<typeof setTimeout> | undefined;
     const late = new Promise<VideoPreview>((resolve) => (timer = setTimeout(() => resolve({}), budget + 250)));
@@ -407,90 +468,191 @@ export async function videoPreview(path: string, info: PreviewInfo, runner: Runn
 // ---------------------------------------------------------------------------
 
 export const MOTION_BUDGET_MS = 5_000;
-/** One loop as data-URI characters (~90 KB of WebP or JPEG), so a card with a loop and a few posters stays under VoiceOS's cap. */
-export const MAX_MOTION_URI = 125_000;
-/** A gallery cell's loop (the find card with several videos plays each one). */
-export const MAX_SMALL_MOTION_URI = 40_000;
-const MOTION_SECONDS = 2.5;
-const MOTION_FPS = 8;
+/** One loop as data-URI characters (src/cards.ts MAX_MOTION_CHARS): ~94 KB, so a card with a loop and its posters stays under VoiceOS's cap. */
+export const MAX_MOTION_URI = MAX_MOTION_CHARS;
+
+/** How a loop runs: `seconds` long at `fps`, its last `fade` seconds cross-faded into its first (so the restart doesn't jump). */
+export interface LoopShape {
+  seconds: number;
+  fade: number;
+  fps: number;
+}
+/** AVIF: 3 s at 24 fps (72 frames). */
+export const AVIF_LOOP: LoopShape = { seconds: 3, fade: 0.4, fps: 24 };
+/** WebP, without an AV1 encoder: 1.5 s at 12 fps. Lossy WebP needs about three times AVIF's bytes for the same frames. */
+export const WEBP_LOOP: LoopShape = { seconds: 1.5, fade: 0.25, fps: 12 };
+/** The filmstrip, with neither: 2 s at 8 fps of 144 × 256 frames (a JPEG strip can't afford twice the tile). */
+export const STRIP_LOOP: LoopShape = { seconds: 2, fade: 0.3, fps: 8 };
+/** AV1 quality (SVT-AV1's CRF): start here, and rather than go past MAX_CRF, make the frames smaller. */
+const START_CRF = 36;
+/** At these sizes a higher CRF looks better than fewer pixels scaled up (checked side by side on a real clip), so the ceiling is high. */
+const MAX_CRF = 54;
+/** A loop's size halves about every this many CRF steps (10-18 measured on real clips: the low side, so a guess rarely overshoots). */
+const CRF_HALVING = 12;
+const WEBP_QUALITY = [45, 28, 14, 6];
+const STRIP_QUALITY = [9, 13, 18];
+/** Each filmstrip frame's smeared border, px per side (src/cards.ts shows only what's inside it). */
+const STRIP_BLEED = 2;
 const IMG2WEBP_PATHS = ["/opt/homebrew/bin/img2webp", "/usr/local/bin/img2webp"];
 let foundImg2webp: string | null | undefined;
 
-/** img2webp (Homebrew's webp tools) on this Mac, looked up once. */
-export function findImg2webp(env: Record<string, string | undefined> = process.env): string | undefined {
+/** img2webp (Homebrew's webp tools) on this computer, looked up once. */
+export function findImg2webp(env: Env = process.env, platform: string = process.platform): string | undefined {
   if (foundImg2webp !== undefined) return foundImg2webp ?? undefined;
-  const dirs = (env.PATH ?? "").split(delimiter).map((d) => d.replace(/^"|"$/g, "")).filter(isAbsolute);
-  const hit = [...(process.platform === "win32" ? [] : IMG2WEBP_PATHS), ...dirs.map((d) => join(d, process.platform === "win32" ? "img2webp.exe" : "img2webp"))].find((p) => {
-    try {
-      return existsSync(p) && statSync(p).isFile();
-    } catch {
-      return false;
-    }
-  });
+  const win = platform === "win32";
+  const exe = win ? "img2webp.exe" : "img2webp";
+  const hit = firstFile([...(win ? [] : IMG2WEBP_PATHS), ...pathDirs(env).map((d) => join(d, exe)), ...(win ? windowsToolPaths(exe, env) : [])]);
   foundImg2webp = hit ?? null;
   return hit;
 }
 
 const motionCache = new Map<string, { at: number; value: VideoMotion }>();
 const motionInflight = new Map<string, Promise<VideoMotion | undefined>>();
+const avifProbe = new Map<string, Promise<boolean>>();
 
-/** Tests: forget cached loops and the img2webp lookup. */
+/** Tests: forget cached loops, the img2webp lookup and what each ffmpeg can encode. */
 export function clearMotionCache(): void {
   motionCache.clear();
   motionInflight.clear();
+  avifProbe.clear();
   foundImg2webp = undefined;
 }
 
-/** Where the loop starts and how long it runs: a fifth of the way in (past the intro), 2.5 s or the whole of a shorter video. */
-export function motionWindow(duration?: number): { start: number; seconds: number; frames: number } {
-  const d = typeof duration === "number" && Number.isFinite(duration) && duration > 0 ? duration : undefined;
-  const seconds = d === undefined ? MOTION_SECONDS : Math.max(0.5, Math.min(MOTION_SECONDS, d - 0.05));
-  const start = d === undefined ? 0 : Math.max(0, Math.min(d * 0.2, d - seconds - 0.05));
-  return { start: Math.round(start * 1000) / 1000, seconds: Math.round(seconds * 1000) / 1000, frames: Math.max(2, Math.min(20, Math.round(seconds * MOTION_FPS))) };
+/**
+ * Whether this ffmpeg writes animated AVIF: the SVT-AV1 encoder and the avif muxer (ffmpeg 6+). Asked once per
+ * binary; an answer that didn't come (a timeout, a crash) is asked again next time. Never throws.
+ */
+export function ffmpegAvif(bin: string, runner: Runner): Promise<boolean> {
+  const known = avifProbe.get(bin);
+  if (known) return known;
+  const forget = () => {
+    avifProbe.delete(bin);
+    return false;
+  };
+  const asked = Promise.all([runner([bin, "-hide_banner", "-encoders"], { timeoutMs: 3_000 }), runner([bin, "-hide_banner", "-muxers"], { timeoutMs: 3_000 })]).then(
+    ([enc, mux]) => {
+      if (enc.code !== 0 || mux.code !== 0 || !enc.stdout || !mux.stdout) return forget();
+      return /^\s*V\S*\s+libsvtav1\b/m.test(enc.stdout) && /^\s*D?E\S*\s+avif\b/m.test(mux.stdout);
+    },
+    forget,
+  );
+  avifProbe.set(bin, asked);
+  return asked;
 }
 
-const fileUri = (file: string, mime: string, max = MAX_MOTION_URI): string | undefined => {
-  const b = readBytes(file);
-  if (!b || b.length < 12) return undefined;
-  const uri = `data:${mime};base64,${Buffer.from(b).toString("base64")}`;
-  return uri.length <= max ? uri : undefined;
-};
-const isWebp = (b: Uint8Array) => b.length > 12 && b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50;
+const sec = (x: number) => Math.round(x * 1000) / 1000;
+const isWideInfo = (info: PreviewInfo) => typeof info.width === "number" && typeof info.height === "number" && info.width > info.height * 1.08;
 
 /**
- * The video's moving loop. Best effort and time-boxed (5 s), cached by path + size + mtime (a second card for
- * the same file costs nothing), never throws: undefined when there's no ffmpeg or nothing came out in time.
+ * Where the loop starts and how it runs: a fifth of the way in (past the intro), `seconds` plus the cross-fade of
+ * the video. A shorter video gives what it has (a 0.25 s fade, none under a second); an unknown length, no fade.
+ */
+export function motionWindow(duration?: number, shape: LoopShape = AVIF_LOOP): { start: number; seconds: number; fade: number } {
+  const d = typeof duration === "number" && Number.isFinite(duration) && duration > 0 ? duration : undefined;
+  if (d === undefined) return { start: 0, seconds: shape.seconds, fade: 0 };
+  const span = Math.min(shape.seconds + shape.fade, Math.max(0.1, d - 0.1));
+  const fade = span >= shape.seconds + shape.fade ? shape.fade : span >= 1 ? Math.min(shape.fade, 0.25) : 0;
+  const start = Math.max(0, Math.min(d * 0.2, d - span - 0.1));
+  return { start: sec(start), seconds: sec(span - fade), fade: sec(fade) };
+}
+
+/**
+ * The loop's filtergraph: the window at `fps`, scaled to cover w × h and centre-cropped, then (with a fade) its
+ * last `fade` seconds cross-faded into its first, so the last frame leads straight back into the first. `then`
+ * runs on the result (the filmstrip's tiling). Output label [v].
+ */
+export function loopGraph(w: number, h: number, fps: number, win: { seconds: number; fade: number }, o: { format?: string; then?: string } = {}): string {
+  const base = `[0:v:0]fps=${fps},scale=${w}:${h}:force_original_aspect_ratio=increase:flags=lanczos,crop=${w}:${h}${o.format ? `,format=${o.format}` : ""}`;
+  const then = o.then ? `,${o.then}` : "";
+  if (!(win.fade > 0)) return `${base},trim=duration=${win.seconds}${then}[v]`;
+  return (
+    `${base},split[a][b];[a]trim=${win.fade}:${sec(win.seconds + win.fade)},setpts=PTS-STARTPTS[x];[b]trim=0:${win.fade},setpts=PTS-STARTPTS[y];` +
+    `[x][y]xfade=transition=fade:duration=${win.fade}:offset=${sec(win.seconds - win.fade)}${then}[v]`
+  );
+}
+
+type Size = [number, number];
+
+/**
+ * The loop's sizes in device px, twice the CSS size of the biggest tile it plays in (the notch is a 2× display;
+ * src/cards.ts LOOP_TILES and galleryCell): AVIF's ladder (biggest first), WebP's, the filmstrip's, and its cap.
+ *  - portrait: the hero tile, 216 × 384, then 162 × 288;
+ *  - landscape: the posting-as card's across tile, 716 × 402, then 538 × 302, then the hero lying down, 384 × 216;
+ *  - a gallery cell (`cells` given): twice the cell (224 × 398 for two cells, 138 × 246 for six), then 1.5 times;
+ *    its cap is its share of the card's pictures, and no filmstrip (it needs a box of its own exact shape).
+ */
+export function loopPlan(wide: boolean, cells?: number): { avif: Size[]; webp: Size; strip?: Size; cap: number } {
+  const even = (x: number) => Math.max(2, Math.round(x / 2) * 2);
+  const shape = (w: number): Size => (wide ? [even(w), even((w * 9) / 16)] : [even(w), even((w * 16) / 9)]);
+  if (cells !== undefined) {
+    const cell = galleryCell(cells, !wide);
+    return { avif: [shape(2 * cell.w), shape(1.5 * cell.w)], webp: shape(2 * cell.w), cap: Math.min(MAX_MOTION_URI, cell.chars) };
+  }
+  const { hero, across } = LOOP_TILES;
+  return wide
+    ? { avif: [shape(2 * across.w), shape(1.5 * across.w), shape(2 * hero.h)], webp: shape(2 * hero.h), strip: [256, 144], cap: MAX_MOTION_URI }
+    : { avif: [shape(2 * hero.w), shape(1.5 * hero.w)], webp: shape(2 * hero.w), strip: [144, 256], cap: MAX_MOTION_URI };
+}
+
+/**
+ * After an AVIF of `sizes[i]` at `crf` came out `chars` long (over `cap`): the next try. The biggest size predicted
+ * to fit by MAX_CRF, at its predicted CRF (a loop's size halves every ~CRF_HALVING steps and grows with pixels^0.9);
+ * failing that, the smallest at MAX_CRF once. Undefined when that was already tried.
+ */
+export function nextRung(sizes: Size[], i: number, crf: number, chars: number, cap: number): { i: number; crf: number } | undefined {
+  const px = (s: Size) => s[0] * s[1];
+  for (let j = i; j < sizes.length; j++) {
+    const scaled = chars * (px(sizes[j]) / px(sizes[i])) ** 0.9;
+    const need = crf + Math.ceil(CRF_HALVING * Math.log2(scaled / cap)) + 1;
+    const next = j === i ? Math.max(need, crf + 3) : Math.max(START_CRF, need);
+    if (next <= MAX_CRF) return { i: j, crf: next };
+  }
+  const last = sizes.length - 1;
+  return i < last || crf < MAX_CRF ? { i: last, crf: MAX_CRF } : undefined;
+}
+
+/** An ISO-BMFF file whose major brand is AVIF's (avis: an image sequence; avif: a still). */
+export const isAvif = (b: Uint8Array) =>
+  b.length > 16 && b[4] === 0x66 && b[5] === 0x74 && b[6] === 0x79 && b[7] === 0x70 && b[8] === 0x61 && b[9] === 0x76 && b[10] === 0x69 && (b[11] === 0x73 || b[11] === 0x66);
+const isWebp = (b: Uint8Array) => b.length > 12 && b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50;
+const dataUri = (b: Uint8Array, mime: string) => `data:${mime};base64,${Buffer.from(b).toString("base64")}`;
+/** A data URI's length for b bytes of mime, without building it. */
+const uriLength = (bytes: number, mime: string) => `data:${mime};base64,`.length + Math.ceil(bytes / 3) * 4;
+
+/**
+ * The video's moving loop. Best effort and time-boxed (5 s), cached by path + size + mtime (a second card for the
+ * same file costs nothing; calls in flight share the work), never throws: undefined when there's no ffmpeg or
+ * nothing came out in time. `small` makes a gallery cell's loop (for a gallery of `cells`, default 2).
  */
 export async function videoMotion(
   path: string,
   info: PreviewInfo,
   runner: Runner,
-  opts: { ffmpeg?: string | null; img2webp?: string | null; tmpRoot?: string; budgetMs?: number; signal?: AbortSignal; small?: boolean } = {},
+  opts: { ffmpeg?: string | null; img2webp?: string | null; tmpRoot?: string; budgetMs?: number; signal?: AbortSignal; small?: boolean; cells?: number } = {},
 ): Promise<VideoMotion | undefined> {
   const started = Date.now();
   try {
     if (opts.signal?.aborted) return undefined;
     const st = statSync(path);
-    const small = opts.small === true;
-    const key = `${path}|${st.size}|${st.mtimeMs}|${small ? "s" : "l"}`;
+    const cells = opts.small === true ? Math.max(2, Math.min(6, Math.floor(opts.cells ?? 2) || 2)) : undefined;
+    const key = `${path}|${st.size}|${st.mtimeMs}|${cells ? `s${cells}` : "l"}`;
     const hit = motionCache.get(key);
     if (hit && Date.now() - hit.at <= CACHE_MS) return { ...hit.value };
+    const budget = Math.max(500, opts.budgetMs ?? MOTION_BUDGET_MS);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = () => new Promise<undefined>((resolve) => (timer = setTimeout(() => resolve(undefined), budget + 250)));
+    // A second card for the same video while the first is still making it: the same work, within this call's budget.
     const pending = motionInflight.get(key);
     if (pending) {
-      const v = await pending;
+      const v = await Promise.race([pending, late()]).finally(() => clearTimeout(timer));
       return v ? { ...v } : undefined;
     }
-    const budget = Math.max(500, opts.budgetMs ?? MOTION_BUDGET_MS);
     const bin = opts.ffmpeg === undefined ? findFfmpeg() : opts.ffmpeg ?? undefined;
     if (!bin) return undefined;
     const webp = opts.img2webp === undefined ? findImg2webp() : opts.img2webp ?? undefined;
-    // A gallery cell's loop is WebP only: a filmstrip needs a box of its own exact shape.
-    if (small && !webp) return undefined;
-    const work = makeMotion(path, info, runner, { bin, webp, budget, small, tmpRoot: opts.tmpRoot ?? tmpdir() });
+    const work = makeMotion(path, info, runner, { bin, webp, budget, cells, tmpRoot: opts.tmpRoot ?? tmpdir() });
     motionInflight.set(key, work);
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const late = new Promise<undefined>((resolve) => (timer = setTimeout(() => resolve(undefined), budget + 250)));
-    const value = await Promise.race([work, late]).finally(() => clearTimeout(timer));
+    const value = await Promise.race([work, late()]).finally(() => clearTimeout(timer));
     work
       .then((v) => {
         if (!v) return;
@@ -514,50 +676,97 @@ async function makeMotion(
   path: string,
   info: PreviewInfo,
   runner: Runner,
-  o: { bin: string; webp?: string; budget: number; small?: boolean; tmpRoot: string },
+  o: { bin: string; webp?: string; budget: number; cells?: number; tmpRoot: string },
 ): Promise<VideoMotion | undefined> {
   const started = Date.now();
-  const left = () => Math.max(300, o.budget - (Date.now() - started));
+  const remaining = () => o.budget - (Date.now() - started);
+  const left = () => Math.max(300, remaining());
   let dir: string | undefined;
   let out: VideoMotion | undefined;
   let how = "none";
+  let tries = 0;
   try {
     dir = mkdtempSync(join(o.tmpRoot, "tiktok-preview-"));
-    const wide = typeof info.width === "number" && typeof info.height === "number" && info.width > info.height * 1.08;
-    const win = motionWindow(info.duration_sec);
-    const head = [o.bin, "-nostdin", "-hide_banner", "-loglevel", "error", "-ss", String(win.start), "-t", String(win.seconds), "-i", `file:${path}`, "-an", "-map", "0:v:0"];
-    const crop = (w: number, h: number) => `fps=${MOTION_FPS},scale=${w}:${h}:force_original_aspect_ratio=increase:flags=lanczos,crop=${w}:${h}`;
-    if (o.webp) {
-      // 180 × 320 frames (320 × 180 lying down) into one lossy, looping WebP; a busy clip gets a second, coarser pass.
-      // A gallery cell gets 108 × 192 at a lower quality (~12-20K), so six of them fit one card.
-      const [w, h] = o.small ? (wide ? [192, 108] : [108, 192]) : wide ? [320, 180] : [180, 320];
-      await runner([...head, "-vf", crop(w, h), "-frames:v", String(win.frames), "-f", "image2", "-c:v", "ppm", join(dir, "f%02d.ppm")], { timeoutMs: left() });
+    const plan = loopPlan(isWideInfo(info), o.cells);
+    // -t takes a little more than the window, so the trims never come up a frame short.
+    const head = (win: { start: number; seconds: number; fade: number }) => [
+      o.bin, "-nostdin", "-hide_banner", "-loglevel", "error", "-ss", String(win.start), "-t", String(sec(win.seconds + win.fade + 0.15)), "-i", `file:${path}`, "-an",
+    ];
+    // 1. Animated AVIF (SVT-AV1): twice the tile at 24 fps, quality stepped down (then size) until it fits the cap.
+    let avifRan = false;
+    if (await ffmpegAvif(o.bin, runner)) {
+      const win = motionWindow(info.duration_sec, AVIF_LOOP);
+      let rung: { i: number; crf: number } | undefined = { i: 0, crf: START_CRF };
+      let lastMs = 0;
+      let lastPx = 0;
+      while (rung && tries < 6) {
+        const [w, h] = plan.avif[rung.i];
+        // Time for one more? (The last try's time, scaled by pixels; the first one always goes.)
+        if (lastMs && remaining() < (lastMs * (w * h)) / lastPx + 200) break;
+        const file = join(dir, `l${tries}.avif`);
+        const t0 = Date.now();
+        tries++;
+        const r = await runner(
+          [...head(win), "-filter_complex", loopGraph(w, h, AVIF_LOOP.fps, win, { format: "yuv420p" }), "-map", "[v]",
+            "-c:v", "libsvtav1", "-preset", w * h <= 100_000 ? "6" : "8", "-crf", String(rung.crf), "-g", "999", "-f", "avif", "-loop", "0", "-y", file],
+          { timeoutMs: left() },
+        );
+        [lastMs, lastPx] = [Math.max(1, Date.now() - t0), w * h];
+        // Nothing usable (no AV1 after all, this video won't decode, or out of time: a killed run's file is partial). WebP next.
+        const b = r.code === 0 && !r.timedOut ? readBytes(file) : undefined;
+        if (!b || !isAvif(b)) break;
+        avifRan = true;
+        const chars = uriLength(b.length, "image/avif");
+        if (chars <= plan.cap) {
+          out = { src: dataUri(b, "image/avif") };
+          how = `avif ${w}x${h} crf${rung.crf}`;
+          break;
+        }
+        rung = nextRung(plan.avif, rung.i, rung.crf, chars, plan.cap);
+      }
+    }
+    // 2. Animated WebP (img2webp), only when AV1 couldn't run: a clip AVIF can't fit won't fit as WebP either.
+    if (!out && !avifRan && o.webp && remaining() > 600) {
+      const win = motionWindow(info.duration_sec, WEBP_LOOP);
+      const [w, h] = plan.webp;
+      tries++;
+      const r = await runner([...head(win), "-filter_complex", loopGraph(w, h, WEBP_LOOP.fps, win), "-map", "[v]", "-f", "image2", "-c:v", "ppm", join(dir, "f%03d.ppm")], { timeoutMs: left() });
       const frames = readdirSync(dir).filter((f) => /^f\d+\.ppm$/.test(f)).sort().map((f) => join(dir as string, f));
-      if (frames.length >= 2) {
-        for (const q of o.small ? [30, 12] : [42, 24]) {
+      if (r.code === 0 && !r.timedOut && frames.length >= 2) {
+        for (const q of WEBP_QUALITY) {
+          if (remaining() < 250) break;
           const file = join(dir, `m${q}.webp`);
-          await runner([o.webp, "-loop", "0", "-lossy", "-q", String(q), "-m", "4", "-d", String(Math.round(1000 / MOTION_FPS)), ...frames, "-o", file], { timeoutMs: left() });
-          const b = readBytes(file);
-          const uri = b && isWebp(b) ? fileUri(file, "image/webp", o.small ? MAX_SMALL_MOTION_URI : MAX_MOTION_URI) : undefined;
-          if (uri) {
-            out = { src: uri };
-            how = `webp q${q}`;
+          tries++;
+          const done = await runner([o.webp, "-loop", "0", "-lossy", "-q", String(q), "-m", "4", "-d", String(Math.round(1000 / WEBP_LOOP.fps)), ...frames, "-o", file], { timeoutMs: left() });
+          const b = done.code === 0 && !done.timedOut ? readBytes(file) : undefined;
+          if (b && isWebp(b) && uriLength(b.length, "image/webp") <= plan.cap) {
+            out = { src: dataUri(b, "image/webp") };
+            how = `webp ${w}x${h} q${q}`;
             break;
           }
         }
       }
     }
-    if (!out && !o.small) {
-      // A filmstrip: the frames side by side in one JPEG (144 × 256 each), played by the card with CSS steps().
-      const [w, h] = wide ? [256, 144] : [144, 256];
-      for (const q of [12, 20]) {
+    // 3. A JPEG filmstrip (hero tiles only), played by the card with CSS steps(). Each frame gets a smeared border, so
+    // a step that lands between device pixels shows more of the same frame, never a sliver of the next.
+    if (!out && plan.strip && remaining() > 400) {
+      const win = motionWindow(info.duration_sec, STRIP_LOOP);
+      const [w, h] = plan.strip;
+      const n = Math.max(2, Math.min(30, Math.floor(win.seconds * STRIP_LOOP.fps + 1e-6)));
+      const tail = `pad=${w + 2 * STRIP_BLEED}:${h}:${STRIP_BLEED}:0,fillborders=left=${STRIP_BLEED}:right=${STRIP_BLEED}:mode=smear,tile=${n}x1`;
+      for (const q of STRIP_QUALITY) {
+        if (remaining() < 250) break;
         const file = join(dir, `s${q}.jpg`);
-        await runner([...head, "-vf", `${crop(w, h)},tile=${win.frames}x1`, "-frames:v", "1", "-q:v", String(q), "-f", "image2", "-c:v", "mjpeg", "-y", file], { timeoutMs: left() });
-        const b = readBytes(file);
-        const uri = b && isJpeg(b) ? fileUri(file, "image/jpeg") : undefined;
-        if (uri) {
-          out = { src: uri, frames: win.frames, fps: MOTION_FPS };
-          how = `strip q${q}`;
+        tries++;
+        const r = await runner(
+          [...head(win), "-filter_complex", loopGraph(w, h, STRIP_LOOP.fps, win, { then: tail }), "-map", "[v]", "-frames:v", "1", "-q:v", String(q), "-f", "image2", "-c:v", "mjpeg", "-y", file],
+          { timeoutMs: left() },
+        );
+        const b = r.code === 0 && !r.timedOut ? readBytes(file) : undefined;
+        if (!b || !isJpeg(b)) break;
+        if (uriLength(b.length, "image/jpeg") <= plan.cap) {
+          out = { src: dataUri(b, "image/jpeg"), frames: n, fps: STRIP_LOOP.fps, edge: Math.round((STRIP_BLEED / w) * 1e6) / 1e6 };
+          how = `strip ${w}x${h} q${q}`;
           break;
         }
       }
@@ -572,7 +781,7 @@ async function makeMotion(
         /* swept later with the other tiktok-* temp folders */
       }
     }
-    log(`motion ${how} chars=${out ? out.src.length : 0} ${Date.now() - started}ms`);
+    log(`motion ${how} chars=${out ? out.src.length : 0} tries=${tries} ${Date.now() - started}ms`);
   }
   return out;
 }
@@ -581,7 +790,7 @@ async function make(
   path: string,
   info: PreviewInfo,
   runner: Runner,
-  o: { posterWidth: number; micro: boolean; budget: number; ffmpeg?: string | null; tmpRoot: string },
+  o: { posterWidth: number; posterWide: number; micro: boolean; budget: number; ffmpeg?: string | null; tmpRoot: string },
 ): Promise<VideoPreview> {
   const started = Date.now();
   let dir: string | undefined;
@@ -593,8 +802,8 @@ async function make(
       path,
       dir,
       duration: info.duration_sec,
-      // A 9:16 poster posterWidth wide fits a square this big; a 16:9 one gets the same size lying down.
-      box: o.posterWidth > 0 ? Math.round((o.posterWidth * 16) / 9) : 0,
+      // A 9:16 poster posterWidth wide fits a square this big; a 16:9 one gets the same size lying down, or its own width.
+      box: o.posterWidth > 0 ? o.posterWide || Math.round((o.posterWidth * 16) / 9) : 0,
       micro: o.micro,
       timeoutMs: o.budget,
     };
@@ -658,10 +867,16 @@ export const PHOTO_PREVIEW_BUDGET_MS = 4_000;
 /** Stack photos (the format's limit) and thumbnails (a candidates card shows six rows). */
 export const PHOTO_STACK_MAX = 5;
 const PHOTO_THUMBS_MAX = 35;
-/** 150 × 200: a result card's stack card is ~92 × 123 CSS px. */
+/**
+ * The default thumbnail width (150 × 200). The tools pass their own, twice the CSS width of the card that shows it:
+ * stackThumbWidth for a carousel's stack (its biggest card, the posting-as card's, is 108 × 144), and 96 for the
+ * photo candidates' 36 × 48 tiles.
+ */
 export const PHOTO_THUMB_WIDTH = 150;
-/** One thumbnail as data-URI characters; a 150 × 200 JPEG at quality 60 is ~12-17K, 240 × 320 ~25-40K. */
+/** One thumbnail as data-URI characters; a 150 × 200 JPEG at quality 72 is ~15-20K, 240 × 320 ~30-45K. */
 const MAX_THUMB_URI = 48_000;
+/** Thumbnails' JPEG quality (sips' formatOptions), then the steps down for a carousel over its budget. */
+const PHOTO_QUALITY = [72, 56, 40] as const;
 /** All of a stack's thumbnails together (the result card's own cap is 300,000 characters, markup included). */
 export const PHOTO_THUMBS_BUDGET = 210_000;
 
@@ -734,7 +949,7 @@ const thumbUri = (file: string): string | undefined => {
 
 /**
  * The carousel's stack and thumbnails, from the photos themselves (paths in carousel order). Three `sips`
- * passes over at most five photos: the canvas script (orient + 3:4 crop), sRGB at JPEG quality 60, and 96 × 128
+ * passes over at most five photos: the canvas script (orient + 3:4 crop), sRGB at JPEG quality 72 (56, then 40, for a carousel over its budget), and 96 × 128
  * BMPs for the frames. All or nothing per part: a stack or thumbnail set with a photo missing would show the
  * wrong order. Best effort and time-boxed (4 s), cached by path + size + mtime, never throws (returns {}).
  */
@@ -806,18 +1021,19 @@ async function makePhotos(
     let jpgs = paths.map((_, i) => join(canvasDir, `${i}.jpg`));
     if (!jpgs.every((f) => isJpegFile(f))) return {};
     // The canvas writes the photos' own space (often Display P3): convert to sRGB, which is what the frames assume.
-    await runner([SIPS, "--matchTo", SRGB_PROFILE, "-s", "formatOptions", "60", ...jpgs, "--out", srgbDir], { timeoutMs: left() });
+    await runner([SIPS, "--matchTo", SRGB_PROFILE, "-s", "formatOptions", String(PHOTO_QUALITY[0]), ...jpgs, "--out", srgbDir], { timeoutMs: left() });
     const srgb = paths.map((_, i) => join(srgbDir, `${i}.jpg`));
     if (srgb.every((f) => isJpegFile(f))) jpgs = srgb;
     if (o.thumbWidth) {
       let uris = jpgs.map(thumbUri);
       const total = () => uris.reduce((sum, u) => sum + (u?.length ?? 0), 0);
-      // A long carousel over its budget: the same pixels once more at quality 40 (fast: they're small by now).
-      if (o.thumbBudget && (total() > o.thumbBudget || !uris.every(Boolean))) {
-        const lowDir = join(dir, "q");
+      // A long carousel over its budget: the same pixels again at the next quality down (fast: they're small by now).
+      for (const q of PHOTO_QUALITY.slice(1)) {
+        if (!(o.thumbBudget && (total() > o.thumbBudget || !uris.every(Boolean)))) break;
+        const lowDir = join(dir, `q${q}`);
         mkdirSync(lowDir, { mode: 0o700 });
         const canvas = paths.map((_, i) => join(canvasDir, `${i}.jpg`));
-        await runner([SIPS, "--matchTo", SRGB_PROFILE, "-s", "formatOptions", "40", ...canvas, "--out", lowDir], { timeoutMs: left() });
+        await runner([SIPS, "--matchTo", SRGB_PROFILE, "-s", "formatOptions", String(q), ...canvas, "--out", lowDir], { timeoutMs: left() });
         const low = paths.map((_, i) => thumbUri(join(lowDir, `${i}.jpg`)));
         if (low.every(Boolean)) uris = low;
       }

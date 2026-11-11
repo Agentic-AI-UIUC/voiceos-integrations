@@ -5415,12 +5415,12 @@ class StdioServerTransport {
 import { homedir } from "os";
 import { posix, win32 } from "path";
 var INTEGRATION_ID = "com.voiceos.generated.tiktok";
-var INTEGRATION_VERSION = "1.3.0";
+var INTEGRATION_VERSION = "1.3.1";
 var TIKTOK_TOOLKIT_VERSION = "20261101_00";
 var COMPOSIO_BASE = "https://backend.composio.dev/api/v3.1";
 var MEDIA_RELAY_BASE = "";
 var ACCENT = "#fe2c55";
-var TIKTOK_IMAGE_HOSTS = Object.freeze(["p16-common-sign.tiktokcdn-us.com", "p19-common-sign.tiktokcdn-us.com"]);
+var TIKTOK_IMAGE_HOSTS = Object.freeze(["*.tiktokcdn-us.com", "*.tiktokcdn.com", "*.tiktokcdn-eu.com"]);
 var LOOPBACK = /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?(\/|$)/;
 function resolveBaseUrl(override) {
   return override && LOOPBACK.test(override) ? override.replace(/\/+$/, "") : COMPOSIO_BASE;
@@ -14781,33 +14781,36 @@ function aspect(w, h) {
 }
 
 // src/cards.ts
-var CARD_IMAGE_RE = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/;
-var MOTION_RE = /^data:image\/(jpeg|webp);base64,[A-Za-z0-9+/=]+$/;
+var CARD_IMAGE_RE = /^data:image\/(jpeg|png|webp|avif);base64,[A-Za-z0-9+/=]+$/;
+var MOTION_RE = /^data:image\/(jpeg|webp|avif);base64,[A-Za-z0-9+/=]+$/;
 var MAX_MOTION_CHARS = 125000;
 function cardMotion(m) {
   if (!m || typeof m !== "object")
     return;
-  const { src, frames, fps } = m;
+  const { src, frames, fps, edge } = m;
   if (typeof src !== "string" || src.length > MAX_MOTION_CHARS || !MOTION_RE.test(src))
     return;
   if (frames === undefined)
-    return src.startsWith("data:image/webp") ? { src } : undefined;
+    return src.startsWith("data:image/webp") || src.startsWith("data:image/avif") ? { src } : undefined;
+  if (!src.startsWith("data:image/jpeg"))
+    return;
   if (typeof frames !== "number" || !Number.isInteger(frames) || frames < 2 || frames > 30)
     return;
   const rate = typeof fps === "number" && Number.isFinite(fps) && fps >= 1 && fps <= 30 ? fps : 8;
-  return { src, frames, fps: rate };
+  const bleed = typeof edge === "number" && Number.isFinite(edge) && edge > 0 && edge <= 0.1 ? edge : 0;
+  return { src, frames, fps: rate, ...bleed ? { edge: bleed } : {} };
 }
 var MAX_IMAGE_CHARS = 64000;
 var CARD_IMAGE_BUDGET = 200000;
-function cardImage(src) {
-  if (typeof src !== "string" || src.length > MAX_IMAGE_CHARS)
+function cardImage(src, max = MAX_IMAGE_CHARS) {
+  if (typeof src !== "string" || src.length > Math.min(max, MAX_MOTION_CHARS))
     return;
   return CARD_IMAGE_RE.test(src) ? src : undefined;
 }
 function imageBudget(total = CARD_IMAGE_BUDGET) {
   let left = total;
-  const take = (src) => {
-    const ok = cardImage(src);
+  const take = (src, max) => {
+    const ok = cardImage(src, max);
     if (!ok || ok.length > left)
       return;
     left -= ok.length;
@@ -14832,10 +14835,34 @@ function imageSize(uri) {
     return;
   }
   const u16 = (i2) => bytes2[i2] << 8 | bytes2[i2 + 1];
+  const u32 = (i2) => (bytes2[i2] << 24 | bytes2[i2 + 1] << 16 | bytes2[i2 + 2] << 8 | bytes2[i2 + 3]) >>> 0;
+  const tag = (i2) => String.fromCharCode(bytes2[i2], bytes2[i2 + 1], bytes2[i2 + 2], bytes2[i2 + 3]);
+  const sized = (w, h) => w > 0 && h > 0 ? { w, h } : undefined;
   if (bytes2[0] === 137 && bytes2[1] === 80 && bytes2.length >= 24) {
     const w = bytes2[16] << 24 | bytes2[17] << 16 | u16(18);
     const h = bytes2[20] << 24 | bytes2[21] << 16 | u16(22);
     return w > 0 && h > 0 ? { w, h } : undefined;
+  }
+  if (bytes2.length >= 30 && tag(0) === "RIFF" && tag(8) === "WEBP") {
+    const le24 = (i2) => bytes2[i2] | bytes2[i2 + 1] << 8 | bytes2[i2 + 2] << 16;
+    const chunk = tag(12);
+    if (chunk === "VP8X")
+      return sized(le24(24) + 1, le24(27) + 1);
+    if (chunk === "VP8 " && bytes2[23] === 157 && bytes2[24] === 1 && bytes2[25] === 42) {
+      return sized((bytes2[26] | bytes2[27] << 8) & 16383, (bytes2[28] | bytes2[29] << 8) & 16383);
+    }
+    if (chunk === "VP8L" && bytes2[20] === 47) {
+      const bits = (bytes2[21] | bytes2[22] << 8 | bytes2[23] << 16 | bytes2[24] << 24) >>> 0;
+      return sized((bits & 16383) + 1, (bits >>> 14 & 16383) + 1);
+    }
+    return;
+  }
+  if (bytes2.length >= 16 && tag(4) === "ftyp" && /^avi[fs]$/.test(tag(8))) {
+    for (let i2 = 8;i2 + 16 <= bytes2.length; i2++) {
+      if (bytes2[i2] === 105 && tag(i2) === "ispe")
+        return sized(u32(i2 + 8), u32(i2 + 12));
+    }
+    return;
   }
   if (bytes2[0] !== 255 || bytes2[1] !== 216)
     return;
@@ -14871,6 +14898,10 @@ var TILE = {
   xl: { w: 88, h: 156, r: 12 },
   h: { w: 108, h: 192, r: 14 },
   f: { w: 201, h: 358, r: 16 }
+};
+var LOOP_TILES = {
+  hero: { w: TILE.h.w, h: TILE.h.h },
+  across: { w: TILE.f.h, h: TILE.f.w }
 };
 var TILE_CSS = Object.entries(TILE).map(([k, t]) => `.tt-m.z-${k}{width:${t.w}px;height:${t.h}px;border-radius:${t.r}px}.tt-m.z-${k}.is-w{width:${t.h}px;height:${t.w}px}`).join("");
 var CSS2 = `
@@ -15179,7 +15210,9 @@ function tile(o) {
   ].filter(Boolean).join(" ");
   const pill = fit(o.pill, 10);
   const badge = o.badge ? `<span class="tt-m-b is-${o.badge.tone}">${o.badge.icon === "check" ? icon("check", "tt-ck") : icon(o.badge.icon)}</span>` : "";
-  const moving = !mo ? "" : mo.frames ? `<span class="tt-m-fs"><img class="tt-m-fsi" src="${esc2(mo.src)}" alt="" style="width:${mo.frames * 100}%;animation-duration:${(mo.frames / (mo.fps ?? 8)).toFixed(3)}s;animation-timing-function:steps(${mo.frames})"></span>` : `<img class="tt-m-i tt-m-mo" src="${esc2(mo.src)}" alt="">`;
+  const edge = mo?.frames ? mo.edge ?? 0 : 0;
+  const stripBox = edge && mo?.frames ? `width:${+(mo.frames * (1 + 2 * edge) * 100).toFixed(4)}%;left:${+(-edge * 100).toFixed(4)}%` : `width:${(mo?.frames ?? 0) * 100}%`;
+  const moving = !mo ? "" : mo.frames ? `<span class="tt-m-fs"><img class="tt-m-fsi" src="${esc2(mo.src)}" alt="" style="${stripBox};animation-duration:${(mo.frames / (mo.fps ?? 8)).toFixed(3)}s;animation-timing-function:steps(${mo.frames})"></span>` : `<img class="tt-m-i tt-m-mo" src="${esc2(mo.src)}" alt="">`;
   const glyph2 = `<span class="tt-m-g">${o.kind === "photo" ? PHOTO_G : PLAY_G}${named ? `<span class="tt-m-n">${esc2(named)}</span>` : ""}</span>`;
   const html = `<span class="${cls}" aria-hidden="true">${glyph2}${o.src ? `<img class="tt-m-i" src="${esc2(o.src)}" alt="">` : ""}${moving}${o.busy ? '<span class="tt-m-sh"></span>' : ""}${pill ? `<span class="tt-m-d">${esc2(pill)}</span>` : ""}${badge}</span>`;
   return { html, w, h };
@@ -15836,15 +15869,20 @@ function pickLead(v, src, eyebrow, best) {
   const innerH = 14 + 3 + lines(name, 14.5, lw, 2) * 19 + (where ? 18 : 0) + (rows ? 7 + rows * 20 + (rows - 1) * 5 : 0);
   return { ...besideTile(lt, inner, innerH, "mid"), css: PICK_CSS };
 }
+function galleryCell(n, vertical) {
+  const k = Math.max(2, Math.min(6, Math.floor(isNum2(n) ? n : 2)));
+  const cols = k <= 4 ? k : 3;
+  const rows = Math.ceil(k / cols);
+  const cellW = (COL - 8 * (cols - 1)) / cols;
+  const tall = rows > 1 ? 92 : cols <= 2 ? 150 : cols === 3 ? 136 : 124;
+  const w = Math.floor(Math.min(cellW, vertical ? tall * 0.75 : tall * 1.78));
+  const h = vertical ? tall : Math.round(Math.min(tall, w / 1.78));
+  return { w, h, chars: Math.floor((CARD_IMAGE_BUDGET - 4000) / k), cols, rows };
+}
 function pickGallery(list, images) {
   const n = list.length;
-  const cols = n <= 4 ? n : 3;
-  const rowsN = Math.ceil(n / cols);
-  const cellW = (COL - 8 * (cols - 1)) / cols;
-  const tall = rowsN > 1 ? 92 : cols <= 2 ? 150 : cols === 3 ? 136 : 124;
   const vertical = list.filter((v) => !isWide(undefined, v.width, v.height)).length >= list.filter((v) => isWide(undefined, v.width, v.height)).length;
-  const boxW = Math.floor(Math.min(cellW, vertical ? tall * 0.75 : tall * 1.78));
-  const boxH = vertical ? tall : Math.round(Math.min(tall, boxW / 1.78));
+  const { w: boxW, h: boxH, cols, rows: rowsN } = galleryCell(n, vertical);
   const subLines = rowsN > 1 ? 1 : 2;
   const names = list.map((v) => cleanText(v.name));
   let common = 0;
@@ -15857,7 +15895,7 @@ function pickGallery(list, images) {
     if (!mo || mo.frames)
       return posters[i];
     images.refund?.(posters[i]?.length ?? 0);
-    const loop = images(mo.src);
+    const loop = images(mo.src, MAX_MOTION_CHARS);
     if (loop)
       return loop;
     return posters[i] ? images(posters[i]) : undefined;
@@ -16969,41 +17007,80 @@ function registerHooks(server, state) {
 import { mkdtempSync, readFileSync, rmSync as rmSync2, writeFileSync as writeFileSync2 } from "fs";
 import { tmpdir as tmpdir2 } from "os";
 import { join as join3 } from "path";
-var IMAGE_TIMEOUT_MS = 1500;
+var IMAGE_WAIT_MS = 2500;
+var FETCH_TIMEOUT_MS = 8000;
 var IMAGE_MAX_BYTES = 1.5 * 1024 * 1024;
-var IMAGE_WIDTH = 120;
-var IMAGE_CACHE_MS = 30 * 60000;
+var IMAGE_PX = 120;
+var IMAGE_CACHE_MS = 2 * 3600000;
+var JPEG_QUALITY = 82;
+var JPEG_QUALITY_FALLBACK = 62;
 var DIRECT_MAX_BYTES = 20 * 1024;
 var MAX_DATA_URI = 45 * 1024;
+var SMALL_DATA_URI = 28000;
+var SMALL_PX = 160;
 var CACHE_MAX = 200;
-function allowedImageUrl(raw, hosts = TIKTOK_IMAGE_HOSTS) {
+var PROBE_TIMEOUT_MS = 4000;
+var CONVERT_TIMEOUT_MS = 5000;
+var SCALE_CONCURRENCY = 3;
+var ACCEPT = "image/jpeg,image/png;q=0.9,image/webp;q=0.8,image/*;q=0.5";
+var LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+function hostMatches(host, pattern) {
+  const h = host.toLowerCase();
+  const p = pattern.toLowerCase();
+  if (!p.startsWith("*."))
+    return h === p;
+  const suffix = p.slice(1);
+  return h.endsWith(suffix) && LABEL.test(h.slice(0, h.length - suffix.length));
+}
+function vet(raw, hosts) {
+  if (raw === undefined || raw === null)
+    return { why: "none" };
   if (typeof raw !== "string")
-    return;
+    return { why: "form" };
   const text = raw.trim();
-  if (!text || text.length > 4096 || /\s/.test(text))
-    return;
+  if (!text)
+    return { why: "none" };
+  if (text.length > 4096 || /\s/.test(text))
+    return { why: "form" };
   let u;
   try {
     u = new URL(text);
   } catch {
-    return;
+    return { why: "form" };
   }
-  if (u.protocol !== "https:" || u.username || u.password || u.port && u.port !== "443")
-    return;
   const host = u.hostname.toLowerCase();
-  return hosts.some((h) => h.toLowerCase() === host) ? u : undefined;
+  if (u.protocol !== "https:")
+    return { why: "scheme", host };
+  if (u.username || u.password)
+    return { why: "userinfo", host };
+  if (u.port && u.port !== "443")
+    return { why: "port", host };
+  return hosts.some((p) => hostMatches(host, p)) ? { url: u } : { why: "domain", host };
 }
+function allowedImageUrl(raw, hosts = TIKTOK_IMAGE_HOSTS) {
+  const v = vet(raw, hosts);
+  return "url" in v ? v.url : undefined;
+}
+var loggable = (host) => host && /^[a-z0-9.-]{1,253}$/.test(host) ? host : "-";
+var ascii = (b, from, to) => String.fromCharCode(...b.subarray(from, to));
 function kindOf(b) {
   if (b.length > 3 && b[0] === 255 && b[1] === 216 && b[2] === 255)
     return "jpeg";
   if (b.length > 8 && b[0] === 137 && b[1] === 80 && b[2] === 78 && b[3] === 71)
     return "png";
+  if (b.length > 12 && ascii(b, 0, 4) === "RIFF" && ascii(b, 8, 12) === "WEBP")
+    return "webp";
+  if (b.length > 12 && ascii(b, 4, 8) === "ftyp" && /^avi[fs]$/.test(ascii(b, 8, 12)))
+    return "avif";
   return "other";
 }
-var dataUri = (b, kind) => {
+function asUri(b, kind, cap) {
+  if (Math.ceil(b.length / 3) * 4 + 24 > cap)
+    return;
   const uri = `data:image/${kind};base64,${Buffer.from(b).toString("base64")}`;
-  return uri.length <= MAX_DATA_URI ? uri : undefined;
-};
+  return uri.length <= cap ? uri : undefined;
+}
+var isJob = (j) => ("done" in j);
 
 class Skip extends Error {
   outcome;
@@ -17046,23 +17123,33 @@ var int3 = (s2, key) => {
   const m = new RegExp(`${key}:\\s*(\\d+)`).exec(s2);
   return m ? Number(m[1]) : 0;
 };
-async function scaleDown(bytes2, width, runner, tmpRoot) {
+async function scaleDown(bytes2, px, cap, runner, tmpRoot) {
   let dir;
   try {
     dir = mkdtempSync(join3(tmpRoot, "tiktok-img-"));
     const src = join3(dir, "in");
     const out = join3(dir, "out.jpg");
     writeFileSync2(src, bytes2);
-    const meta = await runner(["sips", "-g", "pixelWidth", "-g", "pixelHeight", src], { timeoutMs: 1500 });
+    const meta = await runner(["sips", "-g", "pixelWidth", "-g", "pixelHeight", src], { timeoutMs: PROBE_TIMEOUT_MS });
     const w = int3(meta.stdout, "pixelWidth");
+    const h = int3(meta.stdout, "pixelHeight") || w;
     if (meta.code !== 0 || !(w > 0))
       return;
-    const resize = w > width ? ["--resampleWidth", String(width)] : [];
-    const r = await runner(["sips", "-s", "format", "jpeg", "-s", "formatOptions", "70", ...resize, src, "--out", out], { timeoutMs: 2000 });
-    if (r.code !== 0)
-      return;
-    const jpeg = new Uint8Array(readFileSync(out));
-    return kindOf(jpeg) === "jpeg" ? jpeg : undefined;
+    const long = Math.max(w, h);
+    const width = long > px ? Math.max(1, Math.floor(w * px / long)) : w;
+    const resize = width < w ? ["--resampleWidth", String(width)] : [];
+    for (const q of [JPEG_QUALITY, JPEG_QUALITY_FALLBACK]) {
+      const r = await runner(["sips", "-s", "format", "jpeg", "-s", "formatOptions", String(q), ...resize, src, "--out", out], { timeoutMs: CONVERT_TIMEOUT_MS });
+      if (r.code !== 0)
+        return;
+      const jpeg = new Uint8Array(readFileSync(out));
+      if (kindOf(jpeg) !== "jpeg")
+        return;
+      const uri = asUri(jpeg, "jpeg", cap);
+      if (uri)
+        return uri;
+    }
+    return;
   } catch {
     return;
   } finally {
@@ -17070,27 +17157,54 @@ async function scaleDown(bytes2, width, runner, tmpRoot) {
       rmSync2(dir, { recursive: true, force: true });
   }
 }
+function waitFor(ms, signal) {
+  let timer;
+  let onAbort;
+  const done = new Promise((resolve) => {
+    if (signal?.aborted)
+      return resolve();
+    timer = setTimeout(resolve, Math.max(0, ms));
+    onAbort = () => resolve();
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+  return {
+    done,
+    stop: () => {
+      clearTimeout(timer);
+      if (onAbort)
+        signal?.removeEventListener("abort", onAbort);
+    }
+  };
+}
+var pxOf = (w) => typeof w === "number" && Number.isFinite(w) && w >= 16 && w <= 1080 ? Math.round(w) : IMAGE_PX;
 
 class RemoteImages {
   o;
   cache = new Map;
   inflight = new Map;
+  refusals = new Set;
   fetchImpl;
   hosts;
   tmpRoot;
-  timeoutMs;
+  waitMs;
+  fetchTimeoutMs;
   maxBytes;
+  scaling = 0;
+  queued = [];
   constructor(o) {
     this.o = o;
     this.fetchImpl = o.fetch ?? ((url, init) => fetch(url, init));
     this.hosts = o.hosts ?? TIKTOK_IMAGE_HOSTS;
     this.tmpRoot = o.tmpRoot ?? tmpdir2();
-    this.timeoutMs = o.timeoutMs ?? IMAGE_TIMEOUT_MS;
+    this.waitMs = o.waitMs ?? IMAGE_WAIT_MS;
+    this.fetchTimeoutMs = o.fetchTimeoutMs ?? FETCH_TIMEOUT_MS;
     this.maxBytes = o.maxBytes ?? IMAGE_MAX_BYTES;
   }
   async dataUri(url, opts = {}) {
     const started = this.o.clock.now();
-    const r = await this.one(url, opts.width ?? IMAGE_WIDTH, opts.signal);
+    const wait = waitFor(this.waitMs, opts.signal);
+    const r = await this.settle(this.start(url, pxOf(opts.width)), wait.done);
+    wait.stop();
     log(`image ${r.outcome} ${Math.max(0, this.o.clock.now() - started)}ms`);
     return r.uri;
   }
@@ -17100,27 +17214,43 @@ class RemoteImages {
     const out = {};
     if (!entries.length)
       return out;
+    const px = pxOf(opts.width);
     const counts = {};
-    let timer;
-    const budget = new Promise((resolve) => timer = setTimeout(resolve, Math.max(0, opts.budgetMs ?? 2000)));
-    const all = Promise.all(entries.map(async ([key, url]) => {
-      const r = await this.one(url, opts.width ?? IMAGE_WIDTH, opts.signal);
+    const wait = waitFor(opts.budgetMs ?? this.waitMs, opts.signal);
+    await Promise.all(entries.map(async ([key, url]) => {
+      const r = await this.settle(this.start(url, px), wait.done);
       counts[r.outcome] = (counts[r.outcome] ?? 0) + 1;
       if (r.uri)
         out[key] = r.uri;
     }));
-    await Promise.race([all, budget]);
-    clearTimeout(timer);
+    wait.stop();
     const got = Object.keys(out).length;
     const detail = Object.entries(counts).map(([k, n]) => `${k}=${n}`).join(" ");
     log(`images ${got}/${entries.length}${detail ? ` ${detail}` : ""} ${Math.max(0, this.o.clock.now() - started)}ms`);
-    return { ...out };
+    return out;
   }
-  async one(raw, width, signal) {
-    const u = allowedImageUrl(raw, this.hosts);
-    if (!u)
+  async settle(job, stop) {
+    if (!isJob(job))
+      return job;
+    const r = await Promise.race([job.done, stop.then(() => {
+      return;
+    })]);
+    if (r)
+      return r;
+    job.late = true;
+    return { outcome: "wait" };
+  }
+  start(raw, px) {
+    if (this.o.offline)
+      return { outcome: "off" };
+    const v = vet(raw, this.hosts);
+    if (!("url" in v)) {
+      if (v.why === "none")
+        return { outcome: "none" };
+      this.refused(v.why, v.host);
       return { outcome: "host" };
-    const key = `${width}|${u.href}`;
+    }
+    const key = `${px}|${v.url.href}`;
     const now = this.o.clock.now();
     const hit = this.cache.get(key);
     if (hit && now - hit.at <= IMAGE_CACHE_MS)
@@ -17130,12 +17260,27 @@ class RemoteImages {
     const pending = this.inflight.get(key);
     if (pending)
       return pending;
-    const p = this.load(u, width, signal).then((uri) => {
+    const job = { started: now, late: false, done: Promise.resolve({ outcome: "net" }) };
+    job.done = this.load(v.url, px).then((uri) => {
       this.remember(key, uri);
       return { uri, outcome: "ok" };
-    }).catch((e) => ({ outcome: e instanceof Skip ? e.outcome : e?.name === "TimeoutError" || e?.name === "AbortError" ? "timeout" : "net" })).finally(() => this.inflight.delete(key));
-    this.inflight.set(key, p);
-    return p;
+    }, (e) => ({
+      outcome: e instanceof Skip ? e.outcome : e?.name === "TimeoutError" || e?.name === "AbortError" ? "timeout" : "net"
+    })).then((r) => {
+      this.inflight.delete(key);
+      if (job.late)
+        log(`image late ${r.outcome} ${Math.max(0, this.o.clock.now() - job.started)}ms`);
+      return r;
+    });
+    this.inflight.set(key, job);
+    return job;
+  }
+  refused(why, host) {
+    const line = `${why} ${loggable(host)}`;
+    if (this.refusals.has(line) || this.refusals.size >= 64)
+      return;
+    this.refusals.add(line);
+    log(`image refused ${line}`);
   }
   remember(key, uri) {
     this.cache.set(key, { at: this.o.clock.now(), uri });
@@ -17146,43 +17291,54 @@ class RemoteImages {
       this.cache.delete(oldest);
     }
   }
-  async load(u, width, signal) {
-    const controller = new AbortController;
-    const timer = setTimeout(() => controller.abort(new DOMException("Image request timed out", "TimeoutError")), this.timeoutMs);
-    const timeout = controller.signal;
+  async slot(fn) {
+    while (this.scaling >= SCALE_CONCURRENCY)
+      await new Promise((r) => this.queued.push(r));
+    this.scaling++;
     try {
-      const res = await this.fetchImpl(u.href, {
-        method: "GET",
-        redirect: "manual",
-        signal: signal ? AbortSignal.any([timeout, signal]) : timeout,
-        headers: { accept: "image/jpeg,image/png,image/webp,image/*;q=0.8" }
-      });
+      return await fn();
+    } finally {
+      this.scaling--;
+      this.queued.shift()?.();
+    }
+  }
+  async download(u) {
+    const controller = new AbortController;
+    const timer = setTimeout(() => controller.abort(new DOMException("Image request timed out", "TimeoutError")), this.fetchTimeoutMs);
+    try {
+      const res = await this.fetchImpl(u.href, { method: "GET", redirect: "manual", signal: controller.signal, headers: { accept: ACCEPT } });
       if (res.status !== 200) {
         await res.body?.cancel().catch(() => {});
         throw new Skip("http");
       }
       const type = (res.headers.get("content-type") ?? "").toLowerCase();
-      if (type && !type.startsWith("image/") && !type.startsWith("application/octet-stream")) {
+      if (type && !type.startsWith("image/") && !type.startsWith("application/octet-stream") && !type.startsWith("binary/octet-stream")) {
         await res.body?.cancel().catch(() => {});
         throw new Skip("type");
       }
-      const bytes2 = await readCapped(res, this.maxBytes);
-      if (!bytes2.length)
-        throw new Skip("type");
-      const kind = kindOf(bytes2);
-      if (kind !== "other" && bytes2.length <= DIRECT_MAX_BYTES) {
-        const uri2 = dataUri(bytes2, kind);
-        if (uri2)
-          return uri2;
-      }
-      const jpeg = await scaleDown(bytes2, width, this.o.runner, this.tmpRoot);
-      const uri = jpeg ? dataUri(jpeg, "jpeg") : undefined;
-      if (!uri)
-        throw new Skip("scale");
-      return uri;
+      return await readCapped(res, this.maxBytes);
     } finally {
       clearTimeout(timer);
     }
+  }
+  async load(u, px) {
+    const bytes2 = await this.download(u);
+    if (!bytes2.length)
+      throw new Skip("type");
+    const kind = kindOf(bytes2);
+    const cap = px <= SMALL_PX ? SMALL_DATA_URI : MAX_DATA_URI;
+    if (kind !== "other" && bytes2.length <= DIRECT_MAX_BYTES) {
+      const uri = asUri(bytes2, kind, cap);
+      if (uri)
+        return uri;
+    }
+    const scaled = await this.slot(() => scaleDown(bytes2, px, cap, this.o.runner, this.tmpRoot));
+    if (scaled)
+      return scaled;
+    const direct = kind !== "other" ? asUri(bytes2, kind, cap) : undefined;
+    if (direct)
+      return direct;
+    throw new Skip("scale");
   }
 }
 
@@ -18359,22 +18515,44 @@ var PREVIEW_BUDGET_MS = 2500;
 var DEFAULT_POSTER_WIDTH = 160;
 var MICRO_BOX = VIDEO_FRAME_BOX;
 var FRAME_AT = [0.15, 0.5, 0.85];
-var MAX_POSTER_URI = 45 * 1024;
+var MAX_POSTER_URI = 58000;
+var POSTER_RUNGS = [
+  { name: "poster.jpg", q: 3, scale: 1 },
+  { name: "poster-safe.jpg", q: 8, scale: 1 },
+  { name: "poster-small.jpg", q: 6, scale: 0.6 }
+];
 var CACHE_MAX2 = 48;
 var CACHE_MS = 30 * 60000;
 var FFMPEG_PATHS = ["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg"];
 var foundFfmpeg;
-function findFfmpeg(env = process.env) {
-  if (foundFfmpeg !== undefined)
-    return foundFfmpeg ?? undefined;
-  const dirs = (env.PATH ?? "").split(delimiter).map((d) => d.replace(/^"|"$/g, "")).filter(isAbsolute);
-  const hit = [...process.platform === "win32" ? [] : FFMPEG_PATHS, ...dirs.map((d) => join4(d, process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg"))].find((p) => {
+function pathDirs(env) {
+  const key = Object.keys(env).find((k) => k.toUpperCase() === "PATH");
+  const raw = env.PATH ?? (key ? env[key] : undefined) ?? "";
+  return raw.split(delimiter).map((d) => d.trim().replace(/^"|"$/g, "")).filter((d) => d && isAbsolute(d));
+}
+function firstFile(paths) {
+  return paths.find((p) => {
     try {
       return existsSync(p) && statSync2(p).isFile();
     } catch {
       return false;
     }
   });
+}
+function windowsToolPaths(exe, env) {
+  const at = (base2, ...parts) => base2 ? [join4(base2, ...parts, exe)] : [];
+  return [
+    ...at(env.LOCALAPPDATA, "Microsoft", "WinGet", "Links"),
+    ...at(env.USERPROFILE, "scoop", "shims"),
+    ...at(env.ProgramData ?? env.PROGRAMDATA, "chocolatey", "bin")
+  ];
+}
+function findFfmpeg(env = process.env, platform = process.platform) {
+  if (foundFfmpeg !== undefined)
+    return foundFfmpeg ?? undefined;
+  const win = platform === "win32";
+  const exe = win ? "ffmpeg.exe" : "ffmpeg";
+  const hit = firstFile([...win ? [] : FFMPEG_PATHS, ...pathDirs(env).map((d) => join4(d, exe)), ...win ? windowsToolPaths(exe, env) : []]);
   foundFfmpeg = hit ?? null;
   return hit;
 }
@@ -18507,20 +18685,21 @@ async function viaFfmpeg(bin, p, runner) {
   const times2 = frameTimes(p.duration);
   const middle = times2.length === 3 ? 1 : 0;
   const scaleMicro = `scale=${MICRO_BOX}:${MICRO_BOX}:force_original_aspect_ratio=decrease:flags=area`;
-  const scalePoster = `scale=${p.box}:${p.box}:force_original_aspect_ratio=decrease:flags=bicubic`;
+  const scalePoster = (box) => `scale=${box}:${box}:force_original_aspect_ratio=decrease:flags=lanczos`;
   const runs = times2.map(async (t, i) => {
-    const poster2 = p.box > 0 && i === middle ? join4(p.dir, "poster.jpg") : undefined;
+    const posters = p.box > 0 && i === middle ? POSTER_RUNGS.map((r) => ({ ...r, file: join4(p.dir, r.name) })) : [];
     const micro = p.micro ? join4(p.dir, `m${i}.ppm`) : undefined;
-    if (!poster2 && !micro)
+    if (!posters.length && !micro)
       return { poster: undefined, micro: undefined };
     const cmd = [bin, "-nostdin", "-hide_banner", "-loglevel", "error", "-ss", String(t), "-i", `file:${p.path}`];
-    if (poster2)
-      cmd.push("-map", "0:v:0", "-frames:v", "1", "-vf", scalePoster, "-q:v", "5", "-f", "image2", "-c:v", "mjpeg", "-y", poster2);
+    for (const r of posters) {
+      cmd.push("-map", "0:v:0", "-frames:v", "1", "-vf", scalePoster(Math.max(16, Math.round(p.box * r.scale))), "-q:v", String(r.q), "-f", "image2", "-c:v", "mjpeg", "-y", r.file);
+    }
     if (micro)
       cmd.push("-map", "0:v:0", "-frames:v", "1", "-vf", scaleMicro, "-pix_fmt", "rgb24", "-f", "image2", "-c:v", "ppm", "-y", micro);
     await runner(cmd, { timeoutMs: p.timeoutMs });
     return {
-      poster: poster2 ? posterUri(poster2) : undefined,
+      poster: posters.reduce((got2, r) => got2 ?? posterUri(r.file), undefined),
       micro: micro ? microFrame(parsePpmFile(micro)) : undefined
     };
   });
@@ -18562,10 +18741,14 @@ async function viaQuickLook(p, runner) {
   const left = () => Math.max(300, p.timeoutMs - (Date.now() - started));
   const jobs = [];
   if (p.box > 0) {
-    const out = join4(p.dir, "poster.jpg");
     const target = fit2(dims.w, dims.h, p.box);
     const resize = target.w < dims.w ? ["--resampleWidth", String(target.w)] : [];
-    jobs.push(runner(["sips", "-s", "format", "jpeg", "-s", "formatOptions", "70", ...resize, src, "--out", out], { timeoutMs: left() }).then(() => ({ poster: posterUri(out) })));
+    const encode = async (q) => {
+      const out = join4(p.dir, `poster-${q}.jpg`);
+      await runner(["sips", "-s", "format", "jpeg", "-s", "formatOptions", String(q), ...resize, src, "--out", out], { timeoutMs: left() });
+      return posterUri(out);
+    };
+    jobs.push(encode(82).then(async (poster) => ({ poster: poster ?? await encode(62) })));
   }
   if (p.micro) {
     const out = join4(p.dir, "m0.bmp");
@@ -18596,8 +18779,16 @@ async function videoPreview(path, info2, runner, opts = {}) {
       return {};
     const st = statSync2(path);
     const posterWidth = Math.max(0, Math.floor(opts.posterWidth ?? DEFAULT_POSTER_WIDTH));
+    const posterWide = posterWidth > 0 && isWideInfo(info2) && opts.posterWide ? Math.max(0, Math.min(1280, Math.floor(opts.posterWide))) : 0;
     const micro = opts.micro !== false;
-    const moving = opts.motion ? videoMotion(path, info2, runner, { ffmpeg: opts.ffmpeg, img2webp: opts.img2webp, tmpRoot: opts.tmpRoot, signal: opts.signal, small: opts.motion === "small" }) : Promise.resolve(undefined);
+    const moving = opts.motion ? videoMotion(path, info2, runner, {
+      ffmpeg: opts.ffmpeg,
+      img2webp: opts.img2webp,
+      tmpRoot: opts.tmpRoot,
+      signal: opts.signal,
+      small: opts.motion === "small",
+      ...opts.cells !== undefined ? { cells: opts.cells } : {}
+    }) : Promise.resolve(undefined);
     if (!posterWidth && !micro) {
       const motion = await moving;
       return motion ? { motion } : {};
@@ -18606,7 +18797,7 @@ async function videoPreview(path, info2, runner, opts = {}) {
       const motion = await moving;
       return motion ? { ...v, motion } : { ...v };
     };
-    const key = `${path}|${st.size}|${st.mtimeMs}|${posterWidth}|${micro ? 1 : 0}`;
+    const key = `${path}|${st.size}|${st.mtimeMs}|${posterWidth}|${posterWide}|${micro ? 1 : 0}`;
     const hit = cache.get(key);
     if (hit && Date.now() - hit.at <= CACHE_MS)
       return withMotion(hit.value);
@@ -18614,7 +18805,7 @@ async function videoPreview(path, info2, runner, opts = {}) {
     if (pending)
       return withMotion(await pending);
     const budget = Math.max(300, opts.budgetMs ?? PREVIEW_BUDGET_MS);
-    const work = make(path, info2, runner, { posterWidth, micro, budget, ffmpeg: opts.ffmpeg, tmpRoot: opts.tmpRoot ?? tmpdir3() });
+    const work = make(path, info2, runner, { posterWidth, posterWide, micro, budget, ffmpeg: opts.ffmpeg, tmpRoot: opts.tmpRoot ?? tmpdir3() });
     inflight.set(key, work);
     let timer;
     const late2 = new Promise((resolve) => timer = setTimeout(() => resolve({}), budget + 250));
@@ -18637,70 +18828,116 @@ async function videoPreview(path, info2, runner, opts = {}) {
   }
 }
 var MOTION_BUDGET_MS = 5000;
-var MAX_MOTION_URI = 125000;
-var MAX_SMALL_MOTION_URI = 40000;
-var MOTION_SECONDS = 2.5;
-var MOTION_FPS = 8;
+var MAX_MOTION_URI = MAX_MOTION_CHARS;
+var AVIF_LOOP = { seconds: 3, fade: 0.4, fps: 24 };
+var WEBP_LOOP = { seconds: 1.5, fade: 0.25, fps: 12 };
+var STRIP_LOOP = { seconds: 2, fade: 0.3, fps: 8 };
+var START_CRF = 36;
+var MAX_CRF = 54;
+var CRF_HALVING = 12;
+var WEBP_QUALITY = [45, 28, 14, 6];
+var STRIP_QUALITY = [9, 13, 18];
+var STRIP_BLEED = 2;
 var IMG2WEBP_PATHS = ["/opt/homebrew/bin/img2webp", "/usr/local/bin/img2webp"];
 var foundImg2webp;
-function findImg2webp(env = process.env) {
+function findImg2webp(env = process.env, platform = process.platform) {
   if (foundImg2webp !== undefined)
     return foundImg2webp ?? undefined;
-  const dirs = (env.PATH ?? "").split(delimiter).map((d) => d.replace(/^"|"$/g, "")).filter(isAbsolute);
-  const hit = [...process.platform === "win32" ? [] : IMG2WEBP_PATHS, ...dirs.map((d) => join4(d, process.platform === "win32" ? "img2webp.exe" : "img2webp"))].find((p) => {
-    try {
-      return existsSync(p) && statSync2(p).isFile();
-    } catch {
-      return false;
-    }
-  });
+  const win = platform === "win32";
+  const exe = win ? "img2webp.exe" : "img2webp";
+  const hit = firstFile([...win ? [] : IMG2WEBP_PATHS, ...pathDirs(env).map((d) => join4(d, exe)), ...win ? windowsToolPaths(exe, env) : []]);
   foundImg2webp = hit ?? null;
   return hit;
 }
 var motionCache = new Map;
 var motionInflight = new Map;
-function motionWindow(duration4) {
-  const d = typeof duration4 === "number" && Number.isFinite(duration4) && duration4 > 0 ? duration4 : undefined;
-  const seconds = d === undefined ? MOTION_SECONDS : Math.max(0.5, Math.min(MOTION_SECONDS, d - 0.05));
-  const start = d === undefined ? 0 : Math.max(0, Math.min(d * 0.2, d - seconds - 0.05));
-  return { start: Math.round(start * 1000) / 1000, seconds: Math.round(seconds * 1000) / 1000, frames: Math.max(2, Math.min(20, Math.round(seconds * MOTION_FPS))) };
+var avifProbe = new Map;
+function ffmpegAvif(bin, runner) {
+  const known = avifProbe.get(bin);
+  if (known)
+    return known;
+  const forget = () => {
+    avifProbe.delete(bin);
+    return false;
+  };
+  const asked = Promise.all([runner([bin, "-hide_banner", "-encoders"], { timeoutMs: 3000 }), runner([bin, "-hide_banner", "-muxers"], { timeoutMs: 3000 })]).then(([enc, mux]) => {
+    if (enc.code !== 0 || mux.code !== 0 || !enc.stdout || !mux.stdout)
+      return forget();
+    return /^\s*V\S*\s+libsvtav1\b/m.test(enc.stdout) && /^\s*D?E\S*\s+avif\b/m.test(mux.stdout);
+  }, forget);
+  avifProbe.set(bin, asked);
+  return asked;
 }
-var fileUri = (file, mime, max = MAX_MOTION_URI) => {
-  const b = readBytes(file);
-  if (!b || b.length < 12)
-    return;
-  const uri = `data:${mime};base64,${Buffer.from(b).toString("base64")}`;
-  return uri.length <= max ? uri : undefined;
-};
+var sec = (x) => Math.round(x * 1000) / 1000;
+var isWideInfo = (info2) => typeof info2.width === "number" && typeof info2.height === "number" && info2.width > info2.height * 1.08;
+function motionWindow(duration4, shape = AVIF_LOOP) {
+  const d = typeof duration4 === "number" && Number.isFinite(duration4) && duration4 > 0 ? duration4 : undefined;
+  if (d === undefined)
+    return { start: 0, seconds: shape.seconds, fade: 0 };
+  const span = Math.min(shape.seconds + shape.fade, Math.max(0.1, d - 0.1));
+  const fade = span >= shape.seconds + shape.fade ? shape.fade : span >= 1 ? Math.min(shape.fade, 0.25) : 0;
+  const start = Math.max(0, Math.min(d * 0.2, d - span - 0.1));
+  return { start: sec(start), seconds: sec(span - fade), fade: sec(fade) };
+}
+function loopGraph(w, h, fps, win, o = {}) {
+  const base2 = `[0:v:0]fps=${fps},scale=${w}:${h}:force_original_aspect_ratio=increase:flags=lanczos,crop=${w}:${h}${o.format ? `,format=${o.format}` : ""}`;
+  const then = o.then ? `,${o.then}` : "";
+  if (!(win.fade > 0))
+    return `${base2},trim=duration=${win.seconds}${then}[v]`;
+  return `${base2},split[a][b];[a]trim=${win.fade}:${sec(win.seconds + win.fade)},setpts=PTS-STARTPTS[x];[b]trim=0:${win.fade},setpts=PTS-STARTPTS[y];` + `[x][y]xfade=transition=fade:duration=${win.fade}:offset=${sec(win.seconds - win.fade)}${then}[v]`;
+}
+function loopPlan(wide, cells) {
+  const even = (x) => Math.max(2, Math.round(x / 2) * 2);
+  const shape = (w) => wide ? [even(w), even(w * 9 / 16)] : [even(w), even(w * 16 / 9)];
+  if (cells !== undefined) {
+    const cell = galleryCell(cells, !wide);
+    return { avif: [shape(2 * cell.w), shape(1.5 * cell.w)], webp: shape(2 * cell.w), cap: Math.min(MAX_MOTION_URI, cell.chars) };
+  }
+  const { hero, across } = LOOP_TILES;
+  return wide ? { avif: [shape(2 * across.w), shape(1.5 * across.w), shape(2 * hero.h)], webp: shape(2 * hero.h), strip: [256, 144], cap: MAX_MOTION_URI } : { avif: [shape(2 * hero.w), shape(1.5 * hero.w)], webp: shape(2 * hero.w), strip: [144, 256], cap: MAX_MOTION_URI };
+}
+function nextRung(sizes, i, crf, chars, cap) {
+  const px = (s2) => s2[0] * s2[1];
+  for (let j = i;j < sizes.length; j++) {
+    const scaled = chars * (px(sizes[j]) / px(sizes[i])) ** 0.9;
+    const need = crf + Math.ceil(CRF_HALVING * Math.log2(scaled / cap)) + 1;
+    const next = j === i ? Math.max(need, crf + 3) : Math.max(START_CRF, need);
+    if (next <= MAX_CRF)
+      return { i: j, crf: next };
+  }
+  const last = sizes.length - 1;
+  return i < last || crf < MAX_CRF ? { i: last, crf: MAX_CRF } : undefined;
+}
+var isAvif = (b) => b.length > 16 && b[4] === 102 && b[5] === 116 && b[6] === 121 && b[7] === 112 && b[8] === 97 && b[9] === 118 && b[10] === 105 && (b[11] === 115 || b[11] === 102);
 var isWebp = (b) => b.length > 12 && b[0] === 82 && b[1] === 73 && b[2] === 70 && b[3] === 70 && b[8] === 87 && b[9] === 69 && b[10] === 66 && b[11] === 80;
+var dataUri = (b, mime) => `data:${mime};base64,${Buffer.from(b).toString("base64")}`;
+var uriLength = (bytes2, mime) => `data:${mime};base64,`.length + Math.ceil(bytes2 / 3) * 4;
 async function videoMotion(path, info2, runner, opts = {}) {
   const started = Date.now();
   try {
     if (opts.signal?.aborted)
       return;
     const st = statSync2(path);
-    const small = opts.small === true;
-    const key = `${path}|${st.size}|${st.mtimeMs}|${small ? "s" : "l"}`;
+    const cells = opts.small === true ? Math.max(2, Math.min(6, Math.floor(opts.cells ?? 2) || 2)) : undefined;
+    const key = `${path}|${st.size}|${st.mtimeMs}|${cells ? `s${cells}` : "l"}`;
     const hit = motionCache.get(key);
     if (hit && Date.now() - hit.at <= CACHE_MS)
       return { ...hit.value };
+    const budget = Math.max(500, opts.budgetMs ?? MOTION_BUDGET_MS);
+    let timer;
+    const late2 = () => new Promise((resolve) => timer = setTimeout(() => resolve(undefined), budget + 250));
     const pending = motionInflight.get(key);
     if (pending) {
-      const v = await pending;
+      const v = await Promise.race([pending, late2()]).finally(() => clearTimeout(timer));
       return v ? { ...v } : undefined;
     }
-    const budget = Math.max(500, opts.budgetMs ?? MOTION_BUDGET_MS);
     const bin = opts.ffmpeg === undefined ? findFfmpeg() : opts.ffmpeg ?? undefined;
     if (!bin)
       return;
     const webp = opts.img2webp === undefined ? findImg2webp() : opts.img2webp ?? undefined;
-    if (small && !webp)
-      return;
-    const work = makeMotion(path, info2, runner, { bin, webp, budget, small, tmpRoot: opts.tmpRoot ?? tmpdir3() });
+    const work = makeMotion(path, info2, runner, { bin, webp, budget, cells, tmpRoot: opts.tmpRoot ?? tmpdir3() });
     motionInflight.set(key, work);
-    let timer;
-    const late2 = new Promise((resolve) => timer = setTimeout(() => resolve(undefined), budget + 250));
-    const value = await Promise.race([work, late2]).finally(() => clearTimeout(timer));
+    const value = await Promise.race([work, late2()]).finally(() => clearTimeout(timer));
     work.then((v) => {
       if (!v)
         return;
@@ -18720,44 +18957,116 @@ async function videoMotion(path, info2, runner, opts = {}) {
 }
 async function makeMotion(path, info2, runner, o) {
   const started = Date.now();
-  const left = () => Math.max(300, o.budget - (Date.now() - started));
+  const remaining = () => o.budget - (Date.now() - started);
+  const left = () => Math.max(300, remaining());
   let dir;
   let out;
   let how = "none";
+  let tries = 0;
   try {
     dir = mkdtempSync2(join4(o.tmpRoot, "tiktok-preview-"));
-    const wide = typeof info2.width === "number" && typeof info2.height === "number" && info2.width > info2.height * 1.08;
-    const win = motionWindow(info2.duration_sec);
-    const head = [o.bin, "-nostdin", "-hide_banner", "-loglevel", "error", "-ss", String(win.start), "-t", String(win.seconds), "-i", `file:${path}`, "-an", "-map", "0:v:0"];
-    const crop = (w, h) => `fps=${MOTION_FPS},scale=${w}:${h}:force_original_aspect_ratio=increase:flags=lanczos,crop=${w}:${h}`;
-    if (o.webp) {
-      const [w, h] = o.small ? wide ? [192, 108] : [108, 192] : wide ? [320, 180] : [180, 320];
-      await runner([...head, "-vf", crop(w, h), "-frames:v", String(win.frames), "-f", "image2", "-c:v", "ppm", join4(dir, "f%02d.ppm")], { timeoutMs: left() });
+    const plan = loopPlan(isWideInfo(info2), o.cells);
+    const head = (win) => [
+      o.bin,
+      "-nostdin",
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-ss",
+      String(win.start),
+      "-t",
+      String(sec(win.seconds + win.fade + 0.15)),
+      "-i",
+      `file:${path}`,
+      "-an"
+    ];
+    let avifRan = false;
+    if (await ffmpegAvif(o.bin, runner)) {
+      const win = motionWindow(info2.duration_sec, AVIF_LOOP);
+      let rung = { i: 0, crf: START_CRF };
+      let lastMs = 0;
+      let lastPx = 0;
+      while (rung && tries < 6) {
+        const [w, h] = plan.avif[rung.i];
+        if (lastMs && remaining() < lastMs * (w * h) / lastPx + 200)
+          break;
+        const file = join4(dir, `l${tries}.avif`);
+        const t0 = Date.now();
+        tries++;
+        const r = await runner([
+          ...head(win),
+          "-filter_complex",
+          loopGraph(w, h, AVIF_LOOP.fps, win, { format: "yuv420p" }),
+          "-map",
+          "[v]",
+          "-c:v",
+          "libsvtav1",
+          "-preset",
+          w * h <= 1e5 ? "6" : "8",
+          "-crf",
+          String(rung.crf),
+          "-g",
+          "999",
+          "-f",
+          "avif",
+          "-loop",
+          "0",
+          "-y",
+          file
+        ], { timeoutMs: left() });
+        [lastMs, lastPx] = [Math.max(1, Date.now() - t0), w * h];
+        const b = r.code === 0 && !r.timedOut ? readBytes(file) : undefined;
+        if (!b || !isAvif(b))
+          break;
+        avifRan = true;
+        const chars = uriLength(b.length, "image/avif");
+        if (chars <= plan.cap) {
+          out = { src: dataUri(b, "image/avif") };
+          how = `avif ${w}x${h} crf${rung.crf}`;
+          break;
+        }
+        rung = nextRung(plan.avif, rung.i, rung.crf, chars, plan.cap);
+      }
+    }
+    if (!out && !avifRan && o.webp && remaining() > 600) {
+      const win = motionWindow(info2.duration_sec, WEBP_LOOP);
+      const [w, h] = plan.webp;
+      tries++;
+      const r = await runner([...head(win), "-filter_complex", loopGraph(w, h, WEBP_LOOP.fps, win), "-map", "[v]", "-f", "image2", "-c:v", "ppm", join4(dir, "f%03d.ppm")], { timeoutMs: left() });
       const frames = readdirSync2(dir).filter((f) => /^f\d+\.ppm$/.test(f)).sort().map((f) => join4(dir, f));
-      if (frames.length >= 2) {
-        for (const q of o.small ? [30, 12] : [42, 24]) {
+      if (r.code === 0 && !r.timedOut && frames.length >= 2) {
+        for (const q of WEBP_QUALITY) {
+          if (remaining() < 250)
+            break;
           const file = join4(dir, `m${q}.webp`);
-          await runner([o.webp, "-loop", "0", "-lossy", "-q", String(q), "-m", "4", "-d", String(Math.round(1000 / MOTION_FPS)), ...frames, "-o", file], { timeoutMs: left() });
-          const b = readBytes(file);
-          const uri = b && isWebp(b) ? fileUri(file, "image/webp", o.small ? MAX_SMALL_MOTION_URI : MAX_MOTION_URI) : undefined;
-          if (uri) {
-            out = { src: uri };
-            how = `webp q${q}`;
+          tries++;
+          const done = await runner([o.webp, "-loop", "0", "-lossy", "-q", String(q), "-m", "4", "-d", String(Math.round(1000 / WEBP_LOOP.fps)), ...frames, "-o", file], { timeoutMs: left() });
+          const b = done.code === 0 && !done.timedOut ? readBytes(file) : undefined;
+          if (b && isWebp(b) && uriLength(b.length, "image/webp") <= plan.cap) {
+            out = { src: dataUri(b, "image/webp") };
+            how = `webp ${w}x${h} q${q}`;
             break;
           }
         }
       }
     }
-    if (!out && !o.small) {
-      const [w, h] = wide ? [256, 144] : [144, 256];
-      for (const q of [12, 20]) {
+    if (!out && plan.strip && remaining() > 400) {
+      const win = motionWindow(info2.duration_sec, STRIP_LOOP);
+      const [w, h] = plan.strip;
+      const n = Math.max(2, Math.min(30, Math.floor(win.seconds * STRIP_LOOP.fps + 0.000001)));
+      const tail = `pad=${w + 2 * STRIP_BLEED}:${h}:${STRIP_BLEED}:0,fillborders=left=${STRIP_BLEED}:right=${STRIP_BLEED}:mode=smear,tile=${n}x1`;
+      for (const q of STRIP_QUALITY) {
+        if (remaining() < 250)
+          break;
         const file = join4(dir, `s${q}.jpg`);
-        await runner([...head, "-vf", `${crop(w, h)},tile=${win.frames}x1`, "-frames:v", "1", "-q:v", String(q), "-f", "image2", "-c:v", "mjpeg", "-y", file], { timeoutMs: left() });
-        const b = readBytes(file);
-        const uri = b && isJpeg(b) ? fileUri(file, "image/jpeg") : undefined;
-        if (uri) {
-          out = { src: uri, frames: win.frames, fps: MOTION_FPS };
-          how = `strip q${q}`;
+        tries++;
+        const r = await runner([...head(win), "-filter_complex", loopGraph(w, h, STRIP_LOOP.fps, win, { then: tail }), "-map", "[v]", "-frames:v", "1", "-q:v", String(q), "-f", "image2", "-c:v", "mjpeg", "-y", file], { timeoutMs: left() });
+        const b = r.code === 0 && !r.timedOut ? readBytes(file) : undefined;
+        if (!b || !isJpeg(b))
+          break;
+        if (uriLength(b.length, "image/jpeg") <= plan.cap) {
+          out = { src: dataUri(b, "image/jpeg"), frames: n, fps: STRIP_LOOP.fps, edge: Math.round(STRIP_BLEED / w * 1e6) / 1e6 };
+          how = `strip ${w}x${h} q${q}`;
           break;
         }
       }
@@ -18770,7 +19079,7 @@ async function makeMotion(path, info2, runner, o) {
         rmSync3(dir, { recursive: true, force: true });
       } catch {}
     }
-    log(`motion ${how} chars=${out ? out.src.length : 0} ${Date.now() - started}ms`);
+    log(`motion ${how} chars=${out ? out.src.length : 0} tries=${tries} ${Date.now() - started}ms`);
   }
   return out;
 }
@@ -18785,7 +19094,7 @@ async function make(path, info2, runner, o) {
       path,
       dir,
       duration: info2.duration_sec,
-      box: o.posterWidth > 0 ? Math.round(o.posterWidth * 16 / 9) : 0,
+      box: o.posterWidth > 0 ? o.posterWide || Math.round(o.posterWidth * 16 / 9) : 0,
       micro: o.micro,
       timeoutMs: o.budget
     };
@@ -18816,6 +19125,7 @@ var PHOTO_STACK_MAX = 5;
 var PHOTO_THUMBS_MAX = 35;
 var PHOTO_THUMB_WIDTH = 150;
 var MAX_THUMB_URI = 48000;
+var PHOTO_QUALITY = [72, 56, 40];
 var PHOTO_THUMBS_BUDGET = 210000;
 function stackThumbWidth(n) {
   const k = Math.max(1, Math.floor(n || 1));
@@ -18930,18 +19240,20 @@ async function makePhotos(paths, runner, o) {
     let jpgs = paths.map((_, i) => join4(canvasDir, `${i}.jpg`));
     if (!jpgs.every((f) => isJpegFile2(f)))
       return {};
-    await runner([SIPS, "--matchTo", SRGB_PROFILE, "-s", "formatOptions", "60", ...jpgs, "--out", srgbDir], { timeoutMs: left() });
+    await runner([SIPS, "--matchTo", SRGB_PROFILE, "-s", "formatOptions", String(PHOTO_QUALITY[0]), ...jpgs, "--out", srgbDir], { timeoutMs: left() });
     const srgb = paths.map((_, i) => join4(srgbDir, `${i}.jpg`));
     if (srgb.every((f) => isJpegFile2(f)))
       jpgs = srgb;
     if (o.thumbWidth) {
       let uris = jpgs.map(thumbUri);
       const total = () => uris.reduce((sum, u) => sum + (u?.length ?? 0), 0);
-      if (o.thumbBudget && (total() > o.thumbBudget || !uris.every(Boolean))) {
-        const lowDir = join4(dir, "q");
+      for (const q of PHOTO_QUALITY.slice(1)) {
+        if (!(o.thumbBudget && (total() > o.thumbBudget || !uris.every(Boolean))))
+          break;
+        const lowDir = join4(dir, `q${q}`);
         mkdirSync2(lowDir, { mode: 448 });
         const canvas = paths.map((_, i) => join4(canvasDir, `${i}.jpg`));
-        await runner([SIPS, "--matchTo", SRGB_PROFILE, "-s", "formatOptions", "40", ...canvas, "--out", lowDir], { timeoutMs: left() });
+        await runner([SIPS, "--matchTo", SRGB_PROFILE, "-s", "formatOptions", String(q), ...canvas, "--out", lowDir], { timeoutMs: left() });
         const low = paths.map((_, i) => thumbUri(join4(lowDir, `${i}.jpg`)));
         if (low.every(Boolean))
           uris = low;
@@ -19290,9 +19602,9 @@ function readMoov(r, moov, out) {
   }
   const d = duration4 || fragmented;
   if (timescale > 0 && d > 0) {
-    const sec = Math.round(d / timescale * 1000) / 1000;
-    if (Number.isFinite(sec) && sec > 0 && sec < MAX_SANE_SECONDS)
-      out.duration_sec = sec;
+    const sec2 = Math.round(d / timescale * 1000) / 1000;
+    if (Number.isFinite(sec2) && sec2 > 0 && sec2 < MAX_SANE_SECONDS)
+      out.duration_sec = sec2;
   }
   const pool = tracks.some((t) => t.video) ? tracks.filter((t) => t.video) : tracks;
   let best;
@@ -20473,13 +20785,13 @@ function parseDuration(c) {
   const APPROX = "(?:about|around|roughly|approximately|approx|~|like|nearly|almost|close to|maybe|circa)";
   const UNDER = "(?:under|less than|shorter than|below|at most|max|maximum|no more than|no longer than|within|up to|not more than)";
   const OVER = "(?:over|more than|longer than|above|at least|min|minimum|no less than|no shorter than|not less than)";
-  const want = (sec, how) => {
+  const want = (sec2, how) => {
     if (how === "under")
-      return { max: sec, label: `under ${fmtSec(sec)}` };
+      return { max: sec2, label: `under ${fmtSec(sec2)}` };
     if (how === "over")
-      return { min: sec, label: `over ${fmtSec(sec)}` };
-    const tol = how === "approx" ? Math.max(5, sec * 0.25) : Math.max(3, sec * 0.12);
-    return { min: Math.max(0, sec - tol), max: sec + tol, target: sec, label: `${how === "approx" ? "about " : ""}${fmtSec(sec)} long` };
+      return { min: sec2, label: `over ${fmtSec(sec2)}` };
+    const tol = how === "approx" ? Math.max(5, sec2 * 0.25) : Math.max(3, sec2 * 0.12);
+    return { min: Math.max(0, sec2 - tol), max: sec2 + tol, target: sec2, label: `${how === "approx" ? "about " : ""}${fmtSec(sec2)} long` };
   };
   const howOf = (pre, post) => {
     if (pre && new RegExp(`^${UNDER}$`).test(pre))
@@ -20501,8 +20813,8 @@ function parseDuration(c) {
     setDuration(c, { min: Math.min(a, b), max: Math.max(a, b), target: (a + b) / 2, label: `${fmtSec(Math.min(a, b))} to ${fmtSec(Math.max(a, b))}` });
   });
   take(c, new RegExp(`\\b(?:(${APPROX}|${UNDER}|${OVER}) )?(?:a )?(an hour|hour long)( ish| or so| or less| or more| max| tops)?\\b`), (m) => {
-    const sec = 3600;
-    setDuration(c, want(sec, howOf(m[1], m[3]?.trim())));
+    const sec2 = 3600;
+    setDuration(c, want(sec2, howOf(m[1], m[3]?.trim())));
   });
   take(c, new RegExp(`\\b(?:(${APPROX}|${UNDER}|${OVER}) )?(\\d{1,2}):([0-5]\\d)\\b(?! ?(?:am|pm|a\\.m|p\\.m))( ?ish| or so| or less| or more)?`), (m) => {
     const before = c.s.slice(Math.max(0, m.index - 4), m.index);
@@ -20518,11 +20830,11 @@ function parseDuration(c) {
     const u = m[3];
     if (/^[smh]$/.test(u) && /\d [smh]\b/.test(m[0]))
       return false;
-    let sec = n * unitSec(u);
+    let sec2 = n * unitSec(u);
     if (m[4])
-      sec += Number(m[4]);
+      sec2 += Number(m[4]);
     const how = approxNum ? "approx" : howOf(m[1], m[6]);
-    setDuration(c, want(sec, how));
+    setDuration(c, want(sec2, how));
   });
   take(c, /\b(?:just |only )?a (few|couple of|couple) (seconds|minutes)(?: long)?\b/, (m) => {
     const unit2 = m[2] === "seconds" ? 1 : 60;
@@ -21017,10 +21329,10 @@ function dayWord(ms, now) {
     return new Date(ms).toLocaleDateString("en-US", { weekday: "long" });
   return new Date(ms).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
-function clockDuration(sec) {
-  if (typeof sec !== "number" || !Number.isFinite(sec) || sec < 0)
+function clockDuration(sec2) {
+  if (typeof sec2 !== "number" || !Number.isFinite(sec2) || sec2 < 0)
     return "";
-  const t = Math.round(sec);
+  const t = Math.round(sec2);
   const h = Math.floor(t / 3600);
   const m = Math.floor(t % 3600 / 60);
   const s2 = t % 60;
@@ -24123,8 +24435,8 @@ function coverMsOf(v) {
     return msText(Number(s2)) && s2.replace(/^0+(?=\d)/, "");
   const clock2 = /^(?:(\d+):)?(\d+):(\d+(?:\.\d+)?)$/.exec(s2);
   if (clock2) {
-    const [h, m, sec] = [clock2[1] ? Number(clock2[1]) : 0, Number(clock2[2]), Number(clock2[3])];
-    return sec >= 60 || clock2[1] && m >= 60 ? "" : msText((h * 3600 + m * 60 + sec) * 1000);
+    const [h, m, sec2] = [clock2[1] ? Number(clock2[1]) : 0, Number(clock2[2]), Number(clock2[3])];
+    return sec2 >= 60 || clock2[1] && m >= 60 ? "" : msText((h * 3600 + m * 60 + sec2) * 1000);
   }
   if (/^(\d+\.\d*|\.\d+)$/.test(s2))
     return msText(Number(s2) * 1000);
@@ -24757,7 +25069,7 @@ function queryCreatorInfo(args, deps, extra) {
       const file = deps.tokens.file(fileToken);
       restat(file);
       durationSec = file.duration_sec;
-      look = within3(deps.preview(file.path, { duration_sec: file.duration_sec, width: file.width, height: file.height }, { posterWidth: CREATOR_POSTER_WIDTH, micro: false, motion: true, signal }).then((p) => ({ poster: p.poster, motion: p.motion }), () => ({})), CREATOR_MEDIA_WAIT_MS).then((p) => ({
+      look = within3(deps.preview(file.path, { duration_sec: file.duration_sec, width: file.width, height: file.height }, { posterWidth: CREATOR_POSTER_WIDTH, posterWide: CREATOR_POSTER_WIDE, micro: false, motion: true, signal }).then((p) => ({ poster: p.poster, motion: p.motion }), () => ({})), CREATOR_MEDIA_WAIT_MS).then((p) => ({
         kind: "video",
         file_name: file.name,
         ...file.duration_sec !== undefined ? { duration_label: duration3(file.duration_sec) } : {},
@@ -24849,6 +25161,7 @@ function queryCreatorInfo(args, deps, extra) {
   });
 }
 var CREATOR_POSTER_WIDTH = 240;
+var CREATOR_POSTER_WIDE = 716;
 var CREATOR_MEDIA_WAIT_MS = 6000;
 function within3(p, ms) {
   let timer;
@@ -24857,7 +25170,9 @@ function within3(p, ms) {
 }
 var VIDEO_FOLDERS2 = ["Downloads", "Desktop", "Movies"];
 var IMAGE_FOLDERS2 = ["Downloads", "Desktop", "Pictures", "Screenshots"];
-var CANDIDATE_POSTER_WIDTH = 160;
+var CANDIDATE_POSTER_WIDTH = 216;
+var CANDIDATE_ROW_POSTER_WIDTH = 64;
+var galleryPosterWidth = (n) => 2 * galleryCell(n, true).w;
 var CANDIDATE_POSTERS_MAX_CHARS = 150000;
 var folderList = (v, allowed) => {
   const list = listOf(v).map(str).filter((f) => allowed.includes(f));
@@ -24906,7 +25221,11 @@ function findRecentVideosTool(args, deps, extra) {
     const shown = found.videos.slice(0, limit);
     const signal = signalOf(extra);
     const gallery = found.confidence !== undefined && shown.length > 1;
-    const previews = await Promise.all(shown.map((v, i) => deps.preview(v.path, { duration_sec: v.duration_sec, width: v.width, height: v.height }, { posterWidth: CANDIDATE_POSTER_WIDTH, signal, ...gallery ? { motion: "small" } : i === 0 ? { motion: true } : {} }).catch(() => ({}))));
+    const previews = await Promise.all(shown.map((v, i) => deps.preview(v.path, { duration_sec: v.duration_sec, width: v.width, height: v.height }, {
+      posterWidth: gallery ? galleryPosterWidth(shown.length) : i === 0 ? CANDIDATE_POSTER_WIDTH : CANDIDATE_ROW_POSTER_WIDTH,
+      signal,
+      ...gallery ? { motion: "small", cells: shown.length } : i === 0 ? { motion: true } : {}
+    }).catch(() => ({}))));
     let posterChars = 0;
     const posters = previews.map((p) => {
       if (!p.poster || posterChars + p.poster.length > CANDIDATE_POSTERS_MAX_CHARS)
@@ -25371,13 +25690,22 @@ function preparePhotoPost(args, deps, extra) {
 
 // src/tools/reads.ts
 var CARD_COVERS = 6;
-var COVERS_BUDGET_MS = 2000;
-var DETAIL_COVER_WIDTH = 200;
-var BASE_FIELDS = ["follower_count", "following_count", "likes_count", "video_count", "display_name", "username", "avatar_url_100"];
+var COVERS_BUDGET_MS = IMAGE_WAIT_MS;
+var DETAIL_COVER_PX = 312;
+function pictureSignal(signal, started, deps) {
+  const left = started + READ_BUDGET_MS - deps.clock.now();
+  return left >= IMAGE_WAIT_MS ? signal : AbortSignal.any([signal, AbortSignal.timeout(Math.max(1, left))]);
+}
+function firstPicture(...candidates) {
+  const urls = candidates.map(httpsUrl).filter(isDefined);
+  return urls.find((u) => allowedImageUrl(u)) ?? urls[0];
+}
+var BASE_FIELDS = ["follower_count", "following_count", "likes_count", "video_count", "display_name", "username", "avatar_url_100", "avatar_url"];
 var PROFILE_FIELDS = ["bio_description", "is_verified", "profile_deep_link"];
 function getUserStats(args, deps, extra) {
   return guarded("get_user_stats", deps, async () => {
     const signal = signalOf(extra);
+    const started = deps.clock.now();
     const wantProfile = truthy(args.include_profile);
     await deps.client.assertAccount(signal);
     let profileUnavailable = false;
@@ -25408,8 +25736,8 @@ function getUserStats(args, deps, extra) {
         profile_deep_link: httpsUrl(field(u, "profile_deep_link"))
       } : {}
     });
-    const avatarUrl = httpsUrl(field(u, "avatar_url_100")) ?? httpsUrl(field(u, "avatar_url"));
-    const avatar = avatarUrl ? await deps.images.dataUri(avatarUrl, { signal }) : undefined;
+    const avatarUrl = firstPicture(field(u, "avatar_url"), field(u, "avatar_url_100"));
+    const avatar = avatarUrl ? await deps.images.dataUri(avatarUrl, { signal: pictureSignal(signal, started, deps) }) : undefined;
     const { follower_count: f, likes_count: l, video_count: v } = user;
     const facts2 = [
       f !== undefined ? plural(f, "follower") : "",
@@ -25477,12 +25805,12 @@ function videoJson(v, now) {
     cover_image_url: v.cover_image_url
   });
 }
-async function coversFor(videos, deps, signal) {
+async function coversFor(videos, deps, signal, width) {
   const urls = {};
   for (const v of videos)
     if (v.cover_image_url)
       urls[v.id] = v.cover_image_url;
-  return Object.keys(urls).length ? deps.images.many(urls, { budgetMs: COVERS_BUDGET_MS, signal }) : {};
+  return Object.keys(urls).length ? deps.images.many(urls, { budgetMs: COVERS_BUDGET_MS, signal, ...width ? { width } : {} }) : {};
 }
 
 class ChannelMemo {
@@ -25515,6 +25843,7 @@ function viaWords(sends, now) {
 function listVideos(args, deps, extra) {
   return guarded("list_videos", deps, async () => {
     const signal = signalOf(extra);
+    const started = deps.clock.now();
     const max = Math.min(20, Math.max(1, Math.floor(num(args.max_count) ?? 5)));
     const cursor = num(args.cursor);
     await deps.client.assertAccount(signal);
@@ -25529,7 +25858,8 @@ function listVideos(args, deps, extra) {
     const next = num(field(data, "cursor"));
     if (cursor === undefined)
       deps.channel.note(videos, now);
-    const covers = await coversFor(videos.slice(0, CARD_COVERS), deps, signal);
+    const hero = videos.length === 1 && !sends.length;
+    const covers = await coversFor(videos.slice(0, CARD_COVERS), deps, pictureSignal(signal, started, deps), hero ? DETAIL_COVER_PX : undefined);
     let summary = sends.length ? "No public posts on TikTok (its list shows public posts only)." : EMPTY_LIST;
     if (videos.length) {
       const views = videos[0].view_count;
@@ -25566,6 +25896,7 @@ function detailsOf(v, now) {
 function queryVideos(args, deps, extra) {
   return guarded("query_videos", deps, async () => {
     const signal = signalOf(extra);
+    const started = deps.clock.now();
     const ids = [...new Set(listOf(args.video_ids).map(str).filter(Boolean))].slice(0, 20);
     if (!ids.length)
       throw new TikTokError("INVALID_PARAM", { message: "Pass 1-20 post ids from list_videos." });
@@ -25592,8 +25923,9 @@ function queryVideos(args, deps, extra) {
       summary += ` TikTok didn't return ${missing.length} of the ids (only public posts come back).`;
     const single = details.length === 1 ? details[0] : undefined;
     const avg = single ? deps.channel.average(now) : undefined;
-    const cover = single?.cover_image_url ? await deps.images.dataUri(single.cover_image_url, { width: DETAIL_COVER_WIDTH, signal }) : undefined;
-    const covers = single ? {} : await coversFor(details.slice(0, CARD_COVERS), deps, signal);
+    const pictures = pictureSignal(signal, started, deps);
+    const cover = single?.cover_image_url ? await deps.images.dataUri(single.cover_image_url, { width: DETAIL_COVER_PX, signal: pictures }) : undefined;
+    const covers = single ? {} : await coversFor(details.slice(0, CARD_COVERS), deps, pictures);
     return ok({
       count: details.length,
       videos: details.map((d) => compactObject({
@@ -26259,7 +26591,7 @@ function createDeps(cfg, overrides = {}) {
     limits: overrides.limits ?? createLimits(clock2),
     ledger: overrides.ledger ?? new Ledger(clock2, { file: join8(cfg.stateDir, LEDGER_FILE), account: cfg.connectedAccountId }),
     queue: overrides.queue ?? new WriteQueue,
-    images: overrides.images ?? new RemoteImages({ runner, clock: clock2 }),
+    images: overrides.images ?? new RemoteImages({ runner, clock: clock2, offline: cfg.baseUrl !== COMPOSIO_BASE }),
     preview: overrides.preview ?? ((path, info2, opts) => videoPreview(path, info2, runner, opts)),
     photoPreview: overrides.photoPreview ?? ((paths, opts) => photoPreview(paths, runner, opts)),
     channel: overrides.channel ?? new ChannelMemo,

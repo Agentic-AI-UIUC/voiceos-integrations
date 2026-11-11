@@ -6,6 +6,7 @@
  */
 import { UNTRUSTED_NOTE, cleanText, clipText, hashtags, mentions } from "../captions.ts";
 import { postDetailsCard, postsDetailsCard, sendsCard, statsCard, statusCard, videoListCard, type SendRow, type StatusCardInput } from "../cards.ts";
+import { IMAGE_WAIT_MS, allowedImageUrl } from "../covers.ts";
 import { TikTokError, failReasonError, normalizeError, privacyLabel, type TikTokErrorCode } from "../errors.ts";
 import { ago, aspect, duration, plural, postedLabel } from "../format.ts";
 import { INTERRUPTED, inPeriod, isOpen, isRefused, matchAbout, notSent, sendMark, sendTitle, sendWhat, type AboutMatch, type AboutWords } from "../ledger.ts";
@@ -14,29 +15,49 @@ import type { Deps } from "../mcpServer.ts";
 import { errorJson, ok, type ToolResult } from "../results.ts";
 import type { ToolExtra } from "../tools.ts";
 import type { LedgerEntry, PublishStatus, VideoDetails, VideoSummary, Widget } from "../types.ts";
-import { compactObject, field, guarded, httpsUrl, isDefined, listOf, num, readExec, signalOf, str, truthy } from "./common.ts";
+import { READ_BUDGET_MS, compactObject, field, guarded, httpsUrl, isDefined, listOf, num, readExec, signalOf, str, truthy } from "./common.ts";
 
-/** Covers fetched for a list: the rows a card shows (5 today; one spare). */
+/** Covers fetched for a list: the rows a card shows (4 today), and spares. */
 export const CARD_COVERS = 6;
-/** A whole read's pictures arrive within this, or the card goes without them (they stay cached for next time). */
-export const COVERS_BUDGET_MS = 2_000;
-/** The one cover on a single post's card is shown larger than a list row's. */
-export const DETAIL_COVER_WIDTH = 200;
+/** A whole read's pictures arrive within this, or the card goes without them (they land in the cache for next time). */
+export const COVERS_BUDGET_MS = IMAGE_WAIT_MS;
+/**
+ * A lone post's cover is the card's hero tile (src/cards.ts `xl`, 88 × 156): its longest side at 2×, in px. List rows
+ * and avatars use src/covers.ts' default (IMAGE_PX, 120).
+ */
+export const DETAIL_COVER_PX = 312;
 
 type Args = Record<string, unknown>;
+
+/**
+ * The signal a read hands the picture fetcher: the tool's own, also ending at the read's 20 s mark, so waiting for a
+ * picture never stretches a read past its budget (the fetch itself goes on into the cache).
+ */
+function pictureSignal(signal: AbortSignal, started: number, deps: Deps): AbortSignal {
+  const left = started + READ_BUDGET_MS - deps.clock.now();
+  return left >= IMAGE_WAIT_MS ? signal : AbortSignal.any([signal, AbortSignal.timeout(Math.max(1, left))]);
+}
+
+/** The first of these URLs on TikTok's image CDN, else the first https one (so the log names the refused host). */
+function firstPicture(...candidates: unknown[]): string | undefined {
+  const urls = candidates.map(httpsUrl).filter(isDefined);
+  return urls.find((u) => allowedImageUrl(u)) ?? urls[0];
+}
 
 // ---------------------------------------------------------------------------
 // get_user_stats
 // ---------------------------------------------------------------------------
 
-// avatar_url_100 is a user.info.basic field (like display_name), so asking for it on every call needs no extra
-// scope: the card always shows the profile picture.
-const BASE_FIELDS = ["follower_count", "following_count", "likes_count", "video_count", "display_name", "username", "avatar_url_100"];
+// avatar_url_100 and avatar_url are user.info.basic fields (like display_name), so asking for them on every call needs
+// no extra scope: the card always shows the profile picture, from the 168 px avatar_url when TikTok sends it (the
+// 56 px circle at 2× wants 112), else the 100 px one. Only avatar_url_100 is ever part of the data.
+const BASE_FIELDS = ["follower_count", "following_count", "likes_count", "video_count", "display_name", "username", "avatar_url_100", "avatar_url"];
 const PROFILE_FIELDS = ["bio_description", "is_verified", "profile_deep_link"];
 
 export function getUserStats(args: Args, deps: Deps, extra: ToolExtra): Promise<ToolResult> {
   return guarded("get_user_stats", deps, async () => {
     const signal = signalOf(extra);
+    const started = deps.clock.now();
     const wantProfile = truthy(args.include_profile);
     await deps.client.assertAccount(signal);
     let profileUnavailable = false;
@@ -70,8 +91,8 @@ export function getUserStats(args: Args, deps: Deps, extra: ToolExtra): Promise<
         : {}),
     });
     // The picture for the card (best effort: the monogram stays when it can't be had in time).
-    const avatarUrl = httpsUrl(field(u, "avatar_url_100")) ?? httpsUrl(field(u, "avatar_url"));
-    const avatar = avatarUrl ? await deps.images.dataUri(avatarUrl, { signal }) : undefined;
+    const avatarUrl = firstPicture(field(u, "avatar_url"), field(u, "avatar_url_100"));
+    const avatar = avatarUrl ? await deps.images.dataUri(avatarUrl, { signal: pictureSignal(signal, started, deps) }) : undefined;
     const f = user.follower_count, l = user.likes_count, v = user.video_count;
     const facts = [
       f !== undefined ? plural(f, "follower") : "",
@@ -153,11 +174,14 @@ function videoJson(v: VideoSummary, now: number): Record<string, unknown> {
   });
 }
 
-/** Post id → cover data URI for the posts a card shows; whatever doesn't arrive in time is left out. */
-async function coversFor(videos: VideoSummary[], deps: Deps, signal: AbortSignal): Promise<Record<string, string>> {
+/**
+ * Post id → cover data URI for the posts a card shows; whatever doesn't arrive in time is left out. `width` (the
+ * longest side, px) only for a lone post's hero; rows take the fetcher's default.
+ */
+async function coversFor(videos: VideoSummary[], deps: Deps, signal: AbortSignal, width?: number): Promise<Record<string, string>> {
   const urls: Record<string, string> = {};
   for (const v of videos) if (v.cover_image_url) urls[v.id] = v.cover_image_url;
-  return Object.keys(urls).length ? deps.images.many(urls, { budgetMs: COVERS_BUDGET_MS, signal }) : {};
+  return Object.keys(urls).length ? deps.images.many(urls, { budgetMs: COVERS_BUDGET_MS, signal, ...(width ? { width } : {}) }) : {};
 }
 
 /**
@@ -206,6 +230,7 @@ function viaWords(sends: LedgerEntry[], now: number): string {
 export function listVideos(args: Args, deps: Deps, extra: ToolExtra): Promise<ToolResult> {
   return guarded("list_videos", deps, async () => {
     const signal = signalOf(extra);
+    const started = deps.clock.now();
     const max = Math.min(20, Math.max(1, Math.floor(num(args.max_count) ?? 5)));
     const cursor = num(args.cursor);
     await deps.client.assertAccount(signal);
@@ -222,7 +247,9 @@ export function listVideos(args: Args, deps: Deps, extra: ToolExtra): Promise<To
     const hasMore = truthy(field(data, "has_more"));
     const next = num(field(data, "cursor"));
     if (cursor === undefined) deps.channel.note(videos, now);
-    const covers = await coversFor(videos.slice(0, CARD_COVERS), deps, signal);
+    // A lone public post with nothing sent lately is drawn as the hero (its cover large); otherwise as rows.
+    const hero = videos.length === 1 && !sends.length;
+    const covers = await coversFor(videos.slice(0, CARD_COVERS), deps, pictureSignal(signal, started, deps), hero ? DETAIL_COVER_PX : undefined);
     let summary = sends.length ? "No public posts on TikTok (its list shows public posts only)." : EMPTY_LIST;
     if (videos.length) {
       const views = videos[0].view_count;
@@ -272,6 +299,7 @@ export function detailsOf(v: VideoSummary, now: number): VideoDetails {
 export function queryVideos(args: Args, deps: Deps, extra: ToolExtra): Promise<ToolResult> {
   return guarded("query_videos", deps, async () => {
     const signal = signalOf(extra);
+    const started = deps.clock.now();
     const ids = [...new Set(listOf(args.video_ids).map(str).filter(Boolean))].slice(0, 20);
     if (!ids.length) throw new TikTokError("INVALID_PARAM", { message: "Pass 1-20 post ids from list_videos." });
     await deps.client.assertAccount(signal);
@@ -297,8 +325,9 @@ export function queryVideos(args: Args, deps: Deps, extra: ToolExtra): Promise<T
     // One post: its cover, larger, and the channel's average views from a recent list_videos (no extra call).
     const single = details.length === 1 ? details[0] : undefined;
     const avg = single ? deps.channel.average(now) : undefined;
-    const cover = single?.cover_image_url ? await deps.images.dataUri(single.cover_image_url, { width: DETAIL_COVER_WIDTH, signal }) : undefined;
-    const covers = single ? {} : await coversFor(details.slice(0, CARD_COVERS), deps, signal);
+    const pictures = pictureSignal(signal, started, deps);
+    const cover = single?.cover_image_url ? await deps.images.dataUri(single.cover_image_url, { width: DETAIL_COVER_PX, signal: pictures }) : undefined;
+    const covers = single ? {} : await coversFor(details.slice(0, CARD_COVERS), deps, pictures);
     return ok(
       {
         count: details.length,
