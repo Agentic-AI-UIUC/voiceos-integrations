@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { asanaConnectUrl, errorCard, resolveUserId } from "../server.ts";
+import { ComposioError, asanaConnectUrl, errorCard, resolveUserId } from "../server.ts";
 import type { ComposioRequest } from "../server.ts";
 
 const stateFile = () => join(mkdtempSync(join(tmpdir(), "asana-user-")), ".composio-user.json");
@@ -58,9 +58,24 @@ test("asanaConnectUrl starts a first connection through the project's enabled As
   expect(a.calls.at(-1)).toBe('POST /connected_accounts/link {"auth_config_id":"ac_on","user_id":"voiceos-1"}');
 });
 
-test("asanaConnectUrl fails clearly when the project has no Asana auth config", async () => {
-  const a = api({ "GET /connected_accounts": { items: [] }, "GET /auth_configs": { items: [] } });
-  await expect(asanaConnectUrl(a.request, "u")).rejects.toThrow(/auth config/);
+test("with no Asana auth config in the project, asanaConnectUrl creates a Composio-managed one (no dashboard step)", async () => {
+  const a = api({
+    "GET /connected_accounts": { items: [] },
+    "GET /auth_configs": { items: [] },
+    "POST /auth_configs": { auth_config: { id: "ac_new" } },
+    "POST /connected_accounts/link": { redirect_url: "https://connect/first" },
+  });
+  expect(await asanaConnectUrl(a.request, "u")).toBe("https://connect/first");
+  expect(a.calls).toContain('POST /auth_configs {"toolkit":{"slug":"asana"},"auth_config":{"type":"use_composio_managed_auth","name":"Asana (VoiceOS)"}}');
+  expect(a.calls.at(-1)).toBe('POST /connected_accounts/link {"auth_config_id":"ac_new","user_id":"u"}');
+});
+
+test("if the key can't create an auth config, asanaConnectUrl fails with what to do", async () => {
+  const request: ComposioRequest = async (method, path) => {
+    if (method === "POST" && path === "/auth_configs") throw new ComposioError("Composio HTTP 403: forbidden", "composio", 403);
+    return { items: [] };
+  };
+  await expect(asanaConnectUrl(request, "u")).rejects.toThrow(/full-access/);
 });
 
 test("an error card with a connect link shows a Connect Asana link the user can open", () => {

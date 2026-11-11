@@ -24,9 +24,9 @@
  *   - TEMPORARY, for testing: the integration's Setup page also has an optional
  *     "Composio API key" field. When filled it wins over .env. Remove it from
  *     voiceos.integration.json `preferences` before release.
- *   - In platform.composio.dev → Auth Configs, create an Asana auth config
- *     (OAuth2, Composio managed). Users then connect from the "Connect Asana"
- *     link on the error card; no dashboard step per user.
+ *   - No dashboard step: the first connect creates a Composio-managed Asana
+ *     auth config if the project has none (needs a full-access key). Users
+ *     connect from the "Connect Asana" link on the error card.
  *
  * Tool names, descriptions and input schemas must stay identical to
  * voiceos.integration.json — VoiceOS routes and confirms from the manifest.
@@ -1705,7 +1705,7 @@ export async function asanaLinkStatus(request: ComposioRequest, userId: string):
  * A sign-in link that makes the connection work. An existing account is
  * re-authorized in place (refresh → INITIATED until the user finishes), so no
  * dead account is left next to a new one; with none, a first link goes through
- * the project's enabled Asana auth config.
+ * the project's enabled Asana auth config, created if missing.
  */
 export async function asanaConnectUrl(request: ComposioRequest, userId: string): Promise<string> {
   const query = new URLSearchParams({ toolkit_slugs: "asana", user_ids: userId });
@@ -1714,9 +1714,26 @@ export async function asanaConnectUrl(request: ComposioRequest, userId: string):
   if (newest) return (await request("POST", `/connected_accounts/${newest.id}/refresh`, {}))?.redirect_url;
 
   const configs: { id: string; status?: string }[] = (await request("GET", "/auth_configs?toolkit_slug=asana"))?.items ?? [];
-  const config = configs.find((c) => c.status === "ENABLED");
-  if (!config) throw new Error("The Composio project has no enabled Asana auth config.");
-  return (await request("POST", "/connected_accounts/link", { auth_config_id: config.id, user_id: userId }))?.redirect_url;
+  const authConfigId = configs.find((c) => c.status === "ENABLED")?.id ?? (await createAuthConfig(request));
+  return (await request("POST", "/connected_accounts/link", { auth_config_id: authConfigId, user_id: userId }))?.redirect_url;
+}
+
+/** A Composio-managed OAuth2 auth config, so a new Composio project needs no dashboard step (as GitHub and Todoist do). */
+async function createAuthConfig(request: ComposioRequest): Promise<string> {
+  try {
+    const res = await request("POST", "/auth_configs", {
+      toolkit: { slug: "asana" },
+      auth_config: { type: "use_composio_managed_auth", name: "Asana (VoiceOS)" },
+    });
+    const id = res?.auth_config?.id ?? res?.id;
+    if (typeof id !== "string") throw new Error("Composio created an Asana auth config without an id.");
+    return id;
+  } catch (err) {
+    if (err instanceof ComposioError && err.status === 403) {
+      throw new Error("This Composio API key can't create the Asana auth config. Use a full-access project key.");
+    }
+    throw err;
+  }
 }
 
 export interface DescribedError {

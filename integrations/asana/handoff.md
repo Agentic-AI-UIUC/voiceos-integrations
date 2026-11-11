@@ -22,11 +22,11 @@ All runtime code is in `server.ts`. `AGENTS.md` has the file layout and the dev 
 ## Before you ship
 
 1. Remove the temporary `COMPOSIO_API_KEY` Setup field from `preferences` in `voiceos.integration.json`.
-2. Copy `.env.example` to `.env` and set your own `COMPOSIO_API_KEY`.
-3. In platform.composio.dev → Auth Configs, create an Asana auth config (OAuth2, Composio managed). Users connect from
-   the **Connect Asana** link on the error card.
-4. Run `bun test`.
-5. Check `publisher` in `voiceos.integration.json`. It credits the original author as `{"id": "lothronx", "name": "Yue Wu"}`, in
+2. Copy `.env.example` to `.env` and set your own `COMPOSIO_API_KEY` (a full-access project key). Nothing to set up in
+   the Composio dashboard: the first connect creates the Asana auth config if the project has none, and users connect
+   from the **Connect Asana** link on the error card.
+3. Run `bun test`.
+4. Check `publisher` in `voiceos.integration.json`. It credits the original author as `{"id": "lothronx", "name": "Yue Wu"}`, in
    the same form as the bundled grokbot integration. Studio generated `pub_user` / "Made in VoiceOS" there, so make sure
    Publish accepts the new value, or change it to whatever your team uses.
 
