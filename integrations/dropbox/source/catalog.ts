@@ -1,7 +1,7 @@
 import { z } from 'zod';
 export const VERSION = '20261101_00';
-export const BUILD = 'dropbox-composio-v15-setup-startup-guard';
-export const INTEGRATION_VERSION = '2.0.13';
+export const BUILD = 'dropbox-composio-v16-package-parity';
+export const INTEGRATION_VERSION = '2.0.14';
 const path = z.string().refine(p => p === '' || (p.startsWith('/') && !p.endsWith('/') && !p.includes('//') && !/[\u0000-\u001f]/.test(p) && !p.split('/').some(s=>s==='.'||s==='..')), 'Use an absolute Dropbox path without control characters, dot segments, or a trailing slash');
 const item = path.refine(p => p.length > 1, 'A file or folder path is required; root is protected');
 const text = z.string().min(1);

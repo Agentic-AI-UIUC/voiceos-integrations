@@ -5,6 +5,24 @@ import {fileURLToPath} from 'node:url';
 import {Client} from '@modelcontextprotocol/sdk/client/index.js';
 import {StdioClientTransport} from '@modelcontextprotocol/sdk/client/stdio.js';
 import {BUILD,INTEGRATION_VERSION} from './catalog.ts';
+
+test('release packages and lockfiles pin the same Composio SDK',async()=>{
+ const root=new URL('../',import.meta.url);
+ for(const relative of ['package.json','source/package.json','source/portable/package.json']){
+  const pkg=JSON.parse(await readFile(new URL(relative,root),'utf8'));
+  assert.equal(pkg.version,INTEGRATION_VERSION,relative);
+  assert.equal(pkg.dependencies['@composio/core'],'0.28.0',relative);
+ }
+ for(const relative of ['package-lock.json','source/package-lock.json']){
+  const lock=JSON.parse(await readFile(new URL(relative,root),'utf8'));
+  assert.equal(lock.version,INTEGRATION_VERSION,relative);
+  assert.equal(lock.packages[''].dependencies['@composio/core'],'0.28.0',relative);
+  assert.equal(lock.packages['node_modules/@composio/core'].version,'0.28.0',relative);
+ }
+ const bun=await readFile(new URL('bun.lock',root),'utf8');
+ assert.match(bun,/"@composio\/core": "0\.28\.0"/);
+ assert.match(bun,/"@composio\/core": \["@composio\/core@0\.28\.0"/);
+});
 test('Studio-style clean folder starts and discovers exactly 14 tools without local helpers',{timeout:20000},async()=>{
  const dir=await mkdtemp(fileURLToPath(new URL('./portable-check-',import.meta.url)));
  let client:Client|undefined;

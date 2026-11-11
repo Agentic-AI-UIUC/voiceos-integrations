@@ -10,4 +10,4 @@ The following user-visible behavior cannot be completed by the MCP server alone 
 
 Composio manages routine OAuth token refresh. The integration rejects inactive accounts before dispatch and gives reconnect instructions for expired/revoked tokens or provider auth failures. Offline tests cover these branches; live expiry/revocation QA would disrupt a real connection and remains pending.
 
-Windows live QA covered all 14 actions on 2.0.10 and the 2.0.11 limit-10 revisions fix. Version 2.0.13 adds the portable setup page with an explicit startup guard and has 92 passing Node and Bun tests. Native Mac VoiceOS QA and a fresh shared-install check are still required before claiming all acceptance criteria complete.
+Windows live QA covered all 14 actions on 2.0.10 and the 2.0.11 limit-10 revisions fix. Version 2.0.14 preserves the portable setup page and adds a Composio 0.28.0 release parity check. Native Mac VoiceOS QA and a fresh shared-install check are still required before claiming all acceptance criteria complete.

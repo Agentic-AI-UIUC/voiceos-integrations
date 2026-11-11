@@ -1,6 +1,6 @@
 # Dropbox VoiceOS integration
 
-Version 2.0.13. Build: dropbox-composio-v15-setup-startup-guard. Exactly 14 approved Dropbox tools through Composio OAuth2, with write confirmations and green success icons for completed calls. No demo preview targets or placeholder cards.
+Version 2.0.14. Build: dropbox-composio-v16-package-parity. Exactly 14 approved Dropbox tools through Composio OAuth2, with write confirmations and green success icons for completed calls. No demo preview targets or placeholder cards.
 
 The root server.ts is the portable runtime: all local helpers are bundled. Keep it with voiceos.integration.json, package.json, icon.png, and the generated launchers when deploying to VoiceOS. The editable code, OAuth setup utility, build scripts, and the offline/browser regression suite are in source/.
 
@@ -47,4 +47,4 @@ Version 2.0.6 reads text from .docx documents up to 20 MiB. Ask Read a file norm
 
 ## Current native confirmations and live QA
 
-All eight write actions use native card roots with explicit Cancel and Confirm footer actions and bound editable fields. The complete Windows 2.0.10 manual run passed all 14 tools; 2.0.11 fixed revision pages with no continuation cursor and passed a targeted live test. Version 2.0.13 packages the OAuth setup page in the single server file and starts it only with --setup. See [live QA evidence](docs/QA-2026-11-10.md) and [remaining VoiceOS host UX work](docs/HOST-UX-GAPS.md). Native Mac QA and fresh shared-install verification remain pending. Tool feedback appears as cards and narration; VoiceOS controls any separate native toast. Upload notifications identify phases, not measured byte percentages.
+All eight write actions use native card roots with explicit Cancel and Confirm footer actions and bound editable fields. The complete Windows 2.0.10 manual run passed all 14 tools; 2.0.11 fixed revision pages with no continuation cursor and passed a targeted live test. Version 2.0.14 keeps the OAuth setup page behind --setup and pins Composio 0.28.0 across the release packages and lockfiles. See [live QA evidence](docs/QA-2026-11-10.md) and [remaining VoiceOS host UX work](docs/HOST-UX-GAPS.md). Native Mac QA and fresh shared-install verification remain pending. Tool feedback appears as cards and narration; VoiceOS controls any separate native toast. Upload notifications identify phases, not measured byte percentages.

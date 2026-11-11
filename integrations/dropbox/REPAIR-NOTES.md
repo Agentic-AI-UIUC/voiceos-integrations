@@ -1,6 +1,6 @@
 # Dropbox startup repair
 
-Current integration version: **2.0.13**. Startup marker: `dropbox-composio-v15-setup-startup-guard`. Manifest, package and MCP initialize response share the same version constant. The portable single-file packaging fix remains in place.
+Current integration version: **2.0.14**. Startup marker: `dropbox-composio-v16-package-parity`. Manifest, package and MCP initialize response share the same version constant. The portable single-file packaging fix remains in place.
 
 Version 2.0.3 removes all demo preview fixtures and dummy executable targets. Completed provider calls render a green success-check SVG in the existing widget shell. Error results never include this success widget. Empty successful collections have an explicit empty-state message. The 47 offline checks cover these feedback rules as well as portable startup, account checks and write-count regressions. User logs independently confirmed live folder listing, search and file read on version 2.0.2; they did not validate every action.
 
@@ -36,3 +36,5 @@ Word reads now fetch the Composio-returned file reference and extract DOCX text 
 2.0.12: bundle the localhost Composio OAuth2 Connect/Disconnect page into the one-file server with a `--setup` mode. Its account ID appears after authorization. The shared package no longer depends on the source folder for setup. The VoiceOS host still needs a native Setup-panel launcher, toast API, and measured upload-progress API to satisfy the original UX request literally.
 
 2.0.13: start the local OAuth page only for --setup; normal MCP startup now has a regression assertion that the page did not start. Windows VoiceOS loaded 2.0.12 and all 14 tools, exposing the unintended page startup. Node and Bun each pass 92 tests for 2.0.13.
+
+2.0.14: rebuild from the reviewed source with @composio/core pinned to 0.28.0 in all three package files and both npm lockfiles; add release parity test. Confirm the published install version after republishing.
