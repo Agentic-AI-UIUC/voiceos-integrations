@@ -191,7 +191,7 @@ const catalog: any = {
       "name": "update_task",
       "title": "Update task",
       "slug": "TODOIST_UPDATE_TASK",
-      "description": "Update an existing Todoist task. Use when asked to rename, reschedule, reprioritize, assign, or change task labels or notes. Find the exact task with get_active_tasks first. Send only requested changes; labels replaces the entire label list.",
+      "description": "Update an existing Todoist task. Find the exact task with get_active_tasks first. Include only requested changes. When changing labels, pass the current task labels separately for display if available. For a follow-up before approval, revise the pending update, preserve the selected task and other pending edits, and show the confirmation again.",
       "readOnly": false,
       "inputSchema": {
         "type": "object",
@@ -201,19 +201,12 @@ const catalog: any = {
         ],
         "properties": {
           "labels": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
+            "anyOf": [{ "type": "array", "items": { "type": "string" } }, { "type": "string" }],
             "title": "Labels",
-            "examples": [
-              [
-                "Food",
-                "Shopping"
-              ]
-            ],
-            "description": "List of label names to assign to the task. Replaces the entire existing labels list \u2014 omit a label only if intentionally removing it. Labels must already exist in Todoist; non-existent names fail silently."
+            "examples": [["Food", "Shopping"]],
+            "description": "Full list of existing label names to assign. For an add or remove request, start with the current task labels and change only the requested names. Omit this field to keep existing labels. Use [] only when explicitly removing every label. The confirmation editor also accepts one label per line."
           },
+          "current_labels": { "type": "array", "items": { "type": "string" }, "description": "Current task labels from the lookup, for display only when changing labels." },
           "content": {
             "type": "string",
             "title": "Content",
@@ -299,8 +292,9 @@ const catalog: any = {
             "examples": [
               "Include fruits and vegetables"
             ],
-            "description": "New description for the task."
+            "description": "New description for the task. Provide nonblank text or use clear_description to remove the description."
           },
+          "clear_description": { "type": "boolean", "description": "Set to true only when explicitly asked to remove the task description. Omit description when using this option." },
           "due_datetime": {
             "type": "string",
             "title": "Due Datetime",
@@ -444,7 +438,7 @@ const catalog: any = {
       "name": "create_project",
       "title": "Create project",
       "slug": "TODOIST_CREATE_PROJECT2",
-      "description": "Create a Todoist project. Use when asked to make a new project or subproject. Find a parent project ID with list_projects; clarify duplicate names.",
+      "description": "Create a Todoist project or subproject. Resolve the parent ID with list_projects and clarify duplicate names. For a follow-up before approval, revise the pending project, preserve its other fields, and show the confirmation again.",
       "readOnly": false,
       "inputSchema": {
         "type": "object",
@@ -463,21 +457,15 @@ const catalog: any = {
             "description": "The project name. This is the only required field."
           },
           "color": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "integer"
-              }
+            "type": "string",
+            "enum": [
+              "", "berry_red", "red", "orange", "yellow",
+              "olive_green", "lime_green", "green", "mint_green", "teal",
+              "sky_blue", "light_blue", "blue", "grape", "violet",
+              "lavender", "magenta", "salmon", "charcoal", "grey",
+              "taupe"
             ],
-            "title": "Color",
-            "examples": [
-              "blue",
-              "berry_red",
-              41
-            ],
-            "description": "Project color. Can be either a color name (e.g., 'berry_red', 'blue') or a numeric color code. Default is 'charcoal'."
+            "description": "Todoist color name. Leave blank or omit to use the default, charcoal."
           },
           "parent_id": {
             "anyOf": [
@@ -517,7 +505,7 @@ const catalog: any = {
             "description": "Description of the project. Optional field."
           },
           "is_favorite": {
-            "type": "boolean",
+            "anyOf": [{ "type": "boolean" }, { "type": "string", "enum": ["true", "false"] }],
             "title": "Is Favorite",
             "examples": [
               true,
@@ -758,15 +746,24 @@ const catalog: any = {
       "title": "Create label",
       "readOnly": false,
       "slug": "TODOIST_CREATE_LABEL_V1",
-      "description": "Create a personal Todoist label. Use when asked to add a new label. Review its name and requested settings before confirming.",
+      "description": "Create a personal Todoist label. For a follow-up before approval, revise the pending label, preserve its other fields, and show the confirmation again.",
       "inputSchema": {
         "type": "object",
         "required": ["name"],
         "properties": {
           "name": { "type": "string", "minLength": 1, "maxLength": 128, "description": "Name of the new label." },
-          "color": { "anyOf": [{ "type": "string" }, { "type": "integer" }], "description": "Color name or numeric color code. Defaults to charcoal if omitted." },
-          "order": { "type": "integer", "description": "Position in the label list." },
-          "is_favorite": { "type": "boolean", "description": "Whether to mark the label as a favorite. Defaults to false if omitted." }
+          "color": {
+            "type": "string",
+            "enum": [
+              "", "berry_red", "red", "orange", "yellow",
+              "olive_green", "lime_green", "green", "mint_green", "teal",
+              "sky_blue", "light_blue", "blue", "grape", "violet",
+              "lavender", "magenta", "salmon", "charcoal", "grey",
+              "taupe"
+            ],
+            "description": "Todoist color name. Leave blank or omit to use the default, charcoal."
+          },
+          "is_favorite": { "anyOf": [{ "type": "boolean" }, { "type": "string", "enum": ["true", "false"] }], "description": "Whether to mark the label as a favorite. Defaults to false if omitted." }
         }
       }
     },
@@ -1191,6 +1188,35 @@ function inputShape(schema: any): z.ZodRawShape {
   }));
 }
 
+// VoiceOS sends edited top-level confirmation fields as text.
+function normalizeConfirmationEdits(name: string, args: Record<string, any>) {
+  if (name === "create_project" || name === "create_label") {
+    if (args.color === "") delete args.color;
+    if (typeof args.is_favorite === "string") args.is_favorite = args.is_favorite === "true";
+  }
+  if (name !== "update_task") return;
+  if (args.clear_description === true) {
+    if (args.description !== undefined) throw new Error("Choose whether to replace or remove the description.");
+    args.description = "";
+  } else if (typeof args.description === "string" && !args.description.trim()) {
+    throw new Error("Enter a description or ask VoiceOS to remove it.");
+  }
+  delete args.clear_description;
+  if (typeof args.labels !== "string") return;
+  const labels = args.labels.trim();
+  if (!labels) {
+    delete args.labels;
+  } else if (labels.startsWith("[")) {
+    try {
+      args.labels = z.array(z.string().min(1)).parse(JSON.parse(labels));
+    } catch {
+      throw new Error('Enter one label per line, a list like ["Work"], or [] to remove all labels.');
+    }
+  } else {
+    args.labels = labels.split(/\r?\n/).map(label => label.trim()).filter(Boolean);
+  }
+}
+
 function validateArguments(name: string, args: Record<string, any>) {
   for (const key of ["content", "name", "task_id", "project_id", "section_id", "label_id"]) {
     if (typeof args[key] === "string" && !args[key].trim()) throw new Error(`${key} cannot be blank.`);
@@ -1268,7 +1294,8 @@ for (const tool of catalog.tools) {
     annotations: { readOnlyHint: tool.readOnly, destructiveHint: ["delete_project", "delete_section", "delete_label"].includes(tool.name), openWorldHint: true },
   }, async (input: Record<string, any>, extra) => withFeedback(tool.title,
     !tool.readOnly, extra, async () => {
-      const { target_name, ...args } = input;
+      const { target_name, current_labels, ...args } = input;
+      normalizeConfirmationEdits(tool.name, args);
       validateArguments(tool.name, args);
       const state = await load();
       const account = await requireAccount(state);

@@ -347,7 +347,7 @@
     {
       "name": "update_task",
       "title": "Update task",
-      "description": "Update an existing Todoist task. Use when asked to rename, reschedule, reprioritize, assign, or change task labels or notes. Find the exact task with get_active_tasks first. Send only requested changes; labels replaces the entire label list.",
+      "description": "Update an existing Todoist task. Find the exact task with get_active_tasks first. Include only requested changes. When changing labels, pass the current task labels separately for display if available. For a follow-up before approval, revise the pending update, preserve the selected task and other pending edits, and show the confirmation again.",
       "inputSchema": {
         "type": "object",
         "title": "UpdateTaskRequest",
@@ -356,19 +356,12 @@
         ],
         "properties": {
           "labels": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
+            "anyOf": [{ "type": "array", "items": { "type": "string" } }, { "type": "string" }],
             "title": "Labels",
-            "examples": [
-              [
-                "Food",
-                "Shopping"
-              ]
-            ],
-            "description": "List of label names to assign to the task. Replaces the entire existing labels list \u2014 omit a label only if intentionally removing it. Labels must already exist in Todoist; non-existent names fail silently."
+            "examples": [["Food", "Shopping"]],
+            "description": "Full list of existing label names to assign. For an add or remove request, start with the current task labels and change only the requested names. Omit this field to keep existing labels. Use [] only when explicitly removing every label. The confirmation editor also accepts one label per line."
           },
+          "current_labels": { "type": "array", "items": { "type": "string" }, "description": "Current task labels from the lookup, for display only when changing labels." },
           "content": {
             "type": "string",
             "title": "Content",
@@ -454,8 +447,9 @@
             "examples": [
               "Include fruits and vegetables"
             ],
-            "description": "New description for the task."
+            "description": "New description for the task. Provide nonblank text or use clear_description to remove the description."
           },
+          "clear_description": { "type": "boolean", "description": "Set to true only when explicitly asked to remove the task description. Omit description when using this option." },
           "due_datetime": {
             "type": "string",
             "title": "Due Datetime",
@@ -504,13 +498,21 @@
             {
               "type": "stack", "direction": "vertical", "gap": "md",
               "children": [
-                { "type": "text", "text": "Review the requested changes. Other fields stay unchanged.", "color": "muted" },
-                { "type": "keyValue", "rows": [{ "label": "Name", "value": "{{target_name}}" }, { "label": "ID", "value": "{{task_id}}" }] },
+                { "type": "text", "visibleIf": "{{target_name}}", "text": "{{target_name}}" },
                 {
                   "type": "stack", "direction": "vertical", "gap": "sm",
                   "children": [
                     { "type": "keyValue", "visibleIf": "{{content}}", "rows": [{ "label": "New name", "value": "{{content}}" }] },
-                    { "type": "keyValue", "rows": [{ "label": "Description (if specified)", "value": "{{description}}" }, { "label": "Labels (if specified)", "value": "{{labels}}" }] },
+                    { "type": "textField", "bind": "{{description}}", "visibleIf": "{{description}}", "label": "Description", "multiline": true },
+                    { "type": "keyValue", "visibleIf": "{{clear_description}}", "rows": [{ "label": "Description", "value": "Will be removed" }] },
+                    {
+                      "type": "stack", "direction": "vertical", "gap": "sm", "visibleIf": "{{labels}}",
+                      "children": [
+                        { "type": "keyValue", "visibleIf": "{{current_labels}}", "rows": [{ "label": "Current labels", "value": "{{current_labels}}" }] },
+                        { "type": "textField", "bind": "{{labels}}", "label": "Replace labels", "multiline": true },
+                        { "type": "text", "text": "Edit the list as shown or enter one label per line. Leave blank to keep current labels. Enter [] to remove all labels.", "color": "muted" }
+                      ]
+                    },
                     { "type": "keyValue", "visibleIf": "{{due_string}}", "rows": [{ "label": "Due", "value": "{{due_string}}" }] },
                     { "type": "keyValue", "visibleIf": "{{due_date}}", "rows": [{ "label": "Due date", "value": "{{due_date}}" }] },
                     { "type": "keyValue", "visibleIf": "{{due_datetime}}", "rows": [{ "label": "Due time", "value": "{{due_datetime}}" }] },
@@ -650,7 +652,7 @@
     {
       "name": "create_project",
       "title": "Create project",
-      "description": "Create a Todoist project. Use when asked to make a new project or subproject. Find a parent project ID with list_projects; clarify duplicate names.",
+      "description": "Create a Todoist project or subproject. Resolve the parent ID with list_projects and clarify duplicate names. For a follow-up before approval, revise the pending project, preserve its other fields, and show the confirmation again.",
       "inputSchema": {
         "type": "object",
         "title": "TodoistCreateProject2Request",
@@ -668,21 +670,15 @@
             "description": "The project name. This is the only required field."
           },
           "color": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "integer"
-              }
+            "type": "string",
+            "enum": [
+              "", "berry_red", "red", "orange", "yellow",
+              "olive_green", "lime_green", "green", "mint_green", "teal",
+              "sky_blue", "light_blue", "blue", "grape", "violet",
+              "lavender", "magenta", "salmon", "charcoal", "grey",
+              "taupe"
             ],
-            "title": "Color",
-            "examples": [
-              "blue",
-              "berry_red",
-              41
-            ],
-            "description": "Project color. Can be either a color name (e.g., 'berry_red', 'blue') or a numeric color code. Default is 'charcoal'."
+            "description": "Todoist color name. Leave blank or omit to use the default, charcoal."
           },
           "parent_id": {
             "anyOf": [
@@ -722,7 +718,7 @@
             "description": "Description of the project. Optional field."
           },
           "is_favorite": {
-            "type": "boolean",
+            "anyOf": [{ "type": "boolean" }, { "type": "string", "enum": ["true", "false"] }],
             "title": "Is Favorite",
             "examples": [
               true,
@@ -751,14 +747,40 @@
               "children": [
                 { "type": "text", "text": "Review the details, then create this project.", "color": "muted" },
                 { "type": "textField", "bind": "{{name}}", "label": "Name", "required": true },
+                { "type": "textField", "bind": "{{description}}", "label": "Description", "multiline": true, "placeholder": "Optional" },
+                {
+                  "type": "select", "bind": "{{color}}", "label": "Color",
+                  "options": [
+                    { "value": "", "label": "Default (Charcoal)" },
+                    { "value": "berry_red", "label": "Berry Red" },
+                    { "value": "red", "label": "Red" },
+                    { "value": "orange", "label": "Orange" },
+                    { "value": "yellow", "label": "Yellow" },
+                    { "value": "olive_green", "label": "Olive Green" },
+                    { "value": "lime_green", "label": "Lime Green" },
+                    { "value": "green", "label": "Green" },
+                    { "value": "mint_green", "label": "Mint Green" },
+                    { "value": "teal", "label": "Teal" },
+                    { "value": "sky_blue", "label": "Sky Blue" },
+                    { "value": "light_blue", "label": "Light Blue" },
+                    { "value": "blue", "label": "Blue" },
+                    { "value": "grape", "label": "Grape" },
+                    { "value": "violet", "label": "Violet" },
+                    { "value": "lavender", "label": "Lavender" },
+                    { "value": "magenta", "label": "Magenta" },
+                    { "value": "salmon", "label": "Salmon" },
+                    { "value": "charcoal", "label": "Charcoal" },
+                    { "value": "grey", "label": "Grey" },
+                    { "value": "taupe", "label": "Taupe" }
+                  ]
+                },
+                { "type": "toggle", "bind": "{{is_favorite}}", "label": "Add to Favorites" },
                 {
                   "type": "stack", "direction": "vertical", "gap": "sm",
                   "children": [
-                    { "type": "keyValue", "visibleIf": "{{description}}", "rows": [{ "label": "Description", "value": "{{description}}" }] },
                     { "type": "keyValue", "visibleIf": "{{parent_id}}", "rows": [{ "label": "Parent ID", "value": "{{parent_id}}" }] },
                     { "type": "keyValue", "visibleIf": "{{workspace_id}}", "rows": [{ "label": "Workspace ID", "value": "{{workspace_id}}" }] },
-                    { "type": "keyValue", "visibleIf": "{{view_style}}", "rows": [{ "label": "View", "value": "{{view_style}}" }] },
-                    { "type": "keyValue", "rows": [{ "label": "Color (optional)", "value": "{{color}}" }, { "label": "Favorite (optional)", "value": "{{is_favorite}}" }] }
+                    { "type": "keyValue", "visibleIf": "{{view_style}}", "rows": [{ "label": "View", "value": "{{view_style}}" }] }
                   ]
                 }
               ]
@@ -1069,15 +1091,24 @@
     {
       "name": "create_label",
       "title": "Create label",
-      "description": "Create a personal Todoist label. Use when asked to add a new label. Review its name and requested settings before confirming.",
+      "description": "Create a personal Todoist label. For a follow-up before approval, revise the pending label, preserve its other fields, and show the confirmation again.",
       "inputSchema": {
         "type": "object",
         "required": ["name"],
         "properties": {
           "name": { "type": "string", "minLength": 1, "maxLength": 128, "description": "Name of the new label." },
-          "color": { "anyOf": [{ "type": "string" }, { "type": "integer" }], "description": "Color name or numeric color code. Defaults to charcoal if omitted." },
-          "order": { "type": "integer", "description": "Position in the label list." },
-          "is_favorite": { "type": "boolean", "description": "Whether to mark the label as a favorite. Defaults to false if omitted." }
+          "color": {
+            "type": "string",
+            "enum": [
+              "", "berry_red", "red", "orange", "yellow",
+              "olive_green", "lime_green", "green", "mint_green", "teal",
+              "sky_blue", "light_blue", "blue", "grape", "violet",
+              "lavender", "magenta", "salmon", "charcoal", "grey",
+              "taupe"
+            ],
+            "description": "Todoist color name. Leave blank or omit to use the default, charcoal."
+          },
+          "is_favorite": { "anyOf": [{ "type": "boolean" }, { "type": "string", "enum": ["true", "false"] }], "description": "Whether to mark the label as a favorite. Defaults to false if omitted." }
         }
       },
       "confirmation": {
@@ -1092,11 +1123,32 @@
                 { "type": "text", "text": "Review the details, then create this label.", "color": "muted" },
                 { "type": "textField", "bind": "{{name}}", "label": "Name", "required": true },
                 {
-                  "type": "stack", "direction": "vertical", "gap": "sm",
-                  "children": [
-                    { "type": "keyValue", "rows": [{ "label": "Color (optional)", "value": "{{color}}" }, { "label": "Order (optional)", "value": "{{order}}" }, { "label": "Favorite (optional)", "value": "{{is_favorite}}" }] }
+                  "type": "select", "bind": "{{color}}", "label": "Color",
+                  "options": [
+                    { "value": "", "label": "Default (Charcoal)" },
+                    { "value": "berry_red", "label": "Berry Red" },
+                    { "value": "red", "label": "Red" },
+                    { "value": "orange", "label": "Orange" },
+                    { "value": "yellow", "label": "Yellow" },
+                    { "value": "olive_green", "label": "Olive Green" },
+                    { "value": "lime_green", "label": "Lime Green" },
+                    { "value": "green", "label": "Green" },
+                    { "value": "mint_green", "label": "Mint Green" },
+                    { "value": "teal", "label": "Teal" },
+                    { "value": "sky_blue", "label": "Sky Blue" },
+                    { "value": "light_blue", "label": "Light Blue" },
+                    { "value": "blue", "label": "Blue" },
+                    { "value": "grape", "label": "Grape" },
+                    { "value": "violet", "label": "Violet" },
+                    { "value": "lavender", "label": "Lavender" },
+                    { "value": "magenta", "label": "Magenta" },
+                    { "value": "salmon", "label": "Salmon" },
+                    { "value": "charcoal", "label": "Charcoal" },
+                    { "value": "grey", "label": "Grey" },
+                    { "value": "taupe", "label": "Taupe" }
                   ]
-                }
+                },
+                { "type": "toggle", "bind": "{{is_favorite}}", "label": "Add to Favorites" }
               ]
             }
           ],

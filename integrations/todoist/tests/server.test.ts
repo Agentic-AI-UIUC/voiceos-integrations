@@ -195,8 +195,19 @@ describe("manifest and MCP contract", () => {
   test("creation cards bind their editable name to the argument that executes", () => {
     for (const [name, argument] of [["create_task", "content"], ["create_project", "name"], ["create_section", "name"], ["create_label", "name"]]) {
       const tool = manifest.tools.find((tool: JsonObject) => tool.name === name);
-      const fields = tool.confirmation.root.children[0].children.filter((block: JsonObject) => block.type === "textField");
-      expect(fields).toEqual([{ type: "textField", bind: `{{${argument}}}`, label: "Name", required: true }]);
+      const nameField = tool.confirmation.root.children[0].children.find((block: JsonObject) => block.bind === `{{${argument}}}`);
+      expect(nameField).toEqual({ type: "textField", bind: `{{${argument}}}`, label: "Name", required: true });
+    }
+  });
+
+  test("creation color pickers match the colors accepted by the manifest and server", async () => {
+    const { tools } = await client.listTools();
+    for (const name of ["create_project", "create_label"]) {
+      const tool = manifest.tools.find((tool: JsonObject) => tool.name === name);
+      const picker = tool.confirmation.root.children[0].children.find((block: JsonObject) => block.bind === "{{color}}");
+      const options = picker.options.map((option: JsonObject) => option.value);
+      expect(tool.inputSchema.properties.color.enum).toEqual(options);
+      expect(tools.find(tool => tool.name === name)?.inputSchema.properties?.color).toMatchObject({ enum: options });
     }
   });
 });
@@ -239,6 +250,39 @@ describe("real server routing through the real Composio SDK", () => {
     expect(operations()[0].body?.arguments).toEqual({ task_id: "task_1", labels: [] });
   });
 
+  test("passes typed color and favorites from edited confirmation fields", async () => {
+    expect((await invoke("create_project", { name: "Launch", color: "red", is_favorite: "true" })).isError).toBe(false);
+    expect((await invoke("create_label", { name: "Work", color: "blue", is_favorite: "false" })).isError).toBe(false);
+    expect((await invoke("create_label", { name: "Personal", color: "" })).isError).toBe(false);
+    expect(operations().map(call => call.body?.arguments)).toEqual([
+      { name: "Launch", color: "red", is_favorite: true },
+      { name: "Work", color: "blue", is_favorite: false },
+      { name: "Personal" },
+    ]);
+  });
+
+  test("saves edited descriptions and preserves label boundaries and explicit clearing", async () => {
+    expect((await invoke("update_task", {
+      task_id: "task_1", description: "Line one\nLine two", current_labels: ["Home, office"], labels: "Home, office\nWork",
+    })).isError).toBe(false);
+    expect((await invoke("update_task", { task_id: "task_1", labels: '["Home, office","Work"]' })).isError).toBe(false);
+    expect((await invoke("update_task", { task_id: "task_1", labels: "[]" })).isError).toBe(false);
+    expect((await invoke("update_task", {
+      task_id: "task_1", due_date: "2026-11-13", clear_description: true,
+    })).isError).toBe(false);
+    expect((await invoke("update_task", { task_id: "task_1", description: "remove description" })).isError).toBe(false);
+    expect((await invoke("update_task", { task_id: "task_1", description: "Only edit", labels: "" })).isError).toBe(false);
+    expect((await invoke("update_task", { task_id: "task_1", labels: '["Work", 42]' })).isError).toBe(true);
+    expect(operations().map(call => call.body?.arguments)).toEqual([
+      { task_id: "task_1", description: "Line one\nLine two", labels: ["Home, office", "Work"] },
+      { task_id: "task_1", labels: ["Home, office", "Work"] },
+      { task_id: "task_1", labels: [] },
+      { task_id: "task_1", due_date: "2026-11-13", description: "" },
+      { task_id: "task_1", description: "remove description" },
+      { task_id: "task_1", description: "Only edit" },
+    ]);
+  });
+
   test("label lookups need no arguments and send no write notification", async () => {
     const result = await invoke("list_labels");
     expect(result.isError).toBe(false);
@@ -266,8 +310,12 @@ describe("validation before executing a Todoist operation", () => {
     ["create_task", { content: "Buy milk", order: 0 }],
     ["update_task", { task_id: "task_1" }],
     ["update_task", { task_id: "task_1", target_name: "Display name only" }],
+    ["update_task", { task_id: "task_1", clear_description: true, description: "Conflicting edit" }],
+    ["update_task", { task_id: "task_1", due_date: "2026-11-13", description: "" }],
+    ["update_task", { task_id: "task_1", description: "  " }],
     ["close_task", { task_id: " " }],
     ["create_project", { name: "" }],
+    ["create_project", { name: "Launch", color: 41 }],
     ["delete_project", {}],
     ["create_section", { name: "Section" }],
     ["delete_section", { section_id: " " }],
@@ -277,6 +325,8 @@ describe("validation before executing a Todoist operation", () => {
     ["list_labels", { action: "update", label_id: "label_1", name: "must not update" }],
     ["create_label", {}],
     ["create_label", { name: " " }],
+    ["create_label", { name: "Work", order: 2 }],
+    ["create_label", { name: "Work", color: "Berry Red" }],
     ["update_label", { label_id: "label_1" }],
     ["update_label", { label_id: "label_1", target_name: "Display only" }],
     ["update_label", { label_id: " ", name: "renamed" }],

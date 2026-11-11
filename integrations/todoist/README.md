@@ -35,7 +35,7 @@ The integration exposes **18 tools: 15 business tools and 3 account/setup helper
 
 ### Projects & Sections
 - **List Todoist projects** (`list_projects`): Read-only lookup listing projects with pagination.
-- **Create project** (`create_project`): Creates a new project with name, color, and favorite flag (requires confirmation).
+- **Create project** (`create_project`): Creates a new project with a name and optional description, color, and favorite status (requires confirmation).
 - **Delete project** (`delete_project`): Deletes a project along with all nested sections and tasks (requires confirmation).
 - **List Todoist sections** (`list_sections`): Read-only lookup of sections, with optional project filtering and pagination.
 - **Create section** (`create_section`): Creates a new section within a project (requires confirmation).
@@ -43,7 +43,7 @@ The integration exposes **18 tools: 15 business tools and 3 account/setup helper
 
 ### Labels
 - **List Todoist labels** (`list_labels`): Read-only lookup of personal labels with name resolution, limit, and cursor pagination.
-- **Create label** (`create_label`): Creates a new personal label with name, color, order, and favorite flag (requires confirmation).
+- **Create label** (`create_label`): Creates a new personal label with a name and optional color and favorite status (requires confirmation).
 - **Update label** (`update_label`): Renames a label or updates color, order, or favorite status (requires confirmation).
 - **Delete label** (`delete_label`): Deletes a personal label and removes it from all associated tasks (requires confirmation).
 
