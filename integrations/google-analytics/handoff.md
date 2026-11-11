@@ -4,6 +4,8 @@ Ask VoiceOS about website or app traffic in Google Analytics 4 (GA4). Read-only.
 access goes through Composio (OAuth2, Composio managed). All runtime code is in `server.ts`;
 `AGENTS.md` covers the files and dev loop.
 
+**Install (published):** https://api.voiceos.com/integration-share/s6AoDEX6OGGX/page
+
 ## Setup
 
 1. **Composio key.** Copy `.env.example` to `.env` and set `COMPOSIO_API_KEY` (a full-access
