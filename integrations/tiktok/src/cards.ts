@@ -21,7 +21,7 @@
  * https on tiktok.com only; images are `data:` URIs that pass CARD_IMAGE_RE
  * and a per-card budget, or they're left out (the sandbox has no network).
  * Declared heights come from a small layout model of the CSS below, so a card
- * arrives at its final size (scripts/render-cards.ts flags any drift).
+ * arrives at its final size (tests/cards.test.ts keeps every card within 60–420 px).
  */
 import { esc, markHtml, renderCustom, textEms } from "../widgetKit.ts";
 import { cleanText, clipText, firstLine, hashtags } from "./captions.ts";

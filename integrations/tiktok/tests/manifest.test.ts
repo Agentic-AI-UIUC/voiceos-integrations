@@ -262,7 +262,7 @@ describe("tools", () => {
     // Phrasings the share review rejected on October 28, 2026, and their kin.
     const steering = /\bnever\b|\bdon't\b|\bstop\b|\bverbatim\b|your reply|spoken yes|go straight/i;
     for (const t of tools) {
-      // "Use when …" (AGENTS.md rule 1): the exact phrase VoiceOS's tooling and #16's review checks look for.
+      // "Use when …": the exact phrase VoiceOS's tooling and #16's review checks look for.
       expect(t.description).toContain("Use when");
       // Our own cap: VoiceOS 0.1.40 doesn't cut descriptions (manifest schema: string min 1; the tool catalog sends
       // them whole). The four writes carry the conversation rules (VoiceOS doesn't pass MCP instructions to its

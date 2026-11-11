@@ -136,7 +136,7 @@ async function liveTools() {
 }
 
 /**
- * Hosts the code calls, and only those (AGENTS.md rule 6): Composio, its presigned-upload host, TikTok's image
+ * Hosts the code calls, and only those (least privilege): Composio, its presigned-upload host, TikTok's image
  * CDN hosts for avatars and covers (src/covers.ts fetches from exactly these), the relay once deployed.
  */
 function networkDomains(): string[] {

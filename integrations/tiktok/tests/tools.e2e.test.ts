@@ -26,8 +26,10 @@ const TriggerRequest = z.object({ method: z.literal("voiceos/reminders/trigger")
 const FIXTURES = join(import.meta.dir, "fixtures", "media");
 const ROOT = mkdtempSync(join(tmpdir(), "tiktok-tools-e2e-"));
 const HOME = join(ROOT, "home");
-put(HOME, "Downloads/final_export.mp4", readFileSync(join(FIXTURES, "ffmpeg-faststart.mp4")), Date.now() - 3_600_000);
+// "Date added" is the file's birth time. macOS moves it back with an older mtime; Windows keeps the real
+// creation time. Writing the newer video last makes it the newest on both.
 put(HOME, "Desktop/second_take.mov", readFileSync(join(FIXTURES, "ffmpeg-qt.mov")), Date.now() - 7_200_000);
+put(HOME, "Downloads/final_export.mp4", readFileSync(join(FIXTURES, "ffmpeg-faststart.mp4")), Date.now() - 3_600_000);
 
 const mock = startMockComposio();
 afterAll(() => {

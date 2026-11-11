@@ -275,7 +275,7 @@ describe("metadata", () => {
     expect(parsePlist("<plist><array><dict><key>k</key>")).toBeNull();
   });
 
-  test("quarantine agents from one xattr call (AirDrop is sharingd)", async () => {
+  test.skipIf(process.platform === "win32")("quarantine agents from one xattr call (AirDrop is sharingd)", async () => {
     const r = mac({ added: {}, agents: { "/x/a: b.mov": "sharingd", "/x/c.mp4": "Google Chrome" } });
     const m = await quarantineAgents(["/x/a: b.mov", "/x/c.mp4", "/x/none.mp4"], r);
     expect(r.count("xattr")).toBe(1);

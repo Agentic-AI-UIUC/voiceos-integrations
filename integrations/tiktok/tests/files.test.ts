@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { TikTokError } from "../src/errors.ts";
 import { dateAdded, editDistance, findRecentImages, findRecentVideos, matchScore, normName, screenshotFolder } from "../src/files.ts";
 import { run } from "../src/proc.ts";
@@ -410,8 +410,8 @@ describe("findRecentImages (fixture home, fake runner)", () => {
     const shot = put(outside, "Screenshot 2026-11-03 at 7.00.00 AM.png", "img");
     added[shot] = NOW - 30 * S;
     const out = await findRecentImages(opts({ runner: fakeRunner({ added, sips, screenshotLocation: outside }), folders: ["Screenshots"] }));
-    expect(out.searched_folders).toEqual([outside.split("/").pop()]);
-    expect(out.images.map((i) => [i.name, i.folder])).toEqual([["Screenshot 2026-11-03 at 7.00.00 AM.png", outside.split("/").pop()]]);
+    expect(out.searched_folders).toEqual([basename(outside)]);
+    expect(out.images.map((i) => [i.name, i.folder])).toEqual([["Screenshot 2026-11-03 at 7.00.00 AM.png", basename(outside)]]);
     const onlyShots = await findRecentImages(opts({ folders: ["Screenshots"] })); // location ~/Downloads
     expect(onlyShots.searched_folders).toEqual(["Downloads"]);
   });

@@ -113,7 +113,7 @@ describe("mp4Info (files, seek-based)", () => {
     }
   });
 
-  test("moov after a 5 GB mdat (sparse file): found with a few small reads", () => {
+  test.skipIf(process.platform === "win32")("moov after a 5 GB mdat (sparse file): found with a few small reads", () => {
     const p = join(dir, "huge.mp4");
     const head = ftyp();
     const fiveGB = 5 * 1024 ** 3;
@@ -143,7 +143,7 @@ describe("mp4Info (files, seek-based)", () => {
 });
 
 describe("sipsMeta (fake runner)", () => {
-  test("ONE sips call; per-file blocks parsed; realpath-printed paths, odd names, <nil> dims and skipped files mapped back", async () => {
+  test.skipIf(process.platform === "win32")("ONE sips call; per-file blocks parsed; realpath-printed paths, odd names, <nil> dims and skipped files mapped back", async () => {
     const real = join(dir, "real");
     mkdirSync(real, { recursive: true });
     symlinkSync(real, join(dir, "link"));

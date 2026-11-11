@@ -1,6 +1,5 @@
 /**
- * Tool results in the club shape (AGENTS.md rule 2, plan §6 "Shared
- * conventions"): one text block holding the JSON the model reads, with the
+ * Tool results in the VoiceOS integration shape: one text block holding the JSON the model reads, with the
  * notch card spread in under `_voiceos_glance` (VoiceOS strips that key before
  * the model sees the result). Everything a card shows is also in the JSON.
  */

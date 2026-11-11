@@ -6,7 +6,7 @@
 import { afterAll, afterEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import * as cards from "../src/cards.ts";
 import { loadConfig } from "../src/config.ts";
 import { INTERRUPTED, LEDGER_FILE, LEDGER_MAX_AGE_MS, LEDGER_SIZE, Ledger, matchAbout, parseAbout, type NewLedgerEntry } from "../src/ledger.ts";
@@ -124,7 +124,7 @@ describe("the ledger on disk", () => {
     expect(a.get(v.task_id)!.poster).toBe("data:image/jpeg;base64,/9j/POSTER");
 
     const text = readFileSync(file, "utf8");
-    expect(statSync(file).mode & 0o777).toBe(0o600);
+    if (process.platform !== "win32") expect(statSync(file).mode & 0o777).toBe(0o600);
     expect(statSync(join(file, "..")).mode & 0o777).toBe(0o700);
     expect(text).not.toContain("data:image");
     expect(text).not.toContain(ROOT);
@@ -153,6 +153,15 @@ describe("the ledger on disk", () => {
     l.start(video("clip.mp4", { media: { names: ["/Users/maya/Movies/secret/clip.mp4"], count: 1, folder: "/Users/maya/Movies/secret" }, details: { caption: "hi" } }));
     const text = readFileSync(file, "utf8");
     expect(text).not.toContain("/Users");
+    expect(new Ledger(c, { file }).latest()!.media).toMatchObject({ names: ["clip.mp4"], folder: "secret" });
+  });
+
+  test("so is a real path on this platform (C:\\Users\\… on Windows)", () => {
+    const file = stateFile();
+    const c = clockAt();
+    const folder = resolve("Movies", "secret");
+    new Ledger(c, { file }).start(video("clip.mp4", { media: { names: [join(folder, "clip.mp4")], count: 1, folder }, details: { caption: "hi" } }));
+    expect(readFileSync(file, "utf8")).not.toContain(JSON.stringify(folder).slice(1, -1));
     expect(new Ledger(c, { file }).latest()!.media).toMatchObject({ names: ["clip.mp4"], folder: "secret" });
   });
 
@@ -237,7 +246,7 @@ describe("the ledger on disk", () => {
     expect(a.get(y.task_id)!.publish_id).toBe("v_pub_y");
   });
 
-  test("a save that fails is logged once and never throws: the ledger keeps working in memory", () => {
+  test.skipIf(process.platform === "win32")("a save that fails is logged once and never throws: the ledger keeps working in memory", () => {
     const dir = join(ROOT, `ro${++dirs}`);
     mkdirSync(dir, { recursive: true });
     chmodSync(dir, 0o500);

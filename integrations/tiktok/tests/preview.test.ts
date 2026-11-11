@@ -6,7 +6,7 @@
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { PREVIEW2_RE, STACK2_RE, decodeFrame, splitMicroPreview, splitPhotoStack } from "../src/microPreview.ts";
 import {
   clearPhotoPreviewCache,
@@ -369,11 +369,11 @@ function fakeSips(o: { undecodable?: string; noMatch?: boolean; throws?: boolean
     const out = cmd[cmd.indexOf("--out") + 1]!;
     const inputs = cmd.slice(0, cmd.indexOf("--out")).filter((a) => a.endsWith(".jpg"));
     if (cmd[1] === "--matchTo") {
-      if (!o.noMatch) for (const f of inputs) writeFileSync(join(out, f.split("/").pop()!), JPEG);
+      if (!o.noMatch) for (const f of inputs) writeFileSync(join(out, basename(f)), JPEG);
       return ok();
     }
     if (cmd.includes("bmp")) {
-      inputs.forEach((f, i) => writeFileSync(join(out, f.split("/").pop()!.replace(/\.jpg$/, ".bmp")), bmp32(Number(cmd[cmd.indexOf("-z") + 2]), Number(cmd[cmd.indexOf("-z") + 1]), [40 + i * 40, 120, 200 - i * 30])));
+      inputs.forEach((f, i) => writeFileSync(join(out, basename(f).replace(/\.jpg$/, ".bmp")), bmp32(Number(cmd[cmd.indexOf("-z") + 2]), Number(cmd[cmd.indexOf("-z") + 1]), [40 + i * 40, 120, 200 - i * 30])));
       return ok();
     }
     return { code: 1, stdout: "", stderr: "", timedOut: false };

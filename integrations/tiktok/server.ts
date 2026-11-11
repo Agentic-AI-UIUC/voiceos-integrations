@@ -22883,7 +22883,8 @@ function clip4(v, max) {
   }
   return `${out.trimEnd()}\u2026`;
 }
-var nameOf = (v) => clip4(typeof v === "string" ? v.split("/").filter(Boolean).pop() : undefined, NAME_MAX);
+var PATH_SEPARATORS = process.platform === "win32" ? /[\\/]/ : /\//;
+var nameOf = (v) => clip4(typeof v === "string" ? v.split(PATH_SEPARATORS).filter(Boolean).pop() : undefined, NAME_MAX);
 var intOf = (v) => typeof v === "number" && Number.isInteger(v) && v >= 0 ? v : undefined;
 var numOf2 = (v) => typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : undefined;
 var boolOf = (v) => typeof v === "boolean" ? v : undefined;
@@ -23972,6 +23973,7 @@ function randomHex2(bytes2) {
 }
 
 // src/tools/common.ts
+import { basename as basename11, isAbsolute as isAbsolute4, relative as relative2, sep as sep3 } from "path";
 var READ_BUDGET_MS = 20000;
 var signalOf = (extra) => extra.signal ?? new AbortController().signal;
 var str = (v) => typeof v === "string" ? v.trim() : typeof v === "number" && Number.isFinite(v) ? String(v) : "";
@@ -24009,12 +24011,14 @@ function readExec(deps, slug, args, signal) {
 }
 function folderLabel(folder, home) {
   const f = String(folder ?? "").trim();
-  if (!f.startsWith("/"))
+  if (!f.startsWith("/") && !isAbsolute4(f))
     return f;
-  const h = home.replace(/\/+$/, "");
-  if (h && (f === h || f.startsWith(`${h}/`)))
-    return f.slice(h.length + 1) || "Home";
-  return f.split("/").filter(Boolean).pop() ?? "";
+  const rel = home ? relative2(home, f) : "..";
+  if (rel === "")
+    return "Home";
+  if (rel !== ".." && !rel.startsWith(`..${sep3}`) && !isAbsolute4(rel))
+    return rel.split(sep3).join("/");
+  return basename11(f);
 }
 function creatorOf(data) {
   const username = cleanText(field(data, "creator_username")).replace(/^@+/, "");
@@ -24063,6 +24067,7 @@ function progress(extra, done, total, message) {
 
 // src/tools/writes.ts
 import { readFileSync as readFileSync5 } from "fs";
+import { basename as basename12, dirname as dirname6 } from "path";
 var API_MAX_DURATION_SEC = 600;
 var MAX_VIDEO_BYTES = 4 * 1024 ** 3;
 var VIDEO_MIMES = new Set(["video/mp4", "video/quicktime"]);
@@ -24321,8 +24326,8 @@ function videoChecks(a) {
 function ledgerEntryFor(a) {
   const on = (key) => bool(a.args[key]);
   const disclosure = on("commercial_disclosure");
-  const dirs = a.kind === "video" ? [a.file.folder] : [...new Set(a.bundle.images.map((i) => i.path.slice(0, i.path.lastIndexOf("/"))))];
-  const folder = dirs.length === 1 ? (dirs[0] ?? "").split("/").filter(Boolean).pop() : undefined;
+  const dirs = a.kind === "video" ? [a.file.folder ?? ""] : [...new Set(a.bundle.images.map((i) => dirname6(i.path)))];
+  const folder = dirs.length !== 1 ? undefined : a.kind === "video" ? dirs[0].split("/").filter(Boolean).pop() : basename12(dirs[0]);
   const media = a.kind === "video" ? { names: [a.file.name], count: 1, ...folder ? { folder } : {}, ...a.file.duration_sec !== undefined ? { duration_sec: a.file.duration_sec } : {} } : { names: a.bundle.images.map((i) => i.name), count: a.bundle.images.length, ...folder ? { folder } : {}, cover_index: a.bundle.cover_index };
   let details;
   switch (a.tool) {

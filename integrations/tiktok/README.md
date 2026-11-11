@@ -2,7 +2,7 @@
 
 Check your TikTok stats and posts, and send videos and photo carousels from your computer to TikTok by voice. It runs through Composio with your own TikTok developer app. Every upload shows a confirmation card first, and nothing is sent until you click the card's button.
 
-Supports macOS and Windows. The [live gallery](screenshots/README.md) shows all 12 tools in VoiceOS on macOS. Windows runtime and media checks run against local mocks; the Windows VoiceOS GUI has not been tested. This integration is not yet published on VoiceOS.
+Supports macOS and Windows. The [live gallery](screenshots/README.md) shows all 12 tools in VoiceOS on macOS. On Windows, the build, unit tests, native media checks and both verify runs pass on GitHub Actions Windows runners; the integration hasn't been run inside the Windows VoiceOS app yet. This integration is not yet published on VoiceOS.
 
 ## Set up
 
@@ -66,7 +66,7 @@ With a configured media relay:
 - Videos upload as they are, with their original metadata. If your camera recorded a location, TikTok gets it.
 - Photos are converted to JPEG first, which removes EXIF data, GPS location and Content Credentials. They sit on the media relay briefly so TikTok can fetch them, then they're deleted.
 - The clipboard is used only when you switch on Copy caption.
-- Approval fingerprints prevent reuse across restarts. macOS stores state at `~/Library/Application Support/VoiceOS/integration-state/com.voiceos.generated.tiktok/spent-receipts.json` contains SHA-256 digests only. Windows uses `%APPDATA%\VoiceOS\integration-state\com.voiceos.generated.tiktok\`.
+- Approval fingerprints prevent reuse across restarts. They're kept in `spent-receipts.json` (SHA-256 digests only), in `~/Library/Application Support/VoiceOS/integration-state/com.voiceos.generated.tiktok/` on macOS and `%APPDATA%\VoiceOS\integration-state\com.voiceos.generated.tiktok\` on Windows.
 - In the same folder, `ledger.json` keeps up to 100 recent sends for 30 days, scoped to the current TikTok connection. It stores status, basenames and captions clipped to 150 characters, with no keys or full file paths.
 - Its logs leave out keys, account ids, file paths, captions and links.
 - Your Composio key is sent only to `backend.composio.dev`.
@@ -79,7 +79,7 @@ For video preview images and moving loops on Windows, install FFmpeg and put `ff
 
 ## Photo relay
 
-The PR ships with `MEDIA_RELAY_BASE` empty, so the four photo tools are disabled until a relay is configured. `relay-worker/` contains the Cloudflare Worker implementation and deployment template. From that folder, run `npx wrangler@4.158.0 secret put RELAY_TOKEN`, then `npx wrangler@4.158.0 deploy`. Add your TikTok URL verification filename and contents to `vars.TIKTOK_VERIFICATION`, deploy, and verify the relay's `/p/` prefix in your TikTok developer app. Set `MEDIA_RELAY_BASE` in `src/config.ts` to that HTTPS origin and rebuild. Give testers the relay token through Configure; it stays out of the bundle.
+`MEDIA_RELAY_BASE` in `src/config.ts` is empty, so the four photo tools are disabled until a relay is configured. `relay-worker/` contains the Cloudflare Worker implementation and deployment template. From that folder, run `npx wrangler@4.158.0 secret put RELAY_TOKEN`, then `npx wrangler@4.158.0 deploy`. Add your TikTok URL verification filename and contents to `vars.TIKTOK_VERIFICATION`, deploy, and verify the relay's `/p/` prefix in your TikTok developer app. Set `MEDIA_RELAY_BASE` in `src/config.ts` to that HTTPS origin and rebuild. Give testers the relay token through Configure; it stays out of the bundle.
 
 ## Development and validation
 

@@ -3,6 +3,7 @@
  * creator-info parsing, the error wrapper and logging. Logs carry the tool,
  * our code, TikTok's log_id and a duration: never ids, paths or user text.
  */
+import { basename, isAbsolute, relative, sep } from "node:path";
 import { errorCard } from "../cards.ts";
 import { cleanText, clipText } from "../captions.ts";
 import { TikTokError, normalizeError } from "../errors.ts";
@@ -63,10 +64,12 @@ export function readExec<T = unknown>(deps: Deps, slug: string, args: Record<str
 /** The folder as the user knows it ("Downloads", "Movies/Exports"), never an absolute path. */
 export function folderLabel(folder: string, home: string): string {
   const f = String(folder ?? "").trim();
-  if (!f.startsWith("/")) return f;
-  const h = home.replace(/\/+$/, "");
-  if (h && (f === h || f.startsWith(`${h}/`))) return f.slice(h.length + 1) || "Home";
-  return f.split("/").filter(Boolean).pop() ?? "";
+  // Labels use "/" on every platform; anything absolute here (C:\…, \\server\…, /…) is a path.
+  if (!f.startsWith("/") && !isAbsolute(f)) return f;
+  const rel = home ? relative(home, f) : "..";
+  if (rel === "") return "Home";
+  if (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel)) return rel.split(sep).join("/");
+  return basename(f);
 }
 
 /** TikTok's creator info, under the write tools' input names. */

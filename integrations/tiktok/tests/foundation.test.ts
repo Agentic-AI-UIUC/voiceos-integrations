@@ -105,28 +105,31 @@ describe("receipt core (the one script cards and server share)", () => {
   });
 });
 
+// The children are Bun itself (process.execPath), so these run on macOS, Linux and Windows alike.
+const script = (js: string) => [process.execPath, "-e", js];
+
 describe("child processes", () => {
   test("captures stdout/stderr and the exit code", async () => {
-    const r = await run(["/bin/sh", "-c", "echo out; echo err >&2; exit 3"]);
+    const r = await run(script('process.stdout.write("out\\n"); process.stderr.write("err\\n"); process.exit(3)'));
     expect(r).toMatchObject({ code: 3, stdout: "out\n", stderr: "err\n", timedOut: false });
   });
   test("feeds stdin", async () => {
-    const r = await run(["/bin/cat"], { stdin: "day 3 🚀" });
+    const r = await run(script("process.stdout.write(await Bun.stdin.text())"), { stdin: "day 3 🚀" });
     expect(r.stdout).toBe("day 3 🚀");
   });
   test("children get a UTF-8 locale: VoiceOS starts integrations with no LANG or LC_*, and pbcopy then garbles 'Café 🎉'", async () => {
     const keys = ["LANG", "LC_ALL", "LC_CTYPE"] as const;
     const saved = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
-    const show = 'printf "%s|%s|%s" "${LANG-unset}" "${LC_CTYPE-unset}" "${LC_ALL-unset}"';
+    const show = script('process.stdout.write(["LANG", "LC_CTYPE", "LC_ALL"].map((k) => process.env[k] ?? "unset").join("|"))');
     try {
       delete process.env.LANG;
       delete process.env.LC_CTYPE;
       process.env.LC_ALL = "C";
-      expect((await run(["/bin/sh", "-c", show])).stdout).toBe("en_US.UTF-8|en_US.UTF-8|unset");
+      expect((await run(show)).stdout).toBe("en_US.UTF-8|en_US.UTF-8|unset");
       // A UTF-8 locale the user already has is kept.
       process.env.LANG = "fr_FR.UTF-8";
       delete process.env.LC_ALL;
-      expect((await run(["/bin/sh", "-c", show])).stdout).toBe("fr_FR.UTF-8|fr_FR.UTF-8|unset");
+      expect((await run(show)).stdout).toBe("fr_FR.UTF-8|fr_FR.UTF-8|unset");
     } finally {
       for (const k of keys) {
         if (saved[k] === undefined) delete process.env[k];
@@ -136,7 +139,7 @@ describe("child processes", () => {
   });
   test("kills a hung child at its deadline (users' Macs have no `timeout`)", async () => {
     const started = Date.now();
-    const r = await run(["/bin/sleep", "5"], { timeoutMs: 200 });
+    const r = await run(script("setTimeout(() => {}, 5000)"), { timeoutMs: 200 });
     expect(r.timedOut).toBe(true);
     expect(r.code).toBe(124);
     expect(Date.now() - started).toBeLessThan(2000);

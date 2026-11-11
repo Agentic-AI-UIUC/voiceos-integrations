@@ -16,7 +16,7 @@ import { join, posix, win32 } from "node:path";
 export const INTEGRATION_ID = "com.voiceos.generated.tiktok";
 export const INTEGRATION_VERSION = "1.3.0";
 
-/** The Composio TikTok toolkit version every execute call pins (plan §5.1, spike S3). Bump only after pull-schemas + the live matrix. */
+/** The Composio TikTok toolkit version every execute call pins. Bump only after re-checking Composio's tool schemas at the new version and re-testing every tool. */
 export const TIKTOK_TOOLKIT_VERSION = "20261101_00";
 
 export const COMPOSIO_BASE = "https://backend.composio.dev/api/v3.1";

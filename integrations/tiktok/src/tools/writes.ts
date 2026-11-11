@@ -21,6 +21,7 @@
  *     terminal status. The relay batch is deleted once TikTok has the photos.
  */
 import { readFileSync } from "node:fs";
+import { basename, dirname } from "node:path";
 import { bool, int, photoDirectArgs, photoDraftArgs, videoDirectArgs, videoDraftArgs } from "../client.ts";
 import { checkText, cleanText, clipText } from "../captions.ts";
 import { statusCard, writeOutcomeCopy, writeResultCard, type StatusCardInput, type WriteResultInput } from "../cards.ts";
@@ -364,8 +365,9 @@ function ledgerEntryFor(a: Accepted): NewLedgerEntry {
   const on = (key: string) => bool(a.args[key]);
   const disclosure = on("commercial_disclosure");
   // status: the folder's own name (never its path), so "the voice clone carousel" finds this send later (ledger.ts).
-  const dirs = a.kind === "video" ? [a.file!.folder] : [...new Set(a.bundle!.images.map((i) => i.path.slice(0, i.path.lastIndexOf("/"))))];
-  const folder = dirs.length === 1 ? (dirs[0] ?? "").split("/").filter(Boolean).pop() : undefined;
+  // A video's folder is already a label ("Movies/Exports"); photos carry real paths (C:\… on Windows).
+  const dirs = a.kind === "video" ? [a.file!.folder ?? ""] : [...new Set(a.bundle!.images.map((i) => dirname(i.path)))];
+  const folder = dirs.length !== 1 ? undefined : a.kind === "video" ? dirs[0]!.split("/").filter(Boolean).pop() : basename(dirs[0]!);
   const media =
     a.kind === "video"
       ? { names: [a.file!.name], count: 1, ...(folder ? { folder } : {}), ...(a.file!.duration_sec !== undefined ? { duration_sec: a.file!.duration_sec } : {}) }

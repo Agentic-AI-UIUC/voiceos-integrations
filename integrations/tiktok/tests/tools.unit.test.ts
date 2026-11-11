@@ -1309,6 +1309,8 @@ describe("photo writes", () => {
     });
     expect(h.relay.puts).toEqual([[6, 6, 6]]);
     expect(h.cleaned).toHaveLength(1);
+    // The folder's own name, never a path (photos carry real paths: C:\… on Windows).
+    expect(h.deps.ledger.latest()!.media.folder).toBe("Pictures");
     const order = h.events.filter((e) => !e.startsWith("account"));
     expect(order.slice(0, 5)).toEqual(["convert", "relay:create", "relay:put", "exec:TIKTOK_POST_PHOTO", "exec:TIKTOK_FETCH_PUBLISH_STATUS"]);
     // Deleted after the status left PROCESSING_DOWNLOAD (the second check), not while TikTok was still pulling.

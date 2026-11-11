@@ -320,8 +320,9 @@ function clip(v: unknown, max: number): string | undefined {
   return `${out.trimEnd()}…`;
 }
 
-/** A file or folder name: the last path component only, whatever it was given. */
-const nameOf = (v: unknown): string | undefined => clip(typeof v === "string" ? v.split("/").filter(Boolean).pop() : undefined, NAME_MAX);
+/** A file or folder name: the last path component only, whatever it was given (on Windows, "\\" separates too). */
+const PATH_SEPARATORS = process.platform === "win32" ? /[\\/]/ : /\//;
+const nameOf = (v: unknown): string | undefined => clip(typeof v === "string" ? v.split(PATH_SEPARATORS).filter(Boolean).pop() : undefined, NAME_MAX);
 
 const intOf = (v: unknown): number | undefined => (typeof v === "number" && Number.isInteger(v) && v >= 0 ? v : undefined);
 const numOf = (v: unknown): number | undefined => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : undefined);
