@@ -15,12 +15,15 @@
  * Composio setup (credentials are the developer's, never VoiceOS setup fields):
  *   - Create a `.env` next to this file with
  *       COMPOSIO_API_KEY=<project key: platform.composio.dev → Settings → API Keys>
- *       COMPOSIO_USER_ID=default   # the user_id Google Analytics is connected under
+ *     Each install gets its own Composio user (voiceos-<id>, saved in
+ *     .composio-user.json next to this file), so installs never share a Google
+ *     account. COMPOSIO_USER_ID in .env overrides it.
  *     .env never ships with Publish; each developer keeps their own.
  *   - TEMPORARY, for testing: the Setup page also has an optional "Composio API
  *     key" field that wins over .env. Remove it from the manifest before release.
- *   - Connect Google Analytics (OAuth2, Composio-managed) for that user_id, e.g.
- *     `composio link google_analytics`. Composio refreshes the token.
+ *   - In platform.composio.dev → Auth Configs, create a Google Analytics auth
+ *     config (OAuth2, Composio managed). Users then connect from the reconnect
+ *     link on the error card. Composio refreshes the token.
  *
  * Tool names and input schemas must stay identical to voiceos.integration.json.
  * Descriptions differ on purpose: the manifest's is the short line the Actions
@@ -28,7 +31,8 @@
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { readFileSync, realpathSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { esc, renderWidget, setIntegrationMark, vEmpty, vHeader, vList, vNote, vStats, type Block, type RenderedWidget, type Tone } from "./widgetKit.ts";
@@ -64,6 +68,31 @@ export function loadEnvFile(path: string): void {
   for (const [key, value] of Object.entries(parseEnv(text))) {
     if (!process.env[key]?.trim()) process.env[key] = value;
   }
+}
+
+/**
+ * The Composio user_id this install's Google account lives under. COMPOSIO_USER_ID
+ * (.env) wins. Otherwise each install gets its own `voiceos-<uuid>`, saved in
+ * `stateFile`, so installs never share a Google account (as in Todoist). A
+ * damaged file throws instead of minting a new id, which would silently orphan
+ * the user's connection.
+ */
+export function resolveUserId(configured: string | undefined, stateFile: string): string {
+  if (configured?.trim()) return configured.trim();
+  let text: string;
+  try {
+    text = readFileSync(stateFile, "utf8");
+  } catch (err: any) {
+    if (err?.code !== "ENOENT") throw err;
+    const userId = `voiceos-${randomUUID()}`;
+    writeFileSync(stateFile, JSON.stringify({ userId }) + "\n", { mode: 0o600 });
+    return userId;
+  }
+  const userId = (() => { try { return JSON.parse(text)?.userId; } catch { return undefined; } })();
+  if (typeof userId !== "string" || !/^voiceos-[0-9a-f-]{36}$/.test(userId)) {
+    throw new Error(`${stateFile} is damaged. Delete it to start a new Google Analytics connection, or set COMPOSIO_USER_ID.`);
+  }
+  return userId;
 }
 
 // ============================================================================
@@ -320,7 +349,9 @@ export function createGa(execute: ExecuteTool, defaultPropertyId?: string) {
 // Tools only work while it is ACTIVE.
 // ============================================================================
 
-const DASHBOARD = "platform.composio.dev → Connected accounts";
+// The one dashboard step left, for whoever owns the Composio project ("Connected
+// accounts" is gone from the Composio Platform menu; see Asana #28).
+const AUTH_CONFIG_HELP = "add a Google Analytics auth config in platform.composio.dev → Auth Configs (OAuth2, Composio managed)";
 
 /**
  * Why the Google Analytics link isn't working: ACTIVE if any account of the
@@ -387,8 +418,8 @@ export async function describeError(
       : status === "EXPIRED" ? "The Google Analytics connection has expired."
       : "Google Analytics access was revoked.";
     const url = await reconnectUrl?.().catch((e) => (console.error("reconnect link failed:", e), undefined));
-    if (url) return { error: `${why} Open the reconnect link to sign in to Google again.`, reconnect: true, reconnect_url: url };
-    return fail(`${why} Reconnect the Google account in ${DASHBOARD}.`, true);
+    if (url) return { error: `${why} Open the reconnect link on this card to sign in to Google.`, reconnect: true, reconnect_url: url };
+    return fail(`${why} Ask whoever set up this integration to ${AUTH_CONFIG_HELP}.`, true);
   }
   if (err instanceof ComposioError && err.source === "composio" && err.status === 401) {
     return fail("The Composio API key was rejected. Check COMPOSIO_API_KEY in this integration's .env.");
@@ -561,7 +592,7 @@ const sortArgs = {
 };
 
 // Shared by both report tools: how to read what comes back.
-const READING_RESULTS = "If a result has reconnect: true, the Google connection must be renewed: tell the user in one sentence and point them to the Reconnect link on the card (also in reconnect_url); don't retry until they say they've signed in. Results: rows are {field: value}; totals are GA's own totals over every matching row, so use them for \"how many in total\" rather than adding up rows (rows stop at limit, row_count says how many matched). User counts can repeat across rows (one person viewing two pages), so for unique users overall, query without dimensions. Rates such as bounceRate and engagementRate are fractions (0.42 = 42%); durations are seconds.";
+const READING_RESULTS = "If a result has reconnect: true, the Google connection must be renewed: tell the user in one sentence and point them to the Reconnect link on the card; don't retry until they say they've signed in. Results: rows are {field: value}; totals are GA's own totals over every matching row, so use them for \"how many in total\" rather than adding up rows (rows stop at limit, row_count says how many matched). User counts can repeat across rows (one person viewing two pages), so for unique users overall, query without dimensions. Rates such as bounceRate and engagementRate are fractions (0.42 = 42%); durations are seconds.";
 
 export function createServer(
   ga: ReturnType<typeof createGa>,
@@ -597,8 +628,10 @@ export function createServer(
         return textResult(withCard(result, () => render(result, args)));
       } catch (err) {
         console.error(`${tool} failed:`, err);
-        const described = await describeError(err, linkStatus, reconnectUrl);
-        return textResult(withCard(described, () => errorCard(described.error, described.reconnect, described.reconnect_url)), true);
+        // The link binds whoever opens it to this install's Google account, so it goes on the
+        // card for the user only (VoiceOS strips the card before the model reads the result).
+        const { reconnect_url, ...forModel } = await describeError(err, linkStatus, reconnectUrl);
+        return textResult(withCard(forModel, () => errorCard(forModel.error, forModel.reconnect, reconnect_url)), true);
       }
     };
 
@@ -670,7 +703,7 @@ async function main(): Promise<void> {
   // The cards' logo comes from icon.png, so it can never drift from the icon VoiceOS shows.
   setIntegrationMark(`data:image/png;base64,${readFileSync(new URL("icon.png", import.meta.url)).toString("base64")}`);
 
-  const userId = process.env.COMPOSIO_USER_ID?.trim() || "default";
+  const userId = resolveUserId(process.env.COMPOSIO_USER_ID, fileURLToPath(new URL(".composio-user.json", import.meta.url)));
   const composio = createComposio({ apiKey: process.env.COMPOSIO_API_KEY?.trim(), userId });
   const ga = createGa(composio.execute, process.env.GA4_PROPERTY_ID?.trim() || undefined);
   const linkStatus = () => gaLinkStatus(composio.request, userId);

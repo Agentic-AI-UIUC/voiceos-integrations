@@ -63,7 +63,7 @@ test("when reconnecting is the fix and a link is available, the user gets the li
   const revoked = new ComposioError("API request failed with status 401.", "tool", 401);
   const out = await describeError(revoked, linkStatus("ACTIVE"), async () => "https://connect.example/abc");
   expect(out).toEqual({
-    error: "Google Analytics access was revoked. Open the reconnect link to sign in to Google again.",
+    error: "Google Analytics access was revoked. Open the reconnect link on this card to sign in to Google.",
     reconnect: true,
     reconnect_url: "https://connect.example/abc",
   });
@@ -71,7 +71,10 @@ test("when reconnecting is the fix and a link is available, the user gets the li
 
 test("if no reconnect link can be made, the message falls back to where the developer reconnects", async () => {
   const out = await describeError(notConnected, linkStatus("NONE"), async () => { throw new Error("Composio down"); });
-  expect(out.error).toBe("Google Analytics isn't connected yet. Reconnect the Google account in platform.composio.dev → Connected accounts.");
+  // "Connected accounts" is gone from the Composio Platform menu (same as Asana #28).
+  expect(out.error).toBe(
+    "Google Analytics isn't connected yet. Ask whoever set up this integration to add a Google Analytics auth config in platform.composio.dev → Auth Configs (OAuth2, Composio managed).",
+  );
   expect(out).not.toHaveProperty("reconnect_url");
 });
 

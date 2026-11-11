@@ -41,12 +41,12 @@ card** declared in the manifest, which the user can edit and approve.
 Composio credentials belong to whoever runs this integration, not to the end
 user, so they are **not** VoiceOS setup fields:
 
-1. Copy `.env.example` to `.env` and set `COMPOSIO_API_KEY` (and
-   `COMPOSIO_USER_ID` if not `default`). `server.ts` loads it on start.
-2. Connect Google Analytics (OAuth2, Composio-managed) for that user_id **in
-   the same Composio project as the key**. `composio link` uses the CLI's own
-   project, which may be a different one; if tools say "isn't connected", list
-   the key's connected accounts to check.
+1. Copy `.env.example` to `.env` and set `COMPOSIO_API_KEY`. `server.ts` loads
+   it on start.
+2. In platform.composio.dev → Auth Configs, create a **Google Analytics** auth
+   config (OAuth2, Composio managed) in the key's project. Users then connect
+   from the reconnect link on the error card. Each install has its own Composio
+   user (`voiceos-<id>` in the gitignored `.composio-user.json`).
 
 ## Rules that make integrations feel native
 

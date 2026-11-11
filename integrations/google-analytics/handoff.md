@@ -12,7 +12,8 @@ Composio setup and the dev loop.
 - **Metric / dimension**: what to count (activeUsers, screenPageViews) and what to group by
   (pagePath, country). They must be GA4 API names; `get_metadata` lists them.
 - **Composio / user_id / connected account**: Composio stores the Google OAuth token under a
-  user_id and runs GA calls with it. We never see the token.
+  user_id and runs GA calls with it. We never see the token. Each install has its own user_id
+  (`voiceos-<id>`).
 - **Glance card**: the card VoiceOS shows in the notch after a tool runs (`_voiceos_glance`).
 - **`shortcut:` comment**: a known limit in the code, with when to fix it.
 
@@ -20,11 +21,11 @@ Composio setup and the dev loop.
 
 1. Remove the temporary `COMPOSIO_API_KEY` Setup field from `preferences` in
    `voiceos.integration.json`. Asana has the same field.
-2. Copy `.env.example` to `.env` and set your `COMPOSIO_API_KEY` (and `COMPOSIO_USER_ID`).
-3. Connect Google Analytics for that user_id **in the key's Composio project**. Its auth config
-   must be enabled (Composio-managed OAuth2). `composio link` may use a different project.
+2. Copy `.env.example` to `.env` and set your `COMPOSIO_API_KEY`.
+3. In platform.composio.dev → Auth Configs, create a Google Analytics auth config (OAuth2,
+   Composio managed) in the key's project. Users connect from the reconnect link on the error card.
 4. Run `bun test`.
-5. Read the open questions at the end. Both need an answer from the ticket owner.
+5. Read the open question at the end. It needs an answer from the ticket owner.
 
 ## What we built
 
@@ -71,8 +72,9 @@ Composio setup and the dev loop.
 - A raw metadata response is ~140 KB. `get_metadata` returns only names (~10 KB).
 - VoiceOS runs its own copy of the folder and caches the manifest, confirmTools, Setup values
   and icon in its config.json. See AGENTS.md.
-- Each card is ~19.5K characters of Widget Kit HTML inside the result. AGENTS.md says VoiceOS
-  shows `_voiceos_glance` and doesn't give it to the model; the logs couldn't confirm this.
+- Each card is ~19.5K characters of Widget Kit HTML inside the result. VoiceOS removes
+  `_voiceos_glance` before the model reads the result (`extractGlanceFromMcpResult` in the app),
+  so cards cost no model tokens. The reconnect link is therefore only on the card, not in the JSON.
 
 ## GA4 features in and out of scope
 
@@ -166,9 +168,3 @@ The agent gets flat arguments; server.ts builds GA's nested request.
    usually doesn't know where to look. The options are approving GOOGLE_ANALYTICS_LIST_ACCOUNT_SUMMARIES
    so the agent can list properties, or relying on the Setup guide (GA → Admin → Property
    settings). Until it is decided, the Setup guide explains where to find it.
-2. **Every user shares one Google connection.** The Composio key is the developer's (.env), and
-   VoiceOS passes no user identity, so all installs use the same Composio project and
-   user_id `default`. Once more than one person installs it from the app store, they would all
-   read the same Google account's data, and one person's reconnect replaces everyone's. The
-   Asana integration has the same issue. Fixing it needs a per-user ID from VoiceOS (or a
-   per-user Composio key), which this integration cannot provide.

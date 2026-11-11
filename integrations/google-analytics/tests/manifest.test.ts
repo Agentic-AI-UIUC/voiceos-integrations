@@ -57,3 +57,19 @@ test("every Studio preview sample passes the real input schemas (Studio calls th
     }
   }
 });
+
+test("a reconnect link goes only on the card: the model gets reconnect: true, never the link", async () => {
+  const server = createServer(
+    createGa(async () => { throw new ComposioError("revoked", "tool", 401); }, "1"),
+    async () => "ACTIVE",
+    async () => "https://connect.example/abc",
+  );
+  const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+  await server.connect(serverSide);
+  const client = new Client({ name: "test", version: "1" });
+  await client.connect(clientSide);
+  const res: any = await client.callTool({ name: "run_realtime_report", arguments: {} });
+  const { _voiceos_glance, ...forModel } = JSON.parse(res.content[0].text);
+  expect(forModel).toEqual({ error: "Google Analytics access was revoked. Open the reconnect link on this card to sign in to Google.", reconnect: true });
+  expect(JSON.stringify(_voiceos_glance)).toContain("https://connect.example/abc");
+});
