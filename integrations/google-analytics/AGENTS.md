@@ -29,7 +29,7 @@ card** declared in the manifest, which the user can edit and approve.
   Actions panel (cut off after two lines), so the two differ on purpose.
 - `tests/` — `bun test` (local only, not shipped). `manifest.test.ts` fails
   when the manifest's tool names or input schemas drift from server.ts.
-- `IMPLEMENTATION_PLAN.md` — stages, scope and design decisions (handoff).
+- `handoff.md` — what was built and verified, scope, design decisions and open questions.
 - `run.sh` / `run.cmd` — the launchers VoiceOS invokes (macOS / Windows);
   leave them alone.
 - `package.json` — add dependencies here, then `bun install`.

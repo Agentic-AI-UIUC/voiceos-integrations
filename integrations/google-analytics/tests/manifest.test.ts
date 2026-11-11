@@ -46,3 +46,14 @@ test("a tool call returns the query's JSON; a failure comes back as plain words 
   expect(err.isError).toBe(true);
   expect(JSON.parse(err.content[0].text).error).toStartWith("The connected Google account can't access this GA4 property.");
 });
+
+test("every Studio preview sample passes the real input schemas (Studio calls the tools with them)", async () => {
+  const meta = JSON.parse(readFileSync(new URL("../studio-meta.json", import.meta.url), "utf8"));
+  const client = await connect(async () => ({ metricHeaders: [], rows: [], rowCount: 0 }));
+  for (const t of meta.preview.toolPreviews) {
+    for (const args of [t.sampleArgs, ...t.stressCases.map((c: any) => c.sampleArgs)]) {
+      const res: any = await client.callTool({ name: t.tool, arguments: args ?? {} });
+      expect(res.isError ? res.content[0].text : "ok").not.toMatch(/validation|invalid_type/i);
+    }
+  }
+});
