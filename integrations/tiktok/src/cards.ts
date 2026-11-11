@@ -1625,19 +1625,19 @@ function videoPickCard(c: {
 }): Widget {
   const videos = (Array.isArray(c.videos) ? c.videos : []).slice(0, 6);
   const denied = deniedNote(c.denied_folders);
-  const label = "Videos on this Mac";
+  const label = "Videos on this computer";
   if (!videos.length) {
     return render({
       trailing: "Videos",
       label,
-      parts: [headline(fit(c.headline, 80) || "No matching video", 2), para("Describe it, say its name, or select it in Finder.", 2), foot(denied)],
+      parts: [headline(fit(c.headline, 80) || "No matching video", 2), para(`Describe it, say its name, or select it in ${process.platform === "win32" ? "File Explorer" : "Finder"}.`, 2), foot(denied)],
     });
   }
   // The lead's loop and the posters share the card's picture budget, so the card never crosses VoiceOS's cap
   // (in the gallery each cell's loop is drawn through the budget itself).
   const images = imageBudget(CARD_IMAGE_BUDGET - (videos.length === 1 ? (cardMotion(videos[0]?.motion)?.src.length ?? 0) : 0));
   const found = fit(c.note, 160);
-  const foot1 = [c.revealed ? "Shown in Finder." : "", denied].filter(Boolean).join(" ");
+  const foot1 = [c.revealed ? `Shown in ${process.platform === "win32" ? "File Explorer" : "Finder"}.` : "", denied].filter(Boolean).join(" ");
   if (videos.length === 1) {
     const v = videos[0];
     // One video that fits the words is simply found; "Best match" only means something next to other candidates.
@@ -1683,7 +1683,7 @@ export function videoCandidatesCard(c: {
   if (!videos.length) {
     return render({
       trailing: "Recent videos",
-      label: "Recent videos on this Mac",
+      label: "Recent videos on this computer",
       parts: [headline("No recent videos", 1), para("None in Downloads, Desktop or Movies. Say its name, or export it first.", 2), foot(denied)],
     });
   }
@@ -1728,7 +1728,7 @@ export function videoCandidatesCard(c: {
     const parts = [info(found), leadPart, rows.length > 0 && plainRows(rows, true), foot(note)];
     const h = PAD + HEADER + parts.reduce((sum, p) => sum + (p ? GAP + p.h : 0), 0);
     if (h <= 420 || !rows.length) {
-      return render({ trailing: videos.length === 1 ? "1 video" : `${videos.length} videos`, label: "Recent videos on this Mac", parts });
+      return render({ trailing: videos.length === 1 ? "1 video" : `${videos.length} videos`, label: "Recent videos on this computer", parts });
     }
     rows = rows.slice(0, -1);
   }
@@ -1746,7 +1746,7 @@ export function imageCandidatesCard(c: {
   if (!images.length) {
     return render({
       trailing: "Recent photos",
-      label: "Recent photos on this Mac",
+      label: "Recent photos on this computer",
       parts: [
         headline("No recent photos", 1),
         para("None in Downloads, Desktop, Pictures or Screenshots. AirDrop or export them, then ask again.", 2),
@@ -1762,7 +1762,7 @@ export function imageCandidatesCard(c: {
   const note = [total > shown ? `Showing ${shown} of ${total}.` : "", c.query_matched === false ? NO_MATCH : "", denied].filter(Boolean).join(" ");
   return render({
     trailing: total === 1 ? "1 photo" : `${total} photos`,
-    label: "Recent photos on this Mac",
+    label: "Recent photos on this computer",
     parts: [
       hint && headline(hint, 1),
       plainRows(

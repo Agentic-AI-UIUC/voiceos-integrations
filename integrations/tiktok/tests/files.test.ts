@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+import { join, resolve } from "node:path";
 import { TikTokError } from "../src/errors.ts";
 import { dateAdded, editDistance, findRecentImages, findRecentVideos, matchScore, normName, screenshotFolder } from "../src/files.ts";
 import { run } from "../src/proc.ts";
@@ -98,7 +99,7 @@ describe("normName / matchScore", () => {
 });
 
 describe("dateAdded (fake runner)", () => {
-  const paths = ["/Users/x/Downloads/a \"quoted\" 🎉.mov", "/Users/x/Desktop/Screen Recording 2026-11-03 at 9.07 PM.mov", "/Users/x/gone.mp4"];
+  const paths = ["/Users/x/Downloads/a \"quoted\" 🎉.mov", "/Users/x/Desktop/Screen Recording 2026-11-03 at 9.07 PM.mov", "/Users/x/gone.mp4"].map(p => resolve(p));
 
   test("ONE osascript -l JavaScript call; paths travel as argv (never inside the script); unknown → absent", async () => {
     const runner = fakeRunner({ added: { [paths[0]]: 1_700_000_000_123, [paths[1]]: 1_700_000_100_000 } });
@@ -155,7 +156,7 @@ describe("screenshotFolder (fake defaults)", () => {
     expect(await screenshotFolder(home, fakeRunner({ screenshotLocation: `${outside}/` }))).toBe(outside);
     expect(await screenshotFolder(home, fakeRunner({ screenshotLocation: "~/Pictures/Screens/" }))).toBe(join(home, "Pictures", "Screens"));
     expect(await screenshotFolder(home, fakeRunner({ screenshotLocation: "~" }))).toBe(home);
-    expect(await screenshotFolder(home, fakeRunner({ screenshotLocation: `file://${encodeURI(join(home, "Downloads"))}/` }))).toBe(join(home, "Downloads"));
+    expect(await screenshotFolder(home, fakeRunner({ screenshotLocation: pathToFileURL(join(home, "Downloads")).href }))).toBe(join(home, "Downloads"));
   });
 });
 

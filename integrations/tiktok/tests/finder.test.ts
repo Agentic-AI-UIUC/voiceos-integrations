@@ -639,7 +639,7 @@ describe("find_recent_videos handler: focus, reveal, card, errors", () => {
     await call(deps, { describe: "the strawberry one" });
     const r = await call(deps, { describe: "show me that video in Finder" });
     expect(r).toMatchObject({ confidence: "exact", revealed: true });
-    expect(r.summary).toContain("Showed it in Finder.");
+    expect(r.summary).toContain(process.platform === "win32" ? "Showed it in File Explorer." : "Showed it in Finder.");
     const open = runner.calls.find((c) => basename(c[0]) === "open")!;
     expect(open.slice(0, 2)).toEqual(["/usr/bin/open", "-R"]);
     expect(basename(open[2])).toBe("ep01-strawberry-tokens.mp4");

@@ -15,6 +15,7 @@
  * `folder` ("Downloads", "Movies/Exports"); logs carry counts only.
  */
 import { lstatSync, readdirSync, realpathSync, statSync, type Dirent } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { TikTokError } from "./errors.ts";
@@ -143,7 +144,7 @@ export async function screenshotFolder(home: string, runner: Runner): Promise<st
   let v = raw;
   if (v.startsWith("file://")) {
     try {
-      v = decodeURIComponent(new URL(v).pathname);
+      v = fileURLToPath(v);
     } catch {
       return desktop;
     }
