@@ -517,6 +517,9 @@ function scrollList(rows: { title: string; trailing: string }[]): Block {
   return { html: `<div class="k-list" style="max-height:${h}px;overflow-y:auto;overscroll-behavior:contain">${html}</div>`, h };
 }
 
+/** Rows only add information when the query grouped by something; without dimensions the single row repeats the totals. */
+const hasDimensions = (rows: Row[]) => rows.some((r) => Object.entries(r).some(([k, v]) => typeof v === "string" && k !== "dateRange"));
+
 const allZero = (...totals: (Totals | undefined)[]) => totals.every((t) => !t || Object.values(t).every((v) => !v));
 
 export interface ReportResult {
@@ -538,13 +541,13 @@ export function reportCard(r: ReportResult): RenderedWidget {
     return card([header, vEmpty({ title: "No data for this period", hint: "A new property can take a day to show reports." })]);
   }
   const rows = compare ? r.rows.filter((x) => x.dateRange === "current") : r.rows;
-  return card([header, statsOf(totals, previous), rows.length > 0 && rowsList(rows, Object.keys(totals)[0])]);
+  return card([header, statsOf(totals, previous), hasDimensions(rows) && rowsList(rows, Object.keys(totals)[0])]);
 }
 
 export function realtimeCard(r: { totals: Totals; rows: Row[] }): RenderedWidget {
   const header = vHeader({ title: "Right now", subtitle: "Last 30 minutes" });
   if (r.rows.length === 0 && allZero(r.totals)) return card([header, vEmpty({ title: "No one on the site right now" })]);
-  return card([header, statsOf(r.totals), r.rows.length > 0 && rowsList(r.rows, Object.keys(r.totals)[0])]);
+  return card([header, statsOf(r.totals), hasDimensions(r.rows) && rowsList(r.rows, Object.keys(r.totals)[0])]);
 }
 
 export function metadataCard(r: { dimensions: Record<string, string[]>; metrics: Record<string, string[]> }, a: MetadataArgs): RenderedWidget {

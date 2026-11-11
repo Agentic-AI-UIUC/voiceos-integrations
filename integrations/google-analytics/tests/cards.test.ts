@@ -104,3 +104,12 @@ test("an error card with a reconnect link shows a row the user can open", () => 
   expect(text(c)).toContain("Reconnect Google Analytics");
   expect(c.html).toContain('href="https://connect.example/abc"');
 });
+
+test("a query without dimensions shows only the totals: no '(not set)' row repeating them", () => {
+  const report = text(reportCard({ start_date: "7daysAgo", end_date: "today", totals: { screenPageViews: 20 }, rows: [{ screenPageViews: 20 }] }));
+  expect(report).toContain("20");
+  expect(report).not.toContain("(not set)");
+  const live = text(realtimeCard({ totals: { activeUsers: 3 }, rows: [{ activeUsers: 3 }] }));
+  expect(live).toContain("3");
+  expect(live).not.toContain("(not set)");
+});
