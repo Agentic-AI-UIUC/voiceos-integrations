@@ -2,6 +2,8 @@
 
 Version 2.0.15. Build: dropbox-composio-v17-studio-package-parity. Exactly 14 approved Dropbox tools through Composio OAuth2, with write confirmations and green success icons for completed calls. No demo preview targets or placeholder cards.
 
+VoiceOS integration share link: https://api.voiceos.com/integration-share/sP1smIT5hsor/page. The link is stable across Studio republishes; verify that its displayed version is 2.0.15 and that a fresh install log passes the dependency check below.
+
 The November 10 Studio preview for 2.0.14 logged the correct build marker but installed `@composio/core@0.29.0` and `ajv@8.20.0`. The reviewed package pins `0.28.0` and `8.17.1`. Studio retains a separate draft package, so a matching server marker alone does not establish package parity. For 2.0.15, put this release's root `package.json` into the Studio draft along with the root `server.ts` and `voiceos.integration.json`. Save and republish, then check a fresh share-link first-launch log with `node scripts/verify-install-log.mjs <log-file>`. Do not present the share link as package-verified until that check passes.
 
 The root server.ts is the portable runtime: all local helpers are bundled. Keep it with voiceos.integration.json, package.json, icon.png, and the generated launchers when deploying to VoiceOS. The editable code, OAuth setup utility, build scripts, and the offline/browser regression suite are in source/.
