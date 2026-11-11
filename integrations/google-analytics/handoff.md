@@ -50,15 +50,25 @@ While a tool runs, the notch shows "Google Analytics: <tool>". That's VoiceOS's 
 - **Not supported:** comparing more than two periods, sorting by more than one field,
   filters other than one exact match, paging past 100 rows, custom realtime windows, and the
   other GA4 APIs (funnels, pivots, admin, writes).
-- **No disconnect button.** Removing the integration from the app store disconnects it.
+- **No disconnect button.** Removing the integration disconnects it. See open question 2.
 - **No toasts.** VoiceOS gives integrations no toast API; success and failure show as notch cards.
 - **Dates follow the property's time zone**, which the answer states when it matters.
 
-## Open question for the ticket owner
+## Open questions for the ticket owner
 
-**How does a user find their property ID?** Every query needs it, and most users don't know
-where it is. Either approve `GOOGLE_ANALYTICS_LIST_ACCOUNT_SUMMARIES` so the agent can list
-properties, or keep relying on the Setup hint (step 3 above).
+1. **How does a user find their property ID?** Every query needs it, and most users don't know
+   where it is. Either approve `GOOGLE_ANALYTICS_LIST_ACCOUNT_SUMMARIES` so the agent can list
+   properties, or keep relying on the Setup hint (step 2 above).
+2. **How should disconnect work?** The ticket asks for a connect/disconnect UI and also for
+   exactly three tools; today an integration can't have both. VoiceOS's manifest schema
+   already defines `auth: { kind: "oauth2", provider, authorizationUrl, tokenUrl, scopes, pkce }`,
+   which looks meant to give integrations the same Connect/Disconnect button as built-in apps.
+   But VoiceOS 0.1.40 only reads `auth.kind === "apiKey"`; `oauth2` is not implemented yet.
+   Options:
+   - **Wait** for VoiceOS to implement `auth.oauth2`, then declare it and drop our own connect code.
+   - **Add connection tools** (`connect_account`, `connection_status`, `disconnect_account`),
+     as Todoist and Teams do. They manage the connection only, but go beyond the three approved tools.
+   - **Add a Setup toggle**, as GitHub does: switching it off revokes the Composio connection.
 
 ## Notes for maintainers
 
