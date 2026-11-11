@@ -276,7 +276,7 @@ function checkRun(r: RunResult, stage: string): void {
   }
   if (r.code === 127) {
     log(`photos: sips ${stage} pass couldn't start`);
-    throw fail("UNKNOWN", undefined, { message: "Couldn't start macOS's image converter (sips), so nothing was sent." });
+    throw fail("UNKNOWN", undefined, { message: "Couldn't start the image converter, so nothing was sent." });
   }
   if (r.code !== 0) log(`photos: sips ${stage} pass exited ${r.code}; checking its outputs`);
 }

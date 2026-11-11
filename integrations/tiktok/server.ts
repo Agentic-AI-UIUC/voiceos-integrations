@@ -5415,10 +5415,10 @@ class StdioServerTransport {
 import { homedir } from "os";
 import { join } from "path";
 var INTEGRATION_ID = "com.voiceos.generated.tiktok";
-var INTEGRATION_VERSION = "1.2.1";
+var INTEGRATION_VERSION = "1.3.0";
 var TIKTOK_TOOLKIT_VERSION = "20261101_00";
 var COMPOSIO_BASE = "https://backend.composio.dev/api/v3.1";
-var MEDIA_RELAY_BASE = "https://tiktok-media-relay.rishabh-rb.workers.dev";
+var MEDIA_RELAY_BASE = "";
 var ACCENT = "#fe2c55";
 var TIKTOK_IMAGE_HOSTS = Object.freeze(["p16-common-sign.tiktokcdn-us.com", "p19-common-sign.tiktokcdn-us.com"]);
 var LOOPBACK = /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?(\/|$)/;
@@ -5436,8 +5436,8 @@ function argument(argv, name) {
   return found ? found.slice(prefix.length) : undefined;
 }
 function defaultStateDir(home, platform = process.platform, appData = process.env.APPDATA) {
-  if (platform === "win32" && appData)
-    return join(appData, "VoiceOS", "integration-state", INTEGRATION_ID);
+  if (platform === "win32")
+    return join(appData || join(home, "AppData", "Roaming"), "VoiceOS", "integration-state", INTEGRATION_ID);
   return join(home, "Library", "Application Support", "VoiceOS", "integration-state", INTEGRATION_ID);
 }
 function loadConfig(env, argv = []) {
@@ -6119,7 +6119,7 @@ function checkRun(r, stage) {
   }
   if (r.code === 127) {
     log(`photos: sips ${stage} pass couldn't start`);
-    throw fail("UNKNOWN", undefined, { message: "Couldn't start macOS's image converter (sips), so nothing was sent." });
+    throw fail("UNKNOWN", undefined, { message: "Couldn't start the image converter, so nothing was sent." });
   }
   if (r.code !== 0)
     log(`photos: sips ${stage} pass exited ${r.code}; checking its outputs`);
@@ -13911,7 +13911,7 @@ var EMPTY_COMPLETION_RESULT = {
 };
 
 // src/mcpServer.ts
-import { join as join7 } from "path";
+import { join as join8 } from "path";
 
 // widgetKit.ts
 var WIDGET_KIT_LIMITS = {
@@ -17183,7 +17183,7 @@ class RemoteImages {
 // src/preview.ts
 import { existsSync, mkdirSync as mkdirSync2, mkdtempSync as mkdtempSync2, readFileSync as readFileSync2, readdirSync as readdirSync2, rmSync as rmSync3, statSync as statSync2, writeFileSync as writeFileSync3 } from "fs";
 import { tmpdir as tmpdir3 } from "os";
-import { delimiter, join as join4 } from "path";
+import { delimiter, isAbsolute, join as join4 } from "path";
 
 // src/microPreview.ts
 var ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
@@ -18361,8 +18361,8 @@ var foundFfmpeg;
 function findFfmpeg(env = process.env) {
   if (foundFfmpeg !== undefined)
     return foundFfmpeg ?? undefined;
-  const dirs = (env.PATH ?? "").split(delimiter).filter((d) => d.startsWith("/"));
-  const hit = [...FFMPEG_PATHS, ...dirs.map((d) => join4(d, "ffmpeg"))].find((p) => {
+  const dirs = (env.PATH ?? "").split(delimiter).map((d) => d.replace(/^"|"$/g, "")).filter(isAbsolute);
+  const hit = [...process.platform === "win32" ? [] : FFMPEG_PATHS, ...dirs.map((d) => join4(d, process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg"))].find((p) => {
     try {
       return existsSync(p) && statSync2(p).isFile();
     } catch {
@@ -18640,8 +18640,8 @@ var foundImg2webp;
 function findImg2webp(env = process.env) {
   if (foundImg2webp !== undefined)
     return foundImg2webp ?? undefined;
-  const dirs = (env.PATH ?? "").split(delimiter).filter((d) => d.startsWith("/"));
-  const hit = [...IMG2WEBP_PATHS, ...dirs.map((d) => join4(d, "img2webp"))].find((p) => {
+  const dirs = (env.PATH ?? "").split(delimiter).map((d) => d.replace(/^"|"$/g, "")).filter(isAbsolute);
+  const hit = [...process.platform === "win32" ? [] : IMG2WEBP_PATHS, ...dirs.map((d) => join4(d, process.platform === "win32" ? "img2webp.exe" : "img2webp"))].find((p) => {
     try {
       return existsSync(p) && statSync2(p).isFile();
     } catch {
@@ -18983,7 +18983,8 @@ function isJpegFile2(file) {
 
 // src/files.ts
 import { lstatSync as lstatSync3, readdirSync as readdirSync3, realpathSync as realpathSync4, statSync as statSync3 } from "fs";
-import { basename as basename5, dirname as dirname2, isAbsolute as isAbsolute2, join as join5, relative, resolve as resolve3, sep as sep2 } from "path";
+import { homedir as homedir2 } from "os";
+import { basename as basename5, dirname as dirname2, isAbsolute as isAbsolute3, join as join5, relative, resolve as resolve3, sep as sep2 } from "path";
 
 // src/media.ts
 import { closeSync as closeSync2, fstatSync, openSync as openSync2, readSync as readSync2, realpathSync as realpathSync2 } from "fs";
@@ -19473,7 +19474,7 @@ async function contentCredentials(path) {
 
 // src/finderApps.ts
 import { accessSync, constants as constants2, lstatSync as lstatSync2, realpathSync as realpathSync3 } from "fs";
-import { basename as basename4, dirname, isAbsolute, sep } from "path";
+import { basename as basename4, dirname, isAbsolute as isAbsolute2, sep } from "path";
 var OSASCRIPT = "/usr/bin/osascript";
 var OPEN = "/usr/bin/open";
 var APPLESCRIPT_TIMEOUT_MS = 12000;
@@ -19531,7 +19532,7 @@ async function runScript(script, runner) {
 var VIDEO_EXT = /\.(mp4|mov)$/i;
 var PACKAGE_DIR = /\.(app|photoslibrary|imovielibrary|fcpbundle|theater|tvlibrary|bundle|framework|pkg|screenflow|screenstudio|lrlibrary|band|logicx)$/i;
 function usableVideo(path) {
-  if (!isAbsolute(path) || !VIDEO_EXT.test(path) || /[\u0000-\u001f\u007f]/.test(path))
+  if (!isAbsolute2(path) || !VIDEO_EXT.test(path) || /[\u0000-\u001f\u007f]/.test(path))
     return false;
   try {
     const st = lstatSync2(path);
@@ -20406,15 +20407,15 @@ function parseRefs(c) {
 }
 function parseApps(c) {
   let reveal = false;
-  take(c, /\b(?:show|reveal|open|find|locate|highlight|point to)(?:\s+me)?\b(?=(?:\s+[^\s]+){0,5}?\s+(?:in|on)\s+(?:the\s+)?finder\b)|\breveal\b|\bwhere(?:'s| is| did)\b(?=\s+(?:it|that|this|the)\b)|\bopen (?:the|its|that) (?:folder|location)\b|\bshow me where\b/, () => {
+  take(c, /\b(?:show|reveal|open|find|locate|highlight|point to)(?:\s+me)?\b(?=(?:\s+[^\s]+){0,5}?\s+(?:in|on)\s+(?:the\s+)?(?:finder|file explorer|windows explorer)\b)|\breveal\b|\bwhere(?:'s| is| did)\b(?=\s+(?:it|that|this|the)\b)|\bopen (?:the|its|that) (?:folder|location)\b|\bshow me where\b/, () => {
     reveal = true;
   });
   if (reveal) {
-    take(c, /\b(?:in|on)\s+(?:the\s+)?finder\b|\b(?:saved|stored|located|go|live)\s*$/, () => {});
+    take(c, /\b(?:in|on)\s+(?:the\s+)?(?:finder|file explorer|windows explorer)\b|\b(?:saved|stored|located|go|live)\s*$/, () => {});
     c.d.reveal = true;
     say(c, "show it in Finder");
   }
-  take(c, /\b(?:(?:i(?:'ve| have)?|i've got|i got) )?(?:selected|highlighted|clicked(?: on)?)(?: (?:in|on) (?:the )?finder)?\b|\b(?:in|on) (?:the )?finder\b|\bfinder selection\b|\bthe selection\b|\bselected (?:one|video|file)\b/, () => {
+  take(c, /\b(?:(?:i(?:'ve| have)?|i've got|i got) )?(?:selected|highlighted|clicked(?: on)?)(?: (?:in|on) (?:the )?finder)?\b|\b(?:in|on) (?:the )?(?:finder|file explorer|windows explorer)\b|\b(?:finder|file explorer|windows explorer) selection\b|\bthe selection\b|\bselected (?:one|video|file)\b/, () => {
     c.d.finder = true;
     say(c, "selected in Finder");
   });
@@ -21461,7 +21462,7 @@ async function screenshotFolder(home, runner) {
     v = h;
   else if (v.startsWith("~/"))
     v = join5(h, v.slice(2));
-  const abs = isAbsolute2(v) ? resolve3(v) : resolve3(h, v);
+  const abs = isAbsolute3(v) ? resolve3(v) : resolve3(h, v);
   return isDir(abs) ? abs : desktop;
 }
 var VIDEO_EXT2 = new Set(["mp4", "mov"]);
@@ -21560,22 +21561,34 @@ function displayFolder(home, dir) {
   const rel = relative(home, dir);
   if (rel === "")
     return "Home";
-  if (rel === ".." || rel.startsWith(`..${sep2}`) || isAbsolute2(rel))
+  if (rel === ".." || rel.startsWith(`..${sep2}`) || isAbsolute3(rel))
     return basename5(dir) || dir;
   return rel.split(sep2).join("/");
 }
 var VIDEO_FOLDERS = ["Downloads", "Desktop", "Movies"];
 var IMAGE_FOLDERS = ["Downloads", "Desktop", "Pictures", "Screenshots"];
 async function resolveRoots(all, home, folders, runner) {
-  const want = new Set((folders ?? []).map((f) => String(f).trim().toLowerCase()));
+  const want = new Set((folders ?? []).map((f) => String(f).trim().toLowerCase().replace(/^videos$/, "movies")));
   let names = want.size ? all.filter((f) => want.has(f.toLowerCase())) : all;
   if (!names.length)
     names = all;
+  const native = {};
+  if (process.platform === "win32" && canon(home) === canon(homedir2())) {
+    try {
+      const r = await runner(["voiceos-windows", "folders"], { timeoutMs: 5000 });
+      if (!r.code && !r.timedOut) {
+        const values = JSON.parse(r.stdout);
+        for (const [k, v] of Object.entries(values))
+          if (typeof v === "string" && isAbsolute3(v))
+            native[k] = v;
+      }
+    } catch {}
+  }
   const homeKey = canon(home);
   const seen = new Set;
   const roots = [];
   for (const name of names) {
-    const path = name === "Screenshots" ? await screenshotFolder(home, runner) : join5(home, name);
+    const path = native[name] ?? (process.platform === "win32" && name === "Screenshots" && !!native.Pictures ? join5(native.Pictures ?? join5(home, "Pictures"), "Screenshots") : name === "Screenshots" ? await screenshotFolder(home, runner) : process.platform === "win32" && name === "Movies" && isDir(join5(home, "Videos")) ? join5(home, "Videos") : join5(home, name));
     const key = canon(path);
     if (seen.has(key))
       continue;
@@ -21678,7 +21691,7 @@ function scan(roots, supported, other, now) {
         mtimeMs: st.mtimeMs,
         birthtimeMs: birth,
         upperMs: Math.max(st.ctimeMs || 0, birth, st.mtimeMs),
-        dataless: st.blocks === 0 && st.size > 4096,
+        dataless: process.platform === "darwin" && st.blocks === 0 && st.size > 4096,
         addedMs: birth || st.mtimeMs
       });
     }
@@ -21688,6 +21701,18 @@ function scan(roots, supported, other, now) {
 async function assignArrival(files, q, runner) {
   if (!files.length)
     return;
+  if (process.platform === "win32") {
+    try {
+      const r = await runner(["voiceos-windows", "attributes", ...files.map((f) => f.path)], { timeoutMs: 5000 });
+      if (!r.code && !r.timedOut) {
+        const rows = JSON.parse(r.stdout);
+        const offline = new Set(rows.filter((x) => x.offline).map((x) => x.path));
+        for (let i = files.length - 1;i >= 0; i--)
+          if (offline.has(files[i].path))
+            files.splice(i, 1);
+      }
+    } catch {}
+  }
   const pre = new Map(files.map((f) => [f, scoreName(q, f.name).score]));
   const pick2 = [...files].sort((a, b) => pre.get(b) - pre.get(a) || b.upperMs - a.upperMs).slice(0, JXA_CANDIDATES);
   const added = await dateAdded(pick2.map((f) => f.path), runner);
@@ -21795,7 +21820,7 @@ function candidateAt(path, home) {
     mtimeMs: st.mtimeMs,
     birthtimeMs: birth,
     upperMs: Math.max(st.ctimeMs || 0, birth, st.mtimeMs),
-    dataless: st.blocks === 0 && st.size > 4096,
+    dataless: process.platform === "darwin" && st.blocks === 0 && st.size > 4096,
     addedMs: birth || st.mtimeMs
   };
 }
@@ -22343,7 +22368,7 @@ function ensureDir(dir, mode = 448) {
   if (!st.isDirectory())
     throw Object.assign(new Error("not a directory"), { code: "ENOTDIR" });
   const current = st.mode & 511;
-  if (current & ~mode) {
+  if (process.platform !== "win32" && current & ~mode) {
     try {
       chmodSync(dir, current & mode);
     } catch (error2) {
@@ -22388,7 +22413,8 @@ function writeJsonAtomic(file, value, mode = 384) {
   let fd;
   try {
     fd = openSync3(tmp, "wx", mode);
-    fchmodSync(fd, mode);
+    if (process.platform !== "win32")
+      fchmodSync(fd, mode);
     for (let off = 0;off < bytes2.length; )
       off += writeSync(fd, bytes2, off, bytes2.length - off);
     fsyncSync(fd);
@@ -25759,18 +25785,18 @@ var META = [
   },
   {
     name: "find_recent_videos",
-    title: "Find recent videos on this Mac",
+    title: "Find recent videos on this computer",
     visibility: "agent",
-    description: "Agent-only. Finds the video on this Mac the user means (Downloads, Desktop, Movies, or one they point at) by its metadata. Use when the user refers to a video: pass their own words in describe ('the vertical one from yesterday', 'my screen recording', 'the other one'). For it, that or the same video set pick 'current'; for 'the second one' pick 2; for the Finder selection or QuickTime, set source. Use when the user asks to show, reveal or open the video in Finder: set reveal true with pick 'current'. Follow next; when confidence is ambiguous, ask its one short question. Returns a file_token and preview per video for upload_video and publish_video.",
-    annotations: read("Find recent videos on this Mac", false)
+    description: "Agent-only. Finds the video on this computer the user means (Downloads, Desktop, Movies/Videos, or one they point at) by its metadata. Use when the user refers to a video: pass their own words in describe ('the vertical one from yesterday', 'my screen recording', 'the other one'). For it, that or the same video set pick 'current'; for 'the second one' pick 2; for the Finder/File Explorer selection or QuickTime (macOS), set source. Use when the user asks to show, reveal or open the video in Finder or File Explorer: set reveal true with pick 'current'. Follow next; when confidence is ambiguous, ask its one short question. Returns a file_token and preview per video for upload_video and publish_video.",
+    annotations: read("Find recent videos on this computer", false)
   },
   {
     name: "find_recent_images",
-    title: "Find recent photos and screenshots on this Mac",
+    title: "Find recent photos and screenshots on this computer",
     visibility: "agent",
     photo: true,
-    description: "Agent-only. List the newest images (.jpg .jpeg .png .heic .heif .webp) in Downloads, Desktop, Pictures and the screenshot folder. Use when the user refers to photos or screenshots on this Mac: source 'screenshots' for screenshots, 'recent_batch' for a group that arrived together (an AirDrop). Returns image_tokens for prepare_photo_post; file paths come only from this tool.",
-    annotations: read("Find recent photos and screenshots on this Mac", false)
+    description: "Agent-only. List the newest images (.jpg .jpeg .png .heic .heif .webp) in Downloads, Desktop, Pictures and the screenshot folder. Use when the user refers to photos or screenshots on this computer: source 'screenshots' for screenshots, 'recent_batch' for a group that arrived together (an AirDrop). Returns image_tokens for prepare_photo_post; file paths come only from this tool.",
+    annotations: read("Find recent photos and screenshots on this computer", false)
   },
   {
     name: "prepare_photo_post",
@@ -25872,20 +25898,20 @@ var SCHEMAS = {
     describe: exports_external.string().max(160).optional().describe("The user's own words about the video, unedited: 'the 40-second one', 'the long landscape clip from last week', 'the one I AirDropped', 'the CapCut export', 'the second newest', 'strawbery tokens'. Typos are fine."),
     query: exports_external.string().max(80).optional().describe("Words from the file name the user said, such as 'export' or 'demo'."),
     pick: exports_external.union([exports_external.literal("current"), exports_external.number().int().min(1).max(6)]).optional().describe("'current': the video in progress (it, that video, the same one, the one just sent). A number: that video on the last card ('the second one' is 2)."),
-    source: lenient(exports_external.enum(["any", "finder_selection", "quicktime", "screen_recording", "phone", "web_download"]).optional().describe("How the video got here, only when the user said so. finder_selection: selected in Finder. quicktime: open in QuickTime Player. screen_recording, phone, or web_download (saved from a website or browser). The Downloads folder is folders, not web_download.")),
+    source: lenient(exports_external.enum(["any", "finder_selection", "quicktime", "screen_recording", "phone", "web_download"]).optional().describe("How the video got here, only when the user said so. finder_selection: selected in Finder or File Explorer. quicktime: open in QuickTime Player. screen_recording, phone, or web_download (saved from a website or browser). The Downloads folder is folders, not web_download.")),
     orientation: exports_external.enum(["vertical", "landscape", "square"]).optional().describe("Only videos of this shape."),
     added_after: exports_external.string().max(40).optional().describe("ISO date-time: only videos added after it."),
     added_before: exports_external.string().max(40).optional().describe("ISO date-time: only videos added before it."),
     min_duration_sec: exports_external.number().min(0).max(36000).optional().describe("Only videos at least this long, in seconds."),
     max_duration_sec: exports_external.number().min(0).max(36000).optional().describe("Only videos at most this long, in seconds."),
-    reveal: exports_external.boolean().optional().describe("Also show the chosen video in Finder (when the user asks to see where it is)."),
-    folders: exports_external.array(exports_external.enum(["Downloads", "Desktop", "Movies"])).optional().describe("Folders to look in ('from downloads' is Downloads). All three when left out; a name match in another folder is still found."),
+    reveal: exports_external.boolean().optional().describe("Also show the chosen video in Finder or File Explorer (when the user asks to see where it is)."),
+    folders: exports_external.array(exports_external.enum(["Downloads", "Desktop", "Movies", "Videos"])).optional().describe("Folders to look in ('from downloads' is Downloads). All three when left out; a name match in another folder is still found."),
     limit: exports_external.number().int().min(1).max(6).default(5).describe("How many videos to return, 1-6 (default 5).")
   }).strict(),
   find_recent_images: exports_external.object({
     query: exports_external.string().max(80).optional().describe("Words the user said about the photos or their folder, such as 'voice clone safety' or 'beach'. A folder whose name matches comes back whole, in name order."),
     source: exports_external.enum(["any", "screenshots", "recent_batch"]).default("any").describe("any: the newest images. screenshots: screenshots only. recent_batch: the newest group that arrived together, such as an AirDrop."),
-    folders: exports_external.array(exports_external.enum(["Downloads", "Desktop", "Pictures", "Screenshots"])).optional().describe("Folders to look in; Screenshots is this Mac's screenshot folder. All four when left out."),
+    folders: exports_external.array(exports_external.enum(["Downloads", "Desktop", "Pictures", "Screenshots"])).optional().describe("Folders to look in; Screenshots is the computer's screenshot folder. All four when left out."),
     since_hours: exports_external.number().int().min(1).max(720).optional().describe("Only images added in the last this-many hours (1-720)."),
     limit: exports_external.number().int().min(1).max(35).default(10).describe("How many images to return, 1-35 (default 10).")
   }).strict(),
@@ -25989,22 +26015,228 @@ function handlerFor(name) {
   return HANDLERS[name];
 }
 
+// src/windows.ts
+import { mkdtempSync as mkdtempSync3, readFileSync as readFileSync5, rmSync as rmSync4, statSync as statSync7, writeFileSync as writeFileSync4 } from "fs";
+import { tmpdir as tmpdir4 } from "os";
+import { basename as basename10, join as join7 } from "path";
+var WINDOWS_SCRIPT = String.raw`param([string]$JobFile)
+$ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+$j = Get-Content -LiteralPath $JobFile -Raw -Encoding UTF8 | ConvertFrom-Json
+function Offline([string]$p) { return (([int][IO.File]::GetAttributes($p) -band 0x441000) -ne 0) }
+function Open-Photo([string]$p) {
+  if (Offline $p) { throw 'offline' }
+  $ms = [IO.MemoryStream]::new([IO.File]::ReadAllBytes($p), $false)
+  $orientation = 1
+  try { $im = [Drawing.Image]::FromStream($ms, $true, $true) }
+  catch {
+    $ms.Dispose()
+    Add-Type -AssemblyName PresentationCore
+    $decoder = [Windows.Media.Imaging.BitmapDecoder]::Create([Uri]$p, [Windows.Media.Imaging.BitmapCreateOptions]::PreservePixelFormat, [Windows.Media.Imaging.BitmapCacheOption]::OnLoad)
+    $frame = $decoder.Frames[0]
+    foreach ($q in @('/app1/ifd/{ushort=274}', '/ifd/{ushort=274}')) {
+      try { $v = $frame.Metadata.GetQuery($q); if ($v) { $orientation = [int]$v; break } } catch {}
+    }
+    $enc = New-Object Windows.Media.Imaging.PngBitmapEncoder
+    $enc.Frames.Add([Windows.Media.Imaging.BitmapFrame]::Create($frame))
+    $ms = New-Object IO.MemoryStream
+    $enc.Save($ms); $ms.Position = 0
+    $im = [Drawing.Image]::FromStream($ms, $true, $true)
+  }
+  if ($im.PropertyIdList -contains 274) { $orientation = [BitConverter]::ToUInt16($im.GetPropertyItem(274).Value, 0) }
+  return @{ image = $im; stream = $ms; orientation = $orientation }
+}
+try {
+  switch ($j.operation) {
+    'folders' {
+      $r = Get-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders'
+      $out = @{}
+      foreach ($pair in @(@('Downloads','{374DE290-123F-4565-9164-39C4925E467B}'),@('Desktop','Desktop'),@('Pictures','My Pictures'),@('Movies','My Video'))) {
+        $v = $r.($pair[1]); if ($v) { $out[$pair[0]] = [Environment]::ExpandEnvironmentVariables($v) }
+      }
+      ConvertTo-Json -InputObject $out -Compress
+    }
+    'attributes' {
+      $out = @($j.paths | ForEach-Object { try { @{ path = $_; offline = (Offline $_) } } catch { @{ path = $_; offline = $true } } })
+      ConvertTo-Json -InputObject $out -Compress
+    }
+    'selection' {
+      $out = @(); $shell = New-Object -ComObject Shell.Application
+      foreach ($w in @($shell.Windows())) {
+        try { if ([IO.Path]::GetFileName($w.FullName) -ieq 'explorer.exe') { foreach ($item in @($w.Document.SelectedItems())) { if ($out.Count -lt 20) { $out += [string]$item.Path } } } } catch {}
+      }
+      [Console]::Write(($out -join [char]10))
+    }
+    'clipboard' { Set-Clipboard -Value ([string]$j.text) }
+    default {
+      Add-Type -AssemblyName System.Drawing
+      $out = @()
+      foreach ($job in @($j.jobs)) {
+        $photo = $null; $bmp = $null; $g = $null
+        try {
+          $photo = Open-Photo $job.source; $im = $photo.image
+          if ($j.operation -eq 'probe') {
+            $fmt = [IO.Path]::GetExtension($job.source).TrimStart('.').ToLowerInvariant(); if ($fmt -eq 'jpg') { $fmt = 'jpeg' }
+            $out += @{ path = $job.source; width = $im.Width; height = $im.Height; format = $fmt; alpha = ([Drawing.Image]::IsAlphaPixelFormat($im.PixelFormat) -or (($im.Flags -band 2) -ne 0)) }
+            continue
+          }
+          $flips = @('RotateNoneFlipNone','RotateNoneFlipNone','RotateNoneFlipX','Rotate180FlipNone','Rotate180FlipX','Rotate90FlipX','Rotate90FlipNone','Rotate270FlipX','Rotate270FlipNone')
+          $o = [Math]::Max(1, [Math]::Min(8, [int]$photo.orientation)); $im.RotateFlip([Enum]::Parse([Drawing.RotateFlipType], $flips[$o]))
+          $iw = $im.Width; $ih = $im.Height; $w = $iw; $h = $ih; $x = 0.0; $y = 0.0; $dw = [double]$iw; $dh = [double]$ih
+          switch ($job.mode) {
+            'fit' { $s = [Math]::Min(1, [Math]::Min(1920.0 / [Math]::Max($iw,$ih),1080.0 / [Math]::Min($iw,$ih))); $w = [int][Math]::Round($iw*$s); $h = [int][Math]::Round($ih*$s); $dw=$w; $dh=$h }
+            'crop' { $w=[int]$job.width; $h=[int]$job.height; $s=[Math]::Max($w/[double]$iw,$h/[double]$ih); $dw=$iw*$s; $dh=$ih*$s; $x=($w-$dw)/2; $y=($h-$dh)/2 }
+            'stretch' { $w=[int]$job.width; $h=[int]$job.height; $dw=$w; $dh=$h }
+            'resize' { if ($iw -gt [int]$job.width) { $w=[int]$job.width; $h=[int][Math]::Round($ih*$w/[double]$iw); $dw=$w; $dh=$h } }
+          }
+          if ($w -lt 1 -or $h -lt 1 -or $w -gt 32768 -or $h -gt 32768) { throw 'dimensions' }
+          $bmp = [Drawing.Bitmap]::new($w,$h,[Drawing.Imaging.PixelFormat]::Format24bppRgb)
+          $g = [Drawing.Graphics]::FromImage($bmp); $g.Clear([Drawing.Color]::White)
+          $g.InterpolationMode = [Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+          $g.DrawImage($im, [Drawing.RectangleF]::new([single]$x,[single]$y,[single]$dw,[single]$dh))
+          if ($job.format -eq 'bmp') { $bmp.Save([string]$job.dest,[Drawing.Imaging.ImageFormat]::Bmp) }
+          else {
+            $codec = [Drawing.Imaging.ImageCodecInfo]::GetImageEncoders() | Where-Object MimeType -eq 'image/jpeg' | Select-Object -First 1
+            $ep = [Drawing.Imaging.EncoderParameters]::new(1)
+            try { $ep.Param[0] = [Drawing.Imaging.EncoderParameter]::new([Drawing.Imaging.Encoder]::Quality,[long]$job.quality); $bmp.Save([string]$job.dest,$codec,$ep) } finally { $ep.Dispose() }
+          }
+          $out += @{ path = $job.dest; width = $w; height = $h }
+        } catch { $out += @{ path = $job.source; failed = $true } }
+        finally { if ($g) { $g.Dispose() }; if ($bmp) { $bmp.Dispose() }; if ($photo) { $photo.image.Dispose(); $photo.stream.Dispose() } }
+      }
+      ConvertTo-Json -InputObject $out -Compress
+    }
+  }
+} catch { [Console]::Error.WriteLine('Windows operation failed'); exit 1 }
+`;
+var empty = (code = 0, stdout = "") => ({ code, stdout, stderr: "", timedOut: false });
+async function windowsOperation(base2, job, opts = {}) {
+  const dir = mkdtempSync3(join7(tmpdir4(), "tiktok-windows-"));
+  try {
+    const script = join7(dir, "native.ps1"), data = join7(dir, "job.json");
+    writeFileSync4(script, "\uFEFF" + WINDOWS_SCRIPT, { mode: 384 });
+    writeFileSync4(data, JSON.stringify(job), { mode: 384 });
+    return await base2(["powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-STA", "-ExecutionPolicy", "Bypass", "-File", script, "-JobFile", data], opts);
+  } finally {
+    rmSync4(dir, { recursive: true, force: true });
+  }
+}
+function windowsRunner(base2) {
+  return async (cmd, opts = {}) => {
+    const name = basename10(cmd[0]).toLowerCase();
+    if (name === "voiceos-windows")
+      return windowsOperation(base2, { operation: cmd[1], paths: cmd.slice(2) }, opts);
+    if (name === "pbcopy")
+      return windowsOperation(base2, { operation: "clipboard", text: opts.stdin ?? "" }, opts);
+    if (name === "mdls" || name === "xattr" || name === "qlmanage")
+      return empty(127);
+    if (name === "defaults")
+      return empty(0, join7(process.env.USERPROFILE ?? "", "Pictures", "Screenshots"));
+    if (name === "open" && cmd[1] === "-R")
+      return base2(["explorer.exe", `/select,${cmd[2]}`], opts);
+    if (name === "osascript") {
+      if (cmd.includes("JavaScript")) {
+        const paths = cmd.slice(cmd.indexOf("-e") + 2);
+        return empty(0, JSON.stringify(paths.map((p) => {
+          try {
+            return statSync7(p).birthtimeMs || null;
+          } catch {
+            return null;
+          }
+        })));
+      }
+      if (cmd.some((s2) => s2.includes('tell application "Finder"')))
+        return windowsOperation(base2, { operation: "selection" }, opts);
+      return empty(0, "NOT_RUNNING");
+    }
+    if (name !== "sips")
+      return base2(cmd, opts);
+    const args = cmd.slice(1), inputs = [], props = [];
+    let dest = "", script = "", width = 0, height = 0, quality = 85, format = "jpeg";
+    for (let i = 0;i < args.length; i++) {
+      const a = args[i];
+      if (a === "-g")
+        props.push(args[++i]);
+      else if (a === "-j")
+        script = args[++i];
+      else if (a === "-o" || a === "--out")
+        dest = args[++i];
+      else if (a === "--matchTo")
+        i++;
+      else if (a === "-s") {
+        const k = args[++i], v = args[++i];
+        if (k === "formatOptions")
+          quality = Number(v);
+        if (k === "format")
+          format = v;
+      } else if (a === "--resampleWidth")
+        width = Number(args[++i]);
+      else if (a === "-z") {
+        height = Number(args[++i]);
+        width = Number(args[++i]);
+      } else if (a.startsWith("-"))
+        return empty(127);
+      else
+        inputs.push(a);
+    }
+    if (props.length) {
+      const r = await windowsOperation(base2, { operation: "probe", jobs: inputs.map((source) => ({ source })) }, opts);
+      if (r.code || r.timedOut)
+        return r;
+      try {
+        const rows = JSON.parse(r.stdout);
+        return { ...r, stdout: rows.map((x) => `${x.path}:
+  pixelWidth: ${x.width ?? 0}
+  pixelHeight: ${x.height ?? 0}
+  format: ${x.format ?? ""}
+  hasAlpha: ${x.alpha ? "yes" : "no"}`).join(`
+`) };
+      } catch {
+        return empty(1);
+      }
+    }
+    let mode = height ? "stretch" : width ? "resize" : "copy";
+    if (script) {
+      const text = readFileSync5(script, "utf8");
+      if (text.startsWith("// sips-orient.js:"))
+        mode = "fit";
+      else {
+        const m = /^\/\/ tiktok thumbs: orient, centre-crop to (\d+)x(\d+),/.exec(text);
+        if (!m)
+          return empty(127);
+        mode = "crop";
+        width = Number(m[1]);
+        height = Number(m[2]);
+      }
+    }
+    const isDir2 = (() => {
+      try {
+        return statSync7(dest).isDirectory();
+      } catch {
+        return false;
+      }
+    })();
+    const jobs = inputs.map((source, i) => ({ source, dest: script ? join7(dest, mode === "fit" ? `${i}.oriented.jpg` : `${i}.jpg`) : isDir2 ? join7(dest, basename10(source)) : dest, mode, width, height, quality, format }));
+    return windowsOperation(base2, { operation: "convert", jobs }, opts);
+  };
+}
+
 // src/mcpServer.ts
 var DEFAULT_POLL_SCHEDULE_MS = [5000, 1e4, 20000, 40000, 60000];
 var DEFAULT_POLL_MAX_MS = 30 * 60000;
 function createDeps(cfg, overrides = {}) {
   const clock2 = overrides.clock ?? realClock;
-  const runner = overrides.runner ?? run;
+  const runner = overrides.runner ?? (process.platform === "win32" ? windowsRunner(run) : run);
   return {
     cfg,
     clock: clock2,
     runner,
     client: overrides.client ?? new ComposioClient(cfg, { clock: clock2 }),
     tokens: overrides.tokens ?? new TokenStore(clock2),
-    spent: overrides.spent ?? new SpentReceipts(join7(cfg.stateDir, "spent-receipts.json"), clock2),
+    spent: overrides.spent ?? new SpentReceipts(join8(cfg.stateDir, "spent-receipts.json"), clock2),
     relay: overrides.relay ?? new RelayClient(cfg.relayBase, cfg.relayToken, { clock: clock2 }),
     limits: overrides.limits ?? createLimits(clock2),
-    ledger: overrides.ledger ?? new Ledger(clock2, { file: join7(cfg.stateDir, LEDGER_FILE), account: cfg.connectedAccountId }),
+    ledger: overrides.ledger ?? new Ledger(clock2, { file: join8(cfg.stateDir, LEDGER_FILE), account: cfg.connectedAccountId }),
     queue: overrides.queue ?? new WriteQueue,
     images: overrides.images ?? new RemoteImages({ runner, clock: clock2 }),
     preview: overrides.preview ?? ((path, info2, opts) => videoPreview(path, info2, runner, opts)),

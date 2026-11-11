@@ -32,7 +32,7 @@ export function ensureDir(dir: string, mode = 0o700): void {
   const st = statSync(dir);
   if (!st.isDirectory()) throw Object.assign(new Error("not a directory"), { code: "ENOTDIR" });
   const current = st.mode & 0o777;
-  if (current & ~mode) {
+  if (process.platform !== "win32" && current & ~mode) {
     try {
       chmodSync(dir, current & mode);
     } catch (error) {
@@ -89,7 +89,7 @@ export function writeJsonAtomic(file: string, value: unknown, mode = 0o600): voi
   let fd: number | undefined;
   try {
     fd = openSync(tmp, "wx", mode);
-    fchmodSync(fd, mode);
+    if (process.platform !== "win32") fchmodSync(fd, mode);
     for (let off = 0; off < bytes.length; ) off += writeSync(fd, bytes, off, bytes.length - off);
     fsyncSync(fd);
     closeSync(fd);

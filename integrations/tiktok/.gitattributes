@@ -3,6 +3,3 @@ server.ts linguist-generated=true
 voiceos.integration.json linguist-generated=true
 # Raw rgb24 micro-preview frames (tests/microPreview.test.ts): bytes, never text.
 tests/fixtures/micro/*.rgb binary
-
-# Keep the Studio Windows launcher CRLF on checkout, LF in Git.
-run.cmd text eol=crlf

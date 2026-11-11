@@ -24,7 +24,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, utimesSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { TIKTOK_TOOLKIT_VERSION } from "./src/config.ts";
 import { randomNonce, receiptCore } from "./src/receipts.ts";
@@ -71,18 +71,18 @@ const VOICEOS_BUN = "/Applications/VoiceOS.app/Contents/Resources/bun-runtime/bu
  * Bun that's the user's version, not the bundled one (found 2026-11-06: Bun 1.3.13 in ~/.bun/bin ended the
  * server's stdin after every upload). Launch the same one.
  */
-const HOST_BUN = [
+const HOST_BUN = process.platform === "win32" ? process.execPath : [
   "/opt/homebrew/bin/bun", "/usr/local/bin/bun", join(homedir(), ".bun", "bin", "bun"), join(homedir(), ".local", "bin", "bun"), VOICEOS_BUN,
 ].find((p) => existsSync(p));
 function hostEnvironment(setupValues: Record<string, string>): Record<string, string> {
   const env: Record<string, string> = {};
-  for (const name of ["HOME", "LOGNAME", "SHELL", "TERM", "USER"]) {
+  for (const name of ["HOME", "LOGNAME", "SHELL", "TERM", "USER", "SystemRoot", "WINDIR", "COMSPEC", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "TEMP", "TMP", "PATHEXT"]) {
     const value = process.env[name];
     if (value !== undefined && !value.startsWith("()")) env[name] = value;
   }
   const bun = existsSync(VOICEOS_BUN) ? VOICEOS_BUN : undefined;
-  const path = ["/opt/homebrew/bin", "/usr/local/bin", join(homedir(), ".bun", "bin"), join(homedir(), ".local", "bin"), "/usr/bin", "/bin", "/usr/sbin", "/sbin", ...(bun ? [dirname(bun)] : [])];
-  return { ...env, BUN_JSC_useJIT: "false", ...setupValues, ...(bun ? { VOICEOS_BUN: bun } : {}), PATH: [...new Set(path)].join(":") };
+  const path = process.platform === "win32" ? [dirname(process.execPath), ...(process.env.PATH ?? "").split(delimiter)] : ["/opt/homebrew/bin", "/usr/local/bin", join(homedir(), ".bun", "bin"), join(homedir(), ".local", "bin"), "/usr/bin", "/bin", "/usr/sbin", "/sbin", ...(bun ? [dirname(bun)] : [])];
+  return { ...env, BUN_JSC_useJIT: "false", ...setupValues, ...(bun ? { VOICEOS_BUN: bun } : {}), PATH: [...new Set(path)].join(delimiter) };
 }
 
 // --package: a teammate's first launch. Only the five files the share service packages, in an empty folder,

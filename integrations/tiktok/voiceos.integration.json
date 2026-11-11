@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "id": "com.voiceos.generated.tiktok",
-  "version": "1.2.1",
+  "version": "1.3.0",
   "name": "TikTok",
-  "summary": "Check your TikTok stats and post details, and send videos and photo carousels from your Mac to TikTok by voice.",
-  "description": "Reads your TikTok profile stats and public post details, checks post status, and sends videos from your Mac to your TikTok drafts. Direct posting is available when you ask for it and is private (Only me) until TikTok audits the app. Every upload asks you to confirm first. Photo carousels (up to 35 photos) go through a short-lived media relay and need the relay token in settings. To keep track of the video you're working on across turns (\"make it a post\", \"the other one\"), it reads what you say to the VoiceOS agent as you say it and adds a short note about that video; it keeps nothing you say, and the note goes only to the VoiceOS agent.",
+  "summary": "Check your TikTok stats and post details, and send videos and photo carousels from your computer to TikTok by voice.",
+  "description": "Reads your TikTok profile stats and public post details, checks post status, and sends videos from your computer to your TikTok drafts. Direct posting is available when you ask for it and is private (Only me) until TikTok audits the app. Every upload asks you to confirm first. Photo carousels (up to 35 photos) switch on once the media relay is set up. To keep track of the video you're working on across turns (\"make it a post\", \"the other one\"), it reads what you say to the VoiceOS agent as you say it and adds a short note about that video; it keeps nothing you say, and the note goes only to the VoiceOS agent.",
   "setupGuide": {
     "title": "Set up TikTok",
     "blocks": [
@@ -71,7 +71,8 @@
   ],
   "icon": "icon.png",
   "supportedPlatforms": [
-    "darwin"
+    "darwin",
+    "win32"
   ],
   "publisher": {
     "id": "pub_user",
@@ -91,8 +92,7 @@
         "backend.composio.dev",
         "temp.4d4f16c61d89ec64e760039c4ec50717.r2.cloudflarestorage.com",
         "p16-common-sign.tiktokcdn-us.com",
-        "p19-common-sign.tiktokcdn-us.com",
-        "tiktok-media-relay.rishabh-rb.workers.dev"
+        "p19-common-sign.tiktokcdn-us.com"
       ]
     },
     {
@@ -132,7 +132,7 @@
     {
       "name": "MEDIA_RELAY_TOKEN",
       "title": "Media relay token (photo carousels, temporary)",
-      "description": "Temporary: the media relay token for photo carousels. Videos work without it.",
+      "description": "Leave empty until photo carousels are live. Videos work without it.",
       "type": "password"
     }
   ],
@@ -242,8 +242,8 @@
     },
     {
       "name": "find_recent_videos",
-      "title": "Find recent videos on this Mac",
-      "description": "Agent-only. Finds the video on this Mac the user means (Downloads, Desktop, Movies, or one they point at) by its metadata. Use when the user refers to a video: pass their own words in describe ('the vertical one from yesterday', 'my screen recording', 'the other one'). For it, that or the same video set pick 'current'; for 'the second one' pick 2; for the Finder selection or QuickTime, set source. Use when the user asks to show, reveal or open the video in Finder: set reveal true with pick 'current'. Follow next; when confidence is ambiguous, ask its one short question. Returns a file_token and preview per video for upload_video and publish_video.",
+      "title": "Find recent videos on this computer",
+      "description": "Agent-only. Finds the video on this computer the user means (Downloads, Desktop, Movies/Videos, or one they point at) by its metadata. Use when the user refers to a video: pass their own words in describe ('the vertical one from yesterday', 'my screen recording', 'the other one'). For it, that or the same video set pick 'current'; for 'the second one' pick 2; for the Finder/File Explorer selection or QuickTime (macOS), set source. Use when the user asks to show, reveal or open the video in Finder or File Explorer: set reveal true with pick 'current'. Follow next; when confidence is ambiguous, ask its one short question. Returns a file_token and preview per video for upload_video and publish_video.",
       "visibility": "agent",
       "inputSchema": {
         "type": "object",
@@ -282,7 +282,7 @@
               "phone",
               "web_download"
             ],
-            "description": "How the video got here, only when the user said so. finder_selection: selected in Finder. quicktime: open in QuickTime Player. screen_recording, phone, or web_download (saved from a website or browser). The Downloads folder is folders, not web_download."
+            "description": "How the video got here, only when the user said so. finder_selection: selected in Finder or File Explorer. quicktime: open in QuickTime Player. screen_recording, phone, or web_download (saved from a website or browser). The Downloads folder is folders, not web_download."
           },
           "orientation": {
             "type": "string",
@@ -317,7 +317,7 @@
           },
           "reveal": {
             "type": "boolean",
-            "description": "Also show the chosen video in Finder (when the user asks to see where it is)."
+            "description": "Also show the chosen video in Finder or File Explorer (when the user asks to see where it is)."
           },
           "folders": {
             "type": "array",
@@ -326,7 +326,8 @@
               "enum": [
                 "Downloads",
                 "Desktop",
-                "Movies"
+                "Movies",
+                "Videos"
               ]
             },
             "description": "Folders to look in ('from downloads' is Downloads). All three when left out; a name match in another folder is still found."
@@ -344,9 +345,11 @@
     },
     {
       "name": "find_recent_images",
-      "title": "Find recent photos and screenshots on this Mac",
-      "description": "Agent-only. List the newest images (.jpg .jpeg .png .heic .heif .webp) in Downloads, Desktop, Pictures and the screenshot folder. Use when the user refers to photos or screenshots on this Mac: source 'screenshots' for screenshots, 'recent_batch' for a group that arrived together (an AirDrop). Returns image_tokens for prepare_photo_post; file paths come only from this tool.",
+      "title": "Find recent photos and screenshots on this computer",
+      "description": "Agent-only. List the newest images (.jpg .jpeg .png .heic .heif .webp) in Downloads, Desktop, Pictures and the screenshot folder. Use when the user refers to photos or screenshots on this computer: source 'screenshots' for screenshots, 'recent_batch' for a group that arrived together (an AirDrop). Returns image_tokens for prepare_photo_post; file paths come only from this tool.",
       "visibility": "agent",
+      "disabled": true,
+      "disabledReason": "Photo carousels need the media relay, which isn't set up yet.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -376,7 +379,7 @@
                 "Screenshots"
               ]
             },
-            "description": "Folders to look in; Screenshots is this Mac's screenshot folder. All four when left out."
+            "description": "Folders to look in; Screenshots is the computer's screenshot folder. All four when left out."
           },
           "since_hours": {
             "type": "integer",
@@ -400,6 +403,8 @@
       "title": "Prepare a TikTok photo carousel",
       "description": "Agent-only, local only (nothing is uploaded). Use when building a photo carousel: takes image_tokens in carousel order and a cover index, checks count (1-35), formats and sizes, and returns bundle_token, preview, count_label, order_label and a warning line. A cover-only change keeps image_tokens in their existing order and changes cover_index. Call again after any reorder, add, remove or cover change.",
       "visibility": "agent",
+      "disabled": true,
+      "disabledReason": "Photo carousels need the media relay, which isn't set up yet.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -786,6 +791,8 @@
         "mode": "background",
         "estimatedDurationMs": 120000
       },
+      "disabled": true,
+      "disabledReason": "Photo carousels need the media relay, which isn't set up yet.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -882,6 +889,8 @@
         "mode": "background",
         "estimatedDurationMs": 180000
       },
+      "disabled": true,
+      "disabledReason": "Photo carousels need the media relay, which isn't set up yet.",
       "inputSchema": {
         "type": "object",
         "properties": {

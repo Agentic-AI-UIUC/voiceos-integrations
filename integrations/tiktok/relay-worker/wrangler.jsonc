@@ -16,9 +16,6 @@
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Batch"] }],
   "vars": {
     // TikTok URL-property signature file(s), served at /<name> and /p/<name>.
-    "TIKTOK_VERIFICATION": {
-      // URL prefix https://tiktok-media-relay.rishabh-rb.workers.dev/p/ on sandbox "VoiceOS Testing" (app 7703978485106624532), added 2026-11-05.
-      "tiktokcNdveGUUcXcAZKpDDDuFXiaEcugEhynw.txt": "tiktok-developers-site-verification=cNdveGUUcXcAZKpDDDuFXiaEcugEhynw"
-    }
+    "TIKTOK_VERIFICATION": {}
   }
 }

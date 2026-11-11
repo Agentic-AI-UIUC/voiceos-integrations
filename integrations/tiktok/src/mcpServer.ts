@@ -28,6 +28,7 @@ import { TOOL_META, handlerFor, inputSchemaFor, type ToolExtra } from "./tools.t
 import { ChannelMemo, ledgerStatusCard } from "./tools/reads.ts";
 import { SOFT_DEADLINE_MS } from "./tools/writes.ts";
 import { Session, type SessionLike } from "./session.ts";
+import { windowsRunner } from "./windows.ts";
 import { TokenStore } from "./tokens.ts";
 import type {
   BundleImage, BundleRef, Clock, CredentialsResult, FileRef, FoundImage, FoundVideo, ImageRef, PostRef, Runner, StagedFile, WriteTool,
@@ -147,7 +148,7 @@ export const DEFAULT_POLL_MAX_MS = 30 * 60_000;
 /** The real dependencies for this configuration, with any of them replaced. Constructs nothing that does I/O up front. */
 export function createDeps(cfg: Config, overrides: Partial<Deps> = {}): Deps {
   const clock = overrides.clock ?? realClock;
-  const runner = overrides.runner ?? run;
+  const runner = overrides.runner ?? (process.platform === "win32" ? windowsRunner(run) : run);
   return {
     cfg,
     clock,

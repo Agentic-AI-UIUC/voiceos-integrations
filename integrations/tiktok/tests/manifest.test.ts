@@ -33,8 +33,8 @@ const APPROVED: Record<string, [string, "user" | "agent", number | null]> = {
   query_videos: ["TikTok post details", "user", null],
   fetch_publish_status: ["TikTok post status", "user", null],
   query_creator_info: ["TikTok creator posting options", "agent", null],
-  find_recent_videos: ["Find recent videos on this Mac", "agent", null],
-  find_recent_images: ["Find recent photos and screenshots on this Mac", "agent", null],
+  find_recent_videos: ["Find recent videos on this computer", "agent", null],
+  find_recent_images: ["Find recent photos and screenshots on this computer", "agent", null],
   prepare_photo_post: ["Prepare a TikTok photo carousel", "agent", null],
   upload_video: ["Send video to TikTok drafts", "user", 120_000],
   publish_video: ["Post video to TikTok", "user", 180_000],
@@ -98,14 +98,14 @@ describe("identity and runtime (must not drift from the installed integration)",
     expect(manifest.version).toMatch(/^\d+\.\d+\.\d+$/);
     expect(manifest.version).toBe(JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).version);
     expect(manifest.name).toBe("TikTok");
-    expect(manifest.summary).toBe("Check your TikTok stats and post details, and send videos and photo carousels from your Mac to TikTok by voice.");
+    expect(manifest.summary).toBe("Check your TikTok stats and post details, and send videos and photo carousels from your computer to TikTok by voice.");
     expect(manifest.summary.length).toBeLessThanOrEqual(140);
     expect(manifest.publisher).toEqual({ id: "pub_user", name: "Made in VoiceOS" });
     // The share review rejects a runtime that spawns a shell; this one needs only the five shipped files.
     expect(manifest.runtime).toEqual({ kind: "local-mcp", command: "bun", args: ["server.ts"] });
     expect(manifest.icon).toBe("icon.png");
     expect(existsSync(join(ROOT, "icon.png"))).toBe(true);
-    expect(manifest.supportedPlatforms).toEqual(["darwin"]);
+    expect(manifest.supportedPlatforms).toEqual(["darwin", "win32"]);
     expect(manifest.categories).toEqual(["Social"]);
     for (const absent of ["auth", "intents"]) expect(manifest[absent]).toBeUndefined();
     // The transcript hook (src/conversation.ts) and nothing else: no dictation, no tool hooks.
@@ -130,8 +130,7 @@ describe("permissions", () => {
       // this permission for any hook (crossFieldChecks, 0.1.40).
       { kind: "transcript", scope: "agent" },
     ]);
-    // The deployed relay (relay-worker/): https, its host only, no path or trailing slash (src/relay.ts adds /v1/…).
-    expect(MEDIA_RELAY_BASE).toBe("https://tiktok-media-relay.rishabh-rb.workers.dev");
+    if (MEDIA_RELAY_BASE) expect(new URL(MEDIA_RELAY_BASE).protocol).toBe("https:");
     // Exact hosts: VoiceOS has no wildcards, and src/covers.ts fetches only these.
     for (const h of TIKTOK_IMAGE_HOSTS) expect(h).toMatch(/^p\d+-[a-z0-9-]+\.tiktokcdn(-us)?\.com$/);
   });
@@ -209,7 +208,7 @@ describe("setup fields", () => {
   });
 
   test("every variable src/ reads is declared (an undeclared process.env.X is silently empty), and every field is read", () => {
-    const OS_VARS = new Set(["HOME", "TMPDIR", "APPDATA", "USER", "LOGNAME", "PATH", "SHELL", "TERM", "LANG", "LC_ALL", "LC_CTYPE", "TZ"]);
+    const OS_VARS = new Set(["HOME", "TMPDIR", "APPDATA", "USERPROFILE", "USER", "LOGNAME", "PATH", "SHELL", "TERM", "LANG", "LC_ALL", "LC_CTYPE", "TZ"]);
     const source = sourceFiles(join(ROOT, "src")).map((f) => readFileSync(f, "utf8")).join("\n");
     // process.env.X, Bun.env.X, env?.X, env["X"] anywhere; config.ts also reads through its text("X") helper.
     const config = readFileSync(join(ROOT, "src/config.ts"), "utf8");
@@ -564,8 +563,6 @@ describe("what the share package runs", () => {
       expect(WRITES).not.toContain(name);
       expect(byName[name].disabled).toBeUndefined();
     }
-    const studio = JSON.parse(readFileSync(join(ROOT, "studio-meta.json"), "utf8"));
-    expect(typeof studio.originalPrompt).toBe("string");
-    for (const p of studio.preview.toolPreviews) expect(names).toContain(p.tool);
+
   });
 });

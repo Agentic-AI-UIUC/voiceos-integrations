@@ -691,15 +691,15 @@ function parseApps(c: Ctx): void {
   // Finder: reveal ("show it in Finder") before selection ("the one selected in Finder")
   // Only the verb and "in Finder" go: "show me that video in Finder" keeps "that video" (the one in progress).
   let reveal = false;
-  take(c, /\b(?:show|reveal|open|find|locate|highlight|point to)(?:\s+me)?\b(?=(?:\s+[^\s]+){0,5}?\s+(?:in|on)\s+(?:the\s+)?finder\b)|\breveal\b|\bwhere(?:'s| is| did)\b(?=\s+(?:it|that|this|the)\b)|\bopen (?:the|its|that) (?:folder|location)\b|\bshow me where\b/, () => {
+  take(c, /\b(?:show|reveal|open|find|locate|highlight|point to)(?:\s+me)?\b(?=(?:\s+[^\s]+){0,5}?\s+(?:in|on)\s+(?:the\s+)?(?:finder|file explorer|windows explorer)\b)|\breveal\b|\bwhere(?:'s| is| did)\b(?=\s+(?:it|that|this|the)\b)|\bopen (?:the|its|that) (?:folder|location)\b|\bshow me where\b/, () => {
     reveal = true;
   });
   if (reveal) {
-    take(c, /\b(?:in|on)\s+(?:the\s+)?finder\b|\b(?:saved|stored|located|go|live)\s*$/, () => {});
+    take(c, /\b(?:in|on)\s+(?:the\s+)?(?:finder|file explorer|windows explorer)\b|\b(?:saved|stored|located|go|live)\s*$/, () => {});
     c.d.reveal = true;
     say(c, "show it in Finder");
   }
-  take(c, /\b(?:(?:i(?:'ve| have)?|i've got|i got) )?(?:selected|highlighted|clicked(?: on)?)(?: (?:in|on) (?:the )?finder)?\b|\b(?:in|on) (?:the )?finder\b|\bfinder selection\b|\bthe selection\b|\bselected (?:one|video|file)\b/, () => {
+  take(c, /\b(?:(?:i(?:'ve| have)?|i've got|i got) )?(?:selected|highlighted|clicked(?: on)?)(?: (?:in|on) (?:the )?finder)?\b|\b(?:in|on) (?:the )?(?:finder|file explorer|windows explorer)\b|\b(?:finder|file explorer|windows explorer) selection\b|\bthe selection\b|\bselected (?:one|video|file)\b/, () => {
     c.d.finder = true;
     say(c, "selected in Finder");
   });

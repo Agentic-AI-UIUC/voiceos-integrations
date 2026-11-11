@@ -15,6 +15,7 @@
  * `folder` ("Downloads", "Movies/Exports"); logs carry counts only.
  */
 import { lstatSync, readdirSync, realpathSync, statSync, type Dirent } from "node:fs";
+import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { TikTokError } from "./errors.ts";
 import { mp4Details, mp4Info, sipsMeta, type VideoDetailsInfo, type VideoInfo } from "./media.ts";
@@ -235,14 +236,26 @@ const VIDEO_FOLDERS = ["Downloads", "Desktop", "Movies"];
 const IMAGE_FOLDERS = ["Downloads", "Desktop", "Pictures", "Screenshots"];
 
 async function resolveRoots(all: string[], home: string, folders: string[] | undefined, runner: Runner): Promise<Root[]> {
-  const want = new Set((folders ?? []).map((f) => String(f).trim().toLowerCase()));
+  const want = new Set((folders ?? []).map((f) => String(f).trim().toLowerCase().replace(/^videos$/, "movies")));
   let names = want.size ? all.filter((f) => want.has(f.toLowerCase())) : all;
   if (!names.length) names = all;
+  const native: Record<string, string> = {};
+  if (process.platform === "win32" && canon(home) === canon(homedir())) {
+    try {
+      const r = await runner(["voiceos-windows", "folders"], { timeoutMs: 5000 });
+      if (!r.code && !r.timedOut) {
+        const values = JSON.parse(r.stdout);
+        for (const [k, v] of Object.entries(values)) if (typeof v === "string" && isAbsolute(v)) native[k] = v;
+      }
+    } catch { /* Standard profile folders remain usable without the registry. */ }
+  }
   const homeKey = canon(home);
   const seen = new Set<string>();
   const roots: Root[] = [];
   for (const name of names) {
-    const path = name === "Screenshots" ? await screenshotFolder(home, runner) : join(home, name);
+    const path = native[name] ?? (process.platform === "win32" && name === "Screenshots" && !!native.Pictures ? join(native.Pictures ?? join(home, "Pictures"), "Screenshots") :
+      name === "Screenshots" ? await screenshotFolder(home, runner) :
+      process.platform === "win32" && name === "Movies" && isDir(join(home, "Videos")) ? join(home, "Videos") : join(home, name));
     const key = canon(path);
     if (seen.has(key)) continue; // e.g. the screenshot folder is ~/Downloads or ~/Desktop
     seen.add(key);
@@ -332,7 +345,7 @@ function scan(roots: Root[], supported: Set<string>, other: Set<string>, now: nu
         mtimeMs: st.mtimeMs,
         birthtimeMs: birth,
         upperMs: Math.max(st.ctimeMs || 0, birth, st.mtimeMs),
-        dataless: st.blocks === 0 && st.size > 4096,
+        dataless: process.platform === "darwin" && st.blocks === 0 && st.size > 4096,
         addedMs: birth || st.mtimeMs,
       });
     }
@@ -343,6 +356,16 @@ function scan(roots: Root[], supported: Set<string>, other: Set<string>, now: nu
 /** Date added for the candidates most likely to be shown (best query score, then newest ctime); everyone else keeps birthtime → mtime. */
 async function assignArrival(files: Candidate[], q: Query, runner: Runner): Promise<void> {
   if (!files.length) return;
+  if (process.platform === "win32") {
+    try {
+      const r = await runner(["voiceos-windows", "attributes", ...files.map(f => f.path)], { timeoutMs: 5000 });
+      if (!r.code && !r.timedOut) {
+        const rows = JSON.parse(r.stdout) as Array<{ path: string; offline: boolean }>;
+        const offline = new Set(rows.filter(x => x.offline).map(x => x.path));
+        for (let i = files.length - 1; i >= 0; i--) if (offline.has(files[i].path)) files.splice(i, 1);
+      }
+    } catch { /* Fakes and older hosts may not supply Windows attributes. */ }
+  }
   const pre = new Map(files.map((f) => [f, scoreName(q, f.name).score]));
   const pick = [...files].sort((a, b) => pre.get(b)! - pre.get(a)! || b.upperMs - a.upperMs).slice(0, JXA_CANDIDATES);
   const added = await dateAdded(
@@ -547,7 +570,7 @@ function candidateAt(path: string, home: string): Candidate | null {
     mtimeMs: st.mtimeMs,
     birthtimeMs: birth,
     upperMs: Math.max(st.ctimeMs || 0, birth, st.mtimeMs),
-    dataless: st.blocks === 0 && st.size > 4096,
+    dataless: process.platform === "darwin" && st.blocks === 0 && st.size > 4096,
     addedMs: birth || st.mtimeMs,
   };
 }

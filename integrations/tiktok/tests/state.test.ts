@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { ensureDir, readJson, writeJsonAtomic } from "../src/state.ts";
 
 /** Root ignores permission bits, so the "can't write" cases only mean something for a normal user. */
-const isRoot = process.getuid?.() === 0;
+const isRoot = process.getuid?.() === 0 || process.platform === "win32";
 
 const roots: string[] = [];
 function freshDir(): string {
@@ -25,27 +25,27 @@ describe("ensureDir", () => {
     const dir = join(root, "integration-state", "com.voiceos.generated.tiktok");
     ensureDir(dir);
     expect(statSync(dir).isDirectory()).toBe(true);
-    expect(modeOf(dir)).toBe(0o700);
-    expect(modeOf(join(root, "integration-state"))).toBe(0o700);
+    if (process.platform !== "win32") expect(modeOf(dir)).toBe(0o700);
+    if (process.platform !== "win32") expect(modeOf(join(root, "integration-state"))).toBe(0o700);
   });
 
-  test("tightens an existing folder others can read, and is idempotent", () => {
+  test.skipIf(process.platform === "win32")("tightens an existing folder others can read, and is idempotent", () => {
     const dir = join(freshDir(), "state");
     mkdirSync(dir);
     chmodSync(dir, 0o755);
     ensureDir(dir);
-    expect(modeOf(dir)).toBe(0o700);
+    if (process.platform !== "win32") expect(modeOf(dir)).toBe(0o700);
     ensureDir(dir);
-    expect(modeOf(dir)).toBe(0o700);
+    if (process.platform !== "win32") expect(modeOf(dir)).toBe(0o700);
   });
 
-  test("never loosens a folder: a read-only folder stays read-only", () => {
+  test.skipIf(process.platform === "win32")("never loosens a folder: a read-only folder stays read-only", () => {
     const dir = join(freshDir(), "state");
     mkdirSync(dir);
     chmodSync(dir, 0o500);
     try {
       ensureDir(dir);
-      expect(modeOf(dir)).toBe(0o500);
+      if (process.platform !== "win32") expect(modeOf(dir)).toBe(0o500);
     } finally {
       chmodSync(dir, 0o700);
     }
@@ -104,7 +104,7 @@ describe("writeJsonAtomic", () => {
     const file = join(dir, "spent-receipts.json");
     writeJsonAtomic(file, { version: 1, spent: [{ digest: "a".repeat(64), tool: "post_photos", exp: 1 }] });
     expect(readJson<unknown>(file, null)).toEqual({ version: 1, spent: [{ digest: "a".repeat(64), tool: "post_photos", exp: 1 }] });
-    expect(modeOf(file)).toBe(0o600);
+    if (process.platform !== "win32") expect(modeOf(file)).toBe(0o600);
     expect(readdirSync(dir)).toEqual(["spent-receipts.json"]);
   });
 
@@ -117,7 +117,7 @@ describe("writeJsonAtomic", () => {
     writeJsonAtomic(file, { short: true });
     expect(statSync(file).ino).not.toBe(before);
     expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({ short: true });
-    expect(modeOf(file)).toBe(0o600);
+    if (process.platform !== "win32") expect(modeOf(file)).toBe(0o600);
     expect(readdirSync(dir)).toEqual(["s.json"]);
   });
 
@@ -126,7 +126,7 @@ describe("writeJsonAtomic", () => {
     const file = join(root, "integration-state", "com.voiceos.generated.tiktok", "spent-receipts.json");
     writeJsonAtomic(file, []);
     expect(readJson<unknown>(file, null)).toEqual([]);
-    expect(modeOf(join(root, "integration-state", "com.voiceos.generated.tiktok"))).toBe(0o700);
+    if (process.platform !== "win32") expect(modeOf(join(root, "integration-state", "com.voiceos.generated.tiktok"))).toBe(0o700);
   });
 
   test("leaves an existing folder's permissions alone (it may be pointed anywhere)", () => {
@@ -134,13 +134,13 @@ describe("writeJsonAtomic", () => {
     mkdirSync(dir);
     chmodSync(dir, 0o755);
     writeJsonAtomic(join(dir, "s.json"), { a: 1 });
-    expect(modeOf(dir)).toBe(0o755);
+    if (process.platform !== "win32") expect(modeOf(dir)).toBe(0o755);
   });
 
   test("honours a custom mode", () => {
     const file = join(freshDir(), "s.json");
     writeJsonAtomic(file, { a: 1 }, 0o640);
-    expect(modeOf(file)).toBe(0o640);
+    if (process.platform !== "win32") expect(modeOf(file)).toBe(0o640);
   });
 
   test("a value that can't be serialized throws before touching the disk", () => {

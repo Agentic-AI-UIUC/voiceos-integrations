@@ -13,14 +13,15 @@ import { describe, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
 import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { pathToFileURL } from "node:url";
 import { join } from "node:path";
 
 const ROOT = join(import.meta.dir, "..");
 
 const CHILD = `
-import { ComposioClient } from ${JSON.stringify(join(ROOT, "src/client.ts"))};
-import { startMockComposio } from ${JSON.stringify(join(ROOT, "tests/mock-composio.ts"))};
-import { realClock } from ${JSON.stringify(join(ROOT, "src/proc.ts"))};
+import { ComposioClient } from ${JSON.stringify(pathToFileURL(join(ROOT, "src/client.ts")).href)};
+import { startMockComposio } from ${JSON.stringify(pathToFileURL(join(ROOT, "tests/mock-composio.ts")).href)};
+import { realClock } from ${JSON.stringify(pathToFileURL(join(ROOT, "src/proc.ts")).href)};
 let chunks = 0, ended = false;
 process.stdin.on("data", () => { chunks++; });
 process.stdin.on("end", () => { ended = true; });

@@ -101,20 +101,20 @@ const META: ToolMeta[] = [
   },
   {
     name: "find_recent_videos",
-    title: "Find recent videos on this Mac",
+    title: "Find recent videos on this computer",
     visibility: "agent",
     description:
-      "Agent-only. Finds the video on this Mac the user means (Downloads, Desktop, Movies, or one they point at) by its metadata. Use when the user refers to a video: pass their own words in describe ('the vertical one from yesterday', 'my screen recording', 'the other one'). For it, that or the same video set pick 'current'; for 'the second one' pick 2; for the Finder selection or QuickTime, set source. Use when the user asks to show, reveal or open the video in Finder: set reveal true with pick 'current'. Follow next; when confidence is ambiguous, ask its one short question. Returns a file_token and preview per video for upload_video and publish_video.",
-    annotations: read("Find recent videos on this Mac", false),
+      "Agent-only. Finds the video on this computer the user means (Downloads, Desktop, Movies/Videos, or one they point at) by its metadata. Use when the user refers to a video: pass their own words in describe ('the vertical one from yesterday', 'my screen recording', 'the other one'). For it, that or the same video set pick 'current'; for 'the second one' pick 2; for the Finder/File Explorer selection or QuickTime (macOS), set source. Use when the user asks to show, reveal or open the video in Finder or File Explorer: set reveal true with pick 'current'. Follow next; when confidence is ambiguous, ask its one short question. Returns a file_token and preview per video for upload_video and publish_video.",
+    annotations: read("Find recent videos on this computer", false),
   },
   {
     name: "find_recent_images",
-    title: "Find recent photos and screenshots on this Mac",
+    title: "Find recent photos and screenshots on this computer",
     visibility: "agent",
     photo: true,
     description:
-      "Agent-only. List the newest images (.jpg .jpeg .png .heic .heif .webp) in Downloads, Desktop, Pictures and the screenshot folder. Use when the user refers to photos or screenshots on this Mac: source 'screenshots' for screenshots, 'recent_batch' for a group that arrived together (an AirDrop). Returns image_tokens for prepare_photo_post; file paths come only from this tool.",
-    annotations: read("Find recent photos and screenshots on this Mac", false),
+      "Agent-only. List the newest images (.jpg .jpeg .png .heic .heif .webp) in Downloads, Desktop, Pictures and the screenshot folder. Use when the user refers to photos or screenshots on this computer: source 'screenshots' for screenshots, 'recent_batch' for a group that arrived together (an AirDrop). Returns image_tokens for prepare_photo_post; file paths come only from this tool.",
+    annotations: read("Find recent photos and screenshots on this computer", false),
   },
   {
     name: "prepare_photo_post",
@@ -320,7 +320,7 @@ const SCHEMAS = {
           .enum(["any", "finder_selection", "quicktime", "screen_recording", "phone", "web_download"])
           .optional()
           .describe(
-            "How the video got here, only when the user said so. finder_selection: selected in Finder. quicktime: open in QuickTime Player. screen_recording, phone, or web_download (saved from a website or browser). The Downloads folder is folders, not web_download.",
+            "How the video got here, only when the user said so. finder_selection: selected in Finder or File Explorer. quicktime: open in QuickTime Player. screen_recording, phone, or web_download (saved from a website or browser). The Downloads folder is folders, not web_download.",
           ),
       ),
       orientation: z.enum(["vertical", "landscape", "square"]).optional().describe("Only videos of this shape."),
@@ -328,9 +328,9 @@ const SCHEMAS = {
       added_before: z.string().max(40).optional().describe("ISO date-time: only videos added before it."),
       min_duration_sec: z.number().min(0).max(36000).optional().describe("Only videos at least this long, in seconds."),
       max_duration_sec: z.number().min(0).max(36000).optional().describe("Only videos at most this long, in seconds."),
-      reveal: z.boolean().optional().describe("Also show the chosen video in Finder (when the user asks to see where it is)."),
+      reveal: z.boolean().optional().describe("Also show the chosen video in Finder or File Explorer (when the user asks to see where it is)."),
       folders: z
-        .array(z.enum(["Downloads", "Desktop", "Movies"]))
+        .array(z.enum(["Downloads", "Desktop", "Movies", "Videos"]))
         .optional()
         .describe("Folders to look in ('from downloads' is Downloads). All three when left out; a name match in another folder is still found."),
       limit: z.number().int().min(1).max(6).default(5).describe("How many videos to return, 1-6 (default 5)."),
@@ -351,7 +351,7 @@ const SCHEMAS = {
       folders: z
         .array(z.enum(["Downloads", "Desktop", "Pictures", "Screenshots"]))
         .optional()
-        .describe("Folders to look in; Screenshots is this Mac's screenshot folder. All four when left out."),
+        .describe("Folders to look in; Screenshots is the computer's screenshot folder. All four when left out."),
       since_hours: z.number().int().min(1).max(720).optional().describe("Only images added in the last this-many hours (1-720)."),
       limit: z.number().int().min(1).max(35).default(10).describe("How many images to return, 1-35 (default 10)."),
     })

@@ -44,12 +44,12 @@ const PHOTO_DISABLED_REASON = "Photo carousels need the media relay, which isn't
 //    `server/index.js` imports it statically, so swapping the module is the only way to keep ajv out.
 const PATCHES: Array<{ file: RegExp; from: string; to: string }> = [
   {
-    file: /node_modules\/zod\/v4\/core\/util\.js$/,
+    file: /node_modules[\\/]zod[\\/]v4[\\/]core[\\/]util\.js$/,
     from: '    try {\n        const F = Function;\n        new F("");\n        return true;\n    }\n    catch (_) {\n        return false;\n    }',
     to: "    return false;",
   },
   {
-    file: /node_modules\/zod\/v4\/core\/doc\.js$/,
+    file: /node_modules[\\/]zod[\\/]v4[\\/]core[\\/]doc\.js$/,
     from: "        const F = Function;\n        const args = this?.args;\n        const content = this?.content ?? [``];\n        const lines = [...content.map((x) => `  ${x}`)];\n        // console.log(lines.join(\"\\n\"));\n        return new F(...args, lines.join(\"\\n\"));",
     to: '        throw new Error("zod code generation is disabled in this build");',
   },
@@ -87,7 +87,7 @@ async function bundleServer(): Promise<string> {
       {
         name: "no-code-from-strings",
         setup(build) {
-          build.onLoad({ filter: /@modelcontextprotocol\/sdk\/dist\/esm\/validation\/ajv-provider\.js$/ }, () => ({ contents: NO_AJV, loader: "js" }));
+          build.onLoad({ filter: /@modelcontextprotocol[\\/]sdk[\\/]dist[\\/]esm[\\/]validation[\\/]ajv-provider\.js$/ }, () => ({ contents: NO_AJV, loader: "js" }));
           for (const p of PATCHES) {
             build.onLoad({ filter: p.file }, async (args) => {
               const source = await Bun.file(args.path).text();
@@ -147,7 +147,7 @@ function networkDomains(): string[] {
 
 // 3. Manifest -------------------------------------------------------------
 const description =
-  "Reads your TikTok profile stats and public post details, checks post status, and sends videos from your Mac to your TikTok drafts. Direct posting is available when you ask for it and is private (Only me) until TikTok audits the app. Every upload asks you to confirm first. " +
+  "Reads your TikTok profile stats and public post details, checks post status, and sends videos from your computer to your TikTok drafts. Direct posting is available when you ask for it and is private (Only me) until TikTok audits the app. Every upload asks you to confirm first. " +
   (photoToolsEnabled()
     ? "Photo carousels (up to 35 photos) go through a short-lived media relay and need the relay token in settings."
     : "Photo carousels (up to 35 photos) switch on once the media relay is set up.") +
@@ -288,12 +288,12 @@ const manifest = {
   id: INTEGRATION_ID,
   version: INTEGRATION_VERSION,
   name: "TikTok",
-  summary: "Check your TikTok stats and post details, and send videos and photo carousels from your Mac to TikTok by voice.",
+  summary: "Check your TikTok stats and post details, and send videos and photo carousels from your computer to TikTok by voice.",
   description,
   setupGuide,
   categories: ["Social"],
   icon: existing.icon ?? "icon.png",
-  supportedPlatforms: existing.supportedPlatforms ?? ["darwin"],
+  supportedPlatforms: ["darwin", "win32"],
   publisher: existing.publisher ?? { id: "pub_user", name: "Made in VoiceOS" },
   // VoiceOS's own integrations launch this way, and it needs only the five shipped files; the share review
   // rejects a runtime that spawns a shell (/bin/zsh run.sh). run.sh/run.cmd stay on disk, unused.

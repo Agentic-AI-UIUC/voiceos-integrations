@@ -17,7 +17,7 @@
  */
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { delimiter, join } from "node:path";
+import { delimiter, isAbsolute, join } from "node:path";
 import { SIPS, SRGB_PROFILE } from "./images.ts";
 import { VIDEO_FRAME_BOX, encodeStackFrame, encodeVideoFrame, joinStack, joinVideoPreview } from "./microPreview.ts";
 import { log } from "./proc.ts";
@@ -83,8 +83,8 @@ let foundFfmpeg: string | null | undefined;
 /** ffmpeg on this Mac: Homebrew's paths first (VoiceOS's PATH has neither), then PATH. Looked up once. */
 export function findFfmpeg(env: Record<string, string | undefined> = process.env): string | undefined {
   if (foundFfmpeg !== undefined) return foundFfmpeg ?? undefined;
-  const dirs = (env.PATH ?? "").split(delimiter).filter((d) => d.startsWith("/"));
-  const hit = [...FFMPEG_PATHS, ...dirs.map((d) => join(d, "ffmpeg"))].find((p) => {
+  const dirs = (env.PATH ?? "").split(delimiter).map((d) => d.replace(/^"|"$/g, "")).filter(isAbsolute);
+  const hit = [...(process.platform === "win32" ? [] : FFMPEG_PATHS), ...dirs.map((d) => join(d, process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg"))].find((p) => {
     try {
       return existsSync(p) && statSync(p).isFile();
     } catch {
@@ -419,8 +419,8 @@ let foundImg2webp: string | null | undefined;
 /** img2webp (Homebrew's webp tools) on this Mac, looked up once. */
 export function findImg2webp(env: Record<string, string | undefined> = process.env): string | undefined {
   if (foundImg2webp !== undefined) return foundImg2webp ?? undefined;
-  const dirs = (env.PATH ?? "").split(delimiter).filter((d) => d.startsWith("/"));
-  const hit = [...IMG2WEBP_PATHS, ...dirs.map((d) => join(d, "img2webp"))].find((p) => {
+  const dirs = (env.PATH ?? "").split(delimiter).map((d) => d.replace(/^"|"$/g, "")).filter(isAbsolute);
+  const hit = [...(process.platform === "win32" ? [] : IMG2WEBP_PATHS), ...dirs.map((d) => join(d, process.platform === "win32" ? "img2webp.exe" : "img2webp"))].find((p) => {
     try {
       return existsSync(p) && statSync(p).isFile();
     } catch {

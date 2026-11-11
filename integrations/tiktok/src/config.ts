@@ -14,22 +14,15 @@ import { join } from "node:path";
 
 /** IMMUTABLE once installed: VoiceOS keys settings and secrets off it. */
 export const INTEGRATION_ID = "com.voiceos.generated.tiktok";
-export const INTEGRATION_VERSION = "1.2.1";
+export const INTEGRATION_VERSION = "1.3.0";
 
 /** The Composio TikTok toolkit version every execute call pins (plan §5.1, spike S3). Bump only after pull-schemas + the live matrix. */
 export const TIKTOK_TOOLKIT_VERSION = "20261101_00";
 
 export const COMPOSIO_BASE = "https://backend.composio.dev/api/v3.1";
 
-/**
- * The media relay on a TikTok-verified domain (plan §4.4; the worker is in relay-worker/, not shipped).
- * No trailing slash: src/relay.ts adds /v1/…; TikTok pulls from its verified public prefix
- * https://tiktok-media-relay.rishabh-rb.workers.dev/p/ (live 2026-11-05). Set, so the build lists its host
- * in the network permission and ships the four photo tools enabled. Empty would ship them disabled, and
- * any photo write throws RELAY_NOT_CONFIGURED before doing any work (as it still does without a
- * MEDIA_RELAY_TOKEN).
- */
-export const MEDIA_RELAY_BASE = "https://tiktok-media-relay.rishabh-rb.workers.dev";
+/** Team-owned, TikTok-verified HTTPS relay. Empty keeps the four photo tools disabled. */
+export const MEDIA_RELAY_BASE = "";
 
 /** TikTok's brand red: the cards' single accent colour (a colour, not a logo). */
 export const ACCENT = "#fe2c55";
@@ -88,7 +81,7 @@ export function argument(argv: string[], name: string): string | undefined {
 
 /** VoiceOS's per-integration state folder (the Manus convention), so Studio reinstalls of this folder don't wipe it. */
 export function defaultStateDir(home: string, platform: NodeJS.Platform = process.platform, appData = process.env.APPDATA): string {
-  if (platform === "win32" && appData) return join(appData, "VoiceOS", "integration-state", INTEGRATION_ID);
+  if (platform === "win32") return join(appData || join(home, "AppData", "Roaming"), "VoiceOS", "integration-state", INTEGRATION_ID);
   return join(home, "Library", "Application Support", "VoiceOS", "integration-state", INTEGRATION_ID);
 }
 

@@ -14,7 +14,7 @@ import { basename, join } from "node:path";
 import { z } from "zod";
 import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
 import * as cards from "../src/cards.ts";
-import { loadConfig } from "../src/config.ts";
+import { MEDIA_RELAY_BASE, loadConfig } from "../src/config.ts";
 import { TikTokError } from "../src/errors.ts";
 import { createDeps, createServer, type Deps } from "../src/mcpServer.ts";
 import { mintReceipt } from "../src/receipts.ts";
@@ -370,8 +370,8 @@ describe("registration", () => {
     expect(TOOL_META.publish_video.execution).toEqual({ mode: "background", estimatedDurationMs: 180_000 });
     expect(TOOL_META.filter((t) => t.photo).map((t) => t.name)).toEqual(["find_recent_images", "prepare_photo_post", "upload_photos", "post_photos"]);
     expect(TOOL_META.filter((t) => t.visibility === "agent").map((t) => t.name)).toEqual(["query_creator_info", "find_recent_videos", "find_recent_images", "prepare_photo_post"]);
-    // The relay is deployed (src/config.ts MEDIA_RELAY_BASE): the photo tools ship enabled; an empty base would disable them.
-    expect(photoToolsEnabled()).toBe(true);
+    // Photo tools are enabled only with a configured relay.
+    expect(photoToolsEnabled()).toBe(Boolean(MEDIA_RELAY_BASE.trim()));
     expect(photoToolsEnabled({ relayBase: "" })).toBe(false);
     expect(photoToolsEnabled({ relayBase: "http://127.0.0.1:5" })).toBe(true);
     for (const t of TOOL_META) {

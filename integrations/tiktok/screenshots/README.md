@@ -38,17 +38,12 @@ Every turn was a real prompt typed to the VoiceOS agent. Every write was approve
 | # | Title | Caption |
 |---|---|---|
 | 14 | **Task notification** ([png](14-done-notification.png)) | The actual VoiceOS task notification that was on screen, captured as requested. |
-| 15 | **Episode-one stills: post** ([gif](15-episode-one-photo-post.gif)) | “post that episode one carousel … keep the crying photo as the cover.” The card keeps photo 2 as cover, title and hashtags; the approved post finished. The photo API cannot apply an AI label, which VoiceOS disclosed. |
-| 16 | **Episode-one stills: drafts** ([gif](16-episode-one-photo-drafts.gif)) | “send those same episode one stills to drafts instead … keep the crying cover and title.” The new card preserves title, tags and cover; the approved send arrived in the TikTok inbox. This separate draft does not undo the earlier post. |
-| 17 | **Confirm both outcomes** ([gif](17-episode-one-photo-status.gif)) | “did that episode one photo post finish, and did the photo draft arrive?” Status and history report the completed private post and inbox draft. |
-| 18 | **Revise into a draft** ([gif](18-video-draft-revision.gif)) | “actually make that a draft … add fruit drama and story time tags.” The draft card folds the requested caption and tags together. Reviewed, then revised; this card was not sent. |
 | 19 | **Switch drafts to post** ([gif](19-video-post-revision.gif)) | “wait, post it instead, just me, it’s AI made … cover at 0:05.” The replacement card shows the new caption, retained tags, AI label, Only me and Cover 0:05. Cancelled afterwards; no additional episode-one video was posted. |
 | 23 | **AI-label request goes to drafts** ([gif](23-photo-ai-label-drafts.gif)) | “post my Juicy Drama cast photos with TikTok's AI-generated label; show me first.” With the routing fix, this opens `upload_photos`, where the label can be applied in TikTok. The 20-second recording shows the full confirmation-preview cycle: five tiny frames and “+1 more.” The prepared card in 06 shows every real photo; confirmation arguments are limited to 1,500 characters. Cancelled without sending. |
-| 22 | **Second episode ready** ([gif](22-second-episode-ready.gif)) | “can you find that new two brides episode and check the posting options? don't upload it.” VoiceOS finds the newly exported second episode without a local path, checks creator options and shows a moving preview. No upload is made by this turn. |
 | 21 | **Public post details** ([png](21-public-post-details.png)) | “how many views, likes, comments and shares does this strawberry episode have?” with its public TikTok URL. `query_videos` returns the actual four zero counts, cover, publication time, length, aspect and hashtags. |
 
 ## Tool and conversation coverage
 
-[Sanitized live turns and tool events](live-cases.json) record all **12 tools** running in the real VoiceOS agent, including the four write executions. No tool tokens, approval receipts or private setup values are included. Additional cases include metadata (“vertical … exported today … about a minute”), a missing episode 99 (not substituted), public-post indexing delay (metrics unavailable until returned), and cancellation. File discovery used names and ordinary descriptions, not supplied local paths.
+The captures cover all 12 tools, including video and photo drafts, private direct posts, profile stats, public post details and status. Revisions and cancellation were also exercised in the real VoiceOS agent. File discovery used names and ordinary descriptions rather than supplied local paths.
 
 The images document the local macOS install. They do not establish Windows support, a VoiceOS published share, TikTok app audit approval or production readiness.
