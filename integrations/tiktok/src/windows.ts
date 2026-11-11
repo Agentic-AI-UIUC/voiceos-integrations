@@ -72,7 +72,7 @@ try {
           $o = [Math]::Max(1, [Math]::Min(8, [int]$photo.orientation)); $im.RotateFlip([Enum]::Parse([Drawing.RotateFlipType], $flips[$o]))
           $iw = $im.Width; $ih = $im.Height; $w = $iw; $h = $ih; $x = 0.0; $y = 0.0; $dw = [double]$iw; $dh = [double]$ih
           switch ($job.mode) {
-            'fit' { $s = [Math]::Min(1, [Math]::Min(1920.0 / [Math]::Max($iw,$ih),1080.0 / [Math]::Min($iw,$ih))); $w = [int][Math]::Round($iw*$s); $h = [int][Math]::Round($ih*$s); $dw=$w; $dh=$h }
+            'fit' { $s = [Math]::Min(1.0, [Math]::Min(1920.0 / [Math]::Max($iw,$ih),1080.0 / [Math]::Min($iw,$ih))); $w = [int][Math]::Round($iw*$s); $h = [int][Math]::Round($ih*$s); $dw=$w; $dh=$h }
             'crop' { $w=[int]$job.width; $h=[int]$job.height; $s=[Math]::Max($w/[double]$iw,$h/[double]$ih); $dw=$iw*$s; $dh=$ih*$s; $x=($w-$dw)/2; $y=($h-$dh)/2 }
             'stretch' { $w=[int]$job.width; $h=[int]$job.height; $dw=$w; $dh=$h }
             'resize' { if ($iw -gt [int]$job.width) { $w=[int]$job.width; $h=[int][Math]::Round($ih*$w/[double]$iw); $dw=$w; $dh=$h } }
