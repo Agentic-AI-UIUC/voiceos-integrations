@@ -125,7 +125,7 @@ describe("the ledger on disk", () => {
 
     const text = readFileSync(file, "utf8");
     if (process.platform !== "win32") expect(statSync(file).mode & 0o777).toBe(0o600);
-    expect(statSync(join(file, "..")).mode & 0o777).toBe(0o700);
+    if (process.platform !== "win32") expect(statSync(join(file, "..")).mode & 0o777).toBe(0o700);
     expect(text).not.toContain("data:image");
     expect(text).not.toContain(ROOT);
     expect(text).not.toContain("/");
