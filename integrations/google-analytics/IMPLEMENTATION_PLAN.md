@@ -71,19 +71,36 @@ Waiting on the user's visual check in the VoiceOS notch.
 ## Stage 4: Connection and token UX
 
 **Goal**: Not-connected, expired and revoked OAuth each show the right message and a way to
-reconnect (revoke access in the Google account to reproduce expired/revoked). Decide how an end
-user connects: auth config + POST /connected_accounts/link returns a redirect URL for a
-Connect button.
-**Already known**: Loading feedback is built into VoiceOS. While a tool runs, the notch
-shows "<integration>: <tool name>" (AGENT_STATUS_TOOL_EXECUTING), so the integration adds none.
-**Success Criteria**: Each auth failure shows the right message and a reconnect path.
-**Tests**: error classification against the real responses captured here.
-**Status**: Not Started
+reconnect that an end user can follow.
+**Found by revoking access at myaccount.google.com/connections**:
+- After a revoke, Composio **still reports ACTIVE**, and a failed call doesn't change that.
+  Google answers 401 (successful:false, status_code 401). So "needs reconnect" comes from the
+  tool-level 401, not from the account status alone.
+- POST /connected_accounts/{id}/refresh re-authorizes the same account: it returns a
+  redirect_url and sets the status to INITIATED. While INITIATED, execute returns 404
+  ActionExecute_ConnectedAccountNotFound, which reads as "isn't connected yet".
+- Token refresh itself needs no code: Composio refreshes expired access tokens. Only a dead
+  refresh token (revoked or expired) reaches us, as the 401 above.
+**Built**: when reconnecting is the fix, the result carries `reconnect_url` and the error card
+has a "Reconnect Google Analytics" row that opens it. Re-authorizing reuses the newest
+existing account, so no dead ACTIVE account is left next to a new one; with no account, a
+first link goes through the project's enabled auth config. The agent is told to point the user
+to the link and not to retry until they have signed in. If no link can be made, the
+developer-facing dashboard message is used.
+**Loading feedback** is built into VoiceOS: while a tool runs, the notch shows
+"<integration>: <tool name>" (AGENT_STATUS_TOOL_EXECUTING).
+**Disconnect** is out of scope by the user's decision: the app store handles integration
+removal.
+**Verified 2026-11-10 in VoiceOS**: after the revoke, the card showed the reconnect row. The
+link opened Google sign-in, and the next question worked on the same account (ca_OsEQpxe1HAoc).
+**Tests**: link generation (re-auth newest / first link / no auth config), fallback message, no
+link for errors reconnecting won't fix, error card link row.
+**Status**: Complete
 
 ## Stage 5: End-to-end in VoiceOS
 
 **Goal**: The full flow by voice on Mac (and Windows if available).
-**Done 2026-11-10**: realtime by page, metadata by category, empty 7-day report (answered
+**Done 2026-11-10**: revoke → reconnect link → working again (Stage 4); realtime by page, metadata by category, empty 7-day report (answered
 honestly), 403 on a property without access (no reconnect prompt). There were no failed calls,
 and each answer came 3–6 s after the question.
 **Still to check**: a report with data (needs about a day after the property was created);
@@ -191,3 +208,9 @@ The agent gets flat arguments; server.ts builds GA's nested request.
    usually doesn't know where to look. The options are approving GOOGLE_ANALYTICS_LIST_ACCOUNT_SUMMARIES
    so the agent can list properties, or relying on the Setup guide (GA → Admin → Property
    settings). Until it is decided, the Setup guide explains where to find it.
+2. **Every user shares one Google connection.** The Composio key is the developer's (.env), and
+   VoiceOS passes no user identity, so all installs use the same Composio project and
+   user_id `default`. Once more than one person installs it from the app store, they would all
+   read the same Google account's data, and one person's reconnect replaces everyone's. The
+   Asana integration has the same issue. Fixing it needs a per-user ID from VoiceOS (or a
+   per-user Composio key), which this integration cannot provide.
