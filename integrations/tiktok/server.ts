@@ -17147,36 +17147,42 @@ class RemoteImages {
     }
   }
   async load(u, width, signal) {
-    const timeout = AbortSignal.timeout(this.timeoutMs);
-    const res = await this.fetchImpl(u.href, {
-      method: "GET",
-      redirect: "manual",
-      signal: signal ? AbortSignal.any([timeout, signal]) : timeout,
-      headers: { accept: "image/jpeg,image/png,image/webp,image/*;q=0.8" }
-    });
-    if (res.status !== 200) {
-      await res.body?.cancel().catch(() => {});
-      throw new Skip("http");
+    const controller = new AbortController;
+    const timer = setTimeout(() => controller.abort(new DOMException("Image request timed out", "TimeoutError")), this.timeoutMs);
+    const timeout = controller.signal;
+    try {
+      const res = await this.fetchImpl(u.href, {
+        method: "GET",
+        redirect: "manual",
+        signal: signal ? AbortSignal.any([timeout, signal]) : timeout,
+        headers: { accept: "image/jpeg,image/png,image/webp,image/*;q=0.8" }
+      });
+      if (res.status !== 200) {
+        await res.body?.cancel().catch(() => {});
+        throw new Skip("http");
+      }
+      const type = (res.headers.get("content-type") ?? "").toLowerCase();
+      if (type && !type.startsWith("image/") && !type.startsWith("application/octet-stream")) {
+        await res.body?.cancel().catch(() => {});
+        throw new Skip("type");
+      }
+      const bytes2 = await readCapped(res, this.maxBytes);
+      if (!bytes2.length)
+        throw new Skip("type");
+      const kind = kindOf(bytes2);
+      if (kind !== "other" && bytes2.length <= DIRECT_MAX_BYTES) {
+        const uri2 = dataUri(bytes2, kind);
+        if (uri2)
+          return uri2;
+      }
+      const jpeg = await scaleDown(bytes2, width, this.o.runner, this.tmpRoot);
+      const uri = jpeg ? dataUri(jpeg, "jpeg") : undefined;
+      if (!uri)
+        throw new Skip("scale");
+      return uri;
+    } finally {
+      clearTimeout(timer);
     }
-    const type = (res.headers.get("content-type") ?? "").toLowerCase();
-    if (type && !type.startsWith("image/") && !type.startsWith("application/octet-stream")) {
-      await res.body?.cancel().catch(() => {});
-      throw new Skip("type");
-    }
-    const bytes2 = await readCapped(res, this.maxBytes);
-    if (!bytes2.length)
-      throw new Skip("type");
-    const kind = kindOf(bytes2);
-    if (kind !== "other" && bytes2.length <= DIRECT_MAX_BYTES) {
-      const uri2 = dataUri(bytes2, kind);
-      if (uri2)
-        return uri2;
-    }
-    const jpeg = await scaleDown(bytes2, width, this.o.runner, this.tmpRoot);
-    const uri = jpeg ? dataUri(jpeg, "jpeg") : undefined;
-    if (!uri)
-      throw new Skip("scale");
-    return uri;
   }
 }
 
@@ -19369,7 +19375,7 @@ function parseSipsOutput(stdout) {
     if (kv) {
       if (cur)
         cur.props[kv[1]] = kv[2].trim();
-    } else if (line.startsWith("/")) {
+    } else if (/^([A-Za-z]:[\\/]|[\\/])/.test(line)) {
       cur = { path: line, props: {} };
       blocks.push(cur);
     } else {
@@ -19644,7 +19650,7 @@ function windowsRunner(base2) {
         return r;
       try {
         const rows = JSON.parse(r.stdout);
-        return { ...r, stdout: rows.map((x) => `${x.path}:
+        return { ...r, stdout: rows.map((x) => `${x.path}
   pixelWidth: ${x.width ?? 0}
   pixelHeight: ${x.height ?? 0}
   format: ${x.format ?? ""}
@@ -19675,7 +19681,7 @@ function windowsRunner(base2) {
         return false;
       }
     })();
-    const jobs = inputs.map((source, i) => ({ source, dest: script ? join5(dest, mode === "fit" ? `${i}.oriented.jpg` : `${i}.jpg`) : isDir ? join5(dest, basename4(source)) : dest, mode, width, height, quality, format }));
+    const jobs = inputs.map((source, i) => ({ source, dest: script ? join5(dest, mode === "fit" ? `${i}.oriented.jpg` : `${i}.jpg`) : isDir ? join5(dest, format === "bmp" ? basename4(source).replace(/\.[^.]+$/, ".bmp") : basename4(source)) : dest, mode, width, height, quality, format }));
     return windowsOperation(base2, { operation: "convert", jobs }, opts);
   };
   nativeRunners.add(runner);
@@ -24842,7 +24848,7 @@ function within3(p, ms) {
   const late2 = new Promise((resolve4) => timer = setTimeout(() => resolve4(undefined), ms));
   return Promise.race([p, late2]).finally(() => clearTimeout(timer));
 }
-var VIDEO_FOLDERS2 = ["Downloads", "Desktop", "Movies", "Videos"];
+var VIDEO_FOLDERS2 = ["Downloads", "Desktop", "Movies"];
 var IMAGE_FOLDERS2 = ["Downloads", "Desktop", "Pictures", "Screenshots"];
 var CANDIDATE_POSTER_WIDTH = 160;
 var CANDIDATE_POSTERS_MAX_CHARS = 150000;
@@ -24854,7 +24860,7 @@ var listPhrase = (items) => items.length <= 1 ? items.join("") : `${items.slice(
 function findRecentVideosTool(args, deps, extra) {
   return guarded("find_recent_videos", deps, async () => {
     const limit = Math.min(6, Math.max(1, Math.floor(num(args.limit) ?? 5)));
-    const folders = folderList(args.folders, VIDEO_FOLDERS2);
+    const folders = folderList(listOf(args.folders).map((f) => f === "Videos" ? "Movies" : f), VIDEO_FOLDERS2);
     const query = str(args.query) || undefined;
     const describe = str(args.describe).slice(0, 160) || undefined;
     const home = deps.cfg.home;
@@ -25045,6 +25051,15 @@ function findRecentVideosTool(args, deps, extra) {
       if (did)
         summary += ` Last: ${did} ${ago(intent.at, now)}${intent?.caption ? ", with a caption" : ""}.`;
       next += " last_intent has the caption and settings the user already gave: reuse them unless they change something.";
+    }
+    if (process.platform === "win32") {
+      if (found.pointed?.app === "QuickTime" && !videos.length) {
+        summary = "QuickTime selection is available on macOS. Select the video in File Explorer or describe it.";
+        next = "Ask for the video selected in File Explorer, or describe the video.";
+      } else {
+        summary = summary.replace(/Finder/g, "File Explorer").replace(/Movies/g, "Videos");
+        next = next.replace(/Finder/g, "File Explorer").replace(/Movies/g, "Videos");
+      }
     }
     return ok(compactObject({
       videos,

@@ -490,7 +490,7 @@ function parseSipsOutput(stdout: string): Array<{ path: string; props: Record<st
     const kv = /^\s+([A-Za-z][\w-]*):\s?(.*)$/.exec(line);
     if (kv) {
       if (cur) cur.props[kv[1]] = kv[2].trim();
-    } else if (line.startsWith("/")) {
+    } else if (/^([A-Za-z]:[\\/]|[\\/])/.test(line)) {
       cur = { path: line, props: {} };
       blocks.push(cur);
     } else {

@@ -168,7 +168,7 @@ function within<T>(p: Promise<T>, ms: number): Promise<T | undefined> {
 // find_recent_videos
 // ---------------------------------------------------------------------------
 
-const VIDEO_FOLDERS = ["Downloads", "Desktop", "Movies", "Videos"];
+const VIDEO_FOLDERS = ["Downloads", "Desktop", "Movies"];
 const IMAGE_FOLDERS = ["Downloads", "Desktop", "Pictures", "Screenshots"];
 
 /** Posters on the candidates card: small row tiles, so 160 px wide (a 9:16 frame comes out 160 × 284). */
@@ -186,7 +186,7 @@ const listPhrase = (items: string[]) =>
 export function findRecentVideosTool(args: Args, deps: Deps, extra: ToolExtra): Promise<ToolResult> {
   return guarded("find_recent_videos", deps, async () => {
     const limit = Math.min(6, Math.max(1, Math.floor(num(args.limit) ?? 5)));
-    const folders = folderList(args.folders, VIDEO_FOLDERS);
+    const folders = folderList(listOf(args.folders).map(f => f === "Videos" ? "Movies" : f), VIDEO_FOLDERS);
     const query = str(args.query) || undefined;
     const describe = str(args.describe).slice(0, 160) || undefined;
     const home = deps.cfg.home;
@@ -416,6 +416,15 @@ export function findRecentVideosTool(args: Args, deps: Deps, extra: ToolExtra): 
       const did = intent?.outcome === "sent" ? (intent.mode === "post" ? "sent as a post" : "sent to drafts") : intent?.outcome === "prepared" ? "being prepared as a post" : intent?.mode ? `asked for as a ${intent.mode} (not sent)` : "";
       if (did) summary += ` Last: ${did} ${ago(intent!.at, now)}${intent?.caption ? ", with a caption" : ""}.`;
       next += " last_intent has the caption and settings the user already gave: reuse them unless they change something.";
+    }
+    if (process.platform === "win32") {
+      if (found.pointed?.app === "QuickTime" && !videos.length) {
+        summary = "QuickTime selection is available on macOS. Select the video in File Explorer or describe it.";
+        next = "Ask for the video selected in File Explorer, or describe the video.";
+      } else {
+        summary = summary.replace(/Finder/g, "File Explorer").replace(/Movies/g, "Videos");
+        next = next.replace(/Finder/g, "File Explorer").replace(/Movies/g, "Videos");
+      }
     }
     return ok(
       compactObject({

@@ -150,7 +150,7 @@ export function windowsRunner(base: Runner): Runner {
       if (r.code || r.timedOut) return r;
       try {
         const rows = JSON.parse(r.stdout) as Array<Record<string, unknown>>;
-        return { ...r, stdout: rows.map(x => `${x.path}:\n  pixelWidth: ${x.width ?? 0}\n  pixelHeight: ${x.height ?? 0}\n  format: ${x.format ?? ""}\n  hasAlpha: ${x.alpha ? "yes" : "no"}`).join("\n") };
+        return { ...r, stdout: rows.map(x => `${x.path}\n  pixelWidth: ${x.width ?? 0}\n  pixelHeight: ${x.height ?? 0}\n  format: ${x.format ?? ""}\n  hasAlpha: ${x.alpha ? "yes" : "no"}`).join("\n") };
       } catch { return empty(1); }
     }
     let mode = height ? "stretch" : width ? "resize" : "copy";
@@ -160,7 +160,7 @@ export function windowsRunner(base: Runner): Runner {
       else { const m = /^\/\/ tiktok thumbs: orient, centre-crop to (\d+)x(\d+),/.exec(text); if (!m) return empty(127); mode = "crop"; width = Number(m[1]); height = Number(m[2]); }
     }
     const isDir = (() => { try { return statSync(dest).isDirectory(); } catch { return false; } })();
-    const jobs = inputs.map((source, i) => ({ source, dest: script ? join(dest, mode === "fit" ? `${i}.oriented.jpg` : `${i}.jpg`) : isDir ? join(dest, basename(source)) : dest, mode, width, height, quality, format }));
+    const jobs = inputs.map((source, i) => ({ source, dest: script ? join(dest, mode === "fit" ? `${i}.oriented.jpg` : `${i}.jpg`) : isDir ? join(dest, format === "bmp" ? basename(source).replace(/\.[^.]+$/, ".bmp") : basename(source)) : dest, mode, width, height, quality, format }));
     return windowsOperation(base, { operation: "convert", jobs }, opts);
   };
   nativeRunners.add(runner);

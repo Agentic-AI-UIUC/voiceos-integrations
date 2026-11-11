@@ -1,3 +1,4 @@
+* text=auto eol=lf
 # Written by `bun run build` from src/ and confirm-card/. Review those instead.
 server.ts linguist-generated=true
 voiceos.integration.json linguist-generated=true

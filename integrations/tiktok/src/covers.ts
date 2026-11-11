@@ -225,7 +225,10 @@ export class RemoteImages {
   }
 
   private async load(u: URL, width: number, signal?: AbortSignal): Promise<string> {
-    const timeout = AbortSignal.timeout(this.timeoutMs);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(new DOMException("Image request timed out", "TimeoutError")), this.timeoutMs);
+    const timeout = controller.signal;
+    try {
     const res = await this.fetchImpl(u.href, {
       method: "GET",
       redirect: "manual",
@@ -252,5 +255,6 @@ export class RemoteImages {
     const uri = jpeg ? dataUri(jpeg, "jpeg") : undefined;
     if (!uri) throw new Skip("scale");
     return uri;
+    } finally { clearTimeout(timer); }
   }
 }
