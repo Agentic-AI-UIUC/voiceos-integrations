@@ -1,12 +1,13 @@
 {
   "schemaVersion": 1,
   "id": "com.voiceos.generated.posthog-analytics",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "name": "PostHog",
   "summary": "PostHog by voice: flags, insights, dashboards, funnels, retention, persons, cohorts, recordings, queries, and events.",
   "icon": "icon.png",
   "supportedPlatforms": [
-    "darwin"
+    "darwin",
+    "win32"
   ],
   "publisher": {
     "id": "pub_user",
@@ -31,7 +32,7 @@
     {
       "name": "COMPOSIO_API_KEY",
       "title": "Composio API key",
-      "description": "Your Composio API key from app.composio.dev/settings.",
+      "description": "Your Composio API key from platform.composio.dev -> API Keys. Use a Platform workspace, not For You.",
       "type": "password",
       "required": true
     },
