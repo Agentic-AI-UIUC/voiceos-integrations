@@ -1,6 +1,6 @@
 # Todoist integration — 1.0.14
 
-A native macOS VoiceOS integration for Todoist powered by Composio OAuth. It enables voice control to manage tasks, projects, sections, and personal labels, monitor productivity stats, and handle account authentication with interactive Mac notch cards and confirmation dialogs.
+A VoiceOS integration for Todoist powered by Composio OAuth. It enables voice control to manage tasks, projects, sections, and personal labels, monitor productivity stats, and handle account authentication with interactive cards and confirmation dialogs.
 
 ## Download & Installation
 
@@ -9,9 +9,8 @@ A native macOS VoiceOS integration for Todoist powered by Composio OAuth. It ena
 
 ## Platform and setup
 
-This integration supports macOS only (`supportedPlatforms: ["darwin"]`).
-The bundled `run.cmd` launcher does not imply Windows support; browser authorization
-currently uses macOS’s `/usr/bin/open`.
+VoiceOS launches the integration with `run.sh` on macOS and `run.cmd` on Windows.
+Connect opens the Composio authorization page in your default browser on either platform.
 
 Enter `COMPOSIO_API_KEY` in VoiceOS’s Todoist integration settings; VoiceOS stores
 and injects it into the server environment. `.env.example` documents the required
@@ -50,9 +49,9 @@ The integration exposes **18 tools: 15 business tools and 3 account/setup helper
 ### Productivity
 - **Get productivity stats** (`get_productivity_stats`): Read-only lookup returning completed tasks count, daily/weekly goals, and karma.
 
-## Native Notch UI & Confirmation Cards
+## Result and Confirmation Cards
 
-All actions use native macOS notch cards styled with consistent spacing and a Cancel/Action footer.
+All actions use confirmation cards with a Cancel/Action footer. The screenshots show the macOS layout.
 
 | Connect Account | Create Task | Delete Confirmation |
 | :---: | :---: | :---: |
@@ -60,7 +59,7 @@ All actions use native macOS notch cards styled with consistent spacing and a Ca
 
 - **State modifications**: Task, project, section, and label creation share an editable `Name` field followed by a details summary. Updates display the selected entity name and ID alongside requested changes; untouched fields remain unmodified.
 - **Destructive actions**: Deletions clearly display Name, ID, and an explicit warning explaining the consequences (e.g. deleting a project also deletes all containing sections and tasks).
-- **Read-only lookups**: Never prompt for confirmation and return 2-second scannable glance cards to the Mac notch with structured data.
+- **Read-only lookups**: Return glance cards with structured data without prompting for confirmation.
 - **Label operations**: `list_labels` reads labels with optional `limit` and `cursor`. Modifying labels is handled cleanly by dedicated `create_label`, `update_label`, and `delete_label` tools.
 
 ## Architecture & Reliability

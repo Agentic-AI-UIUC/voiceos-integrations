@@ -10,7 +10,8 @@
     "Productivity"
   ],
   "supportedPlatforms": [
-    "darwin"
+    "darwin",
+    "win32"
   ],
   "publisher": {
     "id": "pub_user",

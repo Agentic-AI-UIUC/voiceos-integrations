@@ -13,6 +13,7 @@ export type Scenario = {
   oauthStatuses?: string[];
   activateAfterBrowser?: boolean;
   browserError?: boolean;
+  browserPlatform?: "darwin" | "win32";
   redirectUrl?: string;
   revokeHttpStatus?: number;
   disableHttpStatus?: number;
@@ -93,10 +94,23 @@ function rawAccount(id: string) {
 
 // There is no real execFile implementation in the child process. Even OAuth
 // tests cannot open a browser or execute another command.
-export function execFile(command: string, args: string[], _options: unknown, callback: (error: Error | null) => void) {
-    if (command !== "/usr/bin/open") throw new Error("Unexpected child process request");
-    record({ kind: "browser", url: args[0] });
-    callback(scenario().browserError ? new Error("Test browser could not open") : null);
+export function platform() {
+  return scenario().browserPlatform ?? "darwin";
+}
+
+export function execFile(command: string, args: string[], options: { env?: NodeJS.ProcessEnv }, callback: (error: Error | null) => void) {
+  const windows = platform() === "win32";
+  const expectedArgs = ["-NoProfile", "-NonInteractive", "-Command",
+    "Start-Process -FilePath $env:TODOIST_AUTHORIZATION_URL -ErrorAction Stop"];
+  if (windows
+    ? command !== "powershell.exe" || JSON.stringify(args) !== JSON.stringify(expectedArgs)
+    : command !== "/usr/bin/open" || args.length !== 1) {
+    record({ kind: "unexpected" });
+    throw new Error("Unexpected child process request");
+  }
+  const url = windows ? options.env?.TODOIST_AUTHORIZATION_URL : args[0];
+  record({ kind: "browser", url });
+  callback(scenario().browserError ? new Error("Test browser could not open") : null);
 }
 
 const defaultData: Record<string, unknown> = {

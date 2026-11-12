@@ -6,6 +6,7 @@ import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { readFile, writeFile, rename } from "node:fs/promises";
 import { readFileSync } from "node:fs";
+import { platform } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
 
 // Composio owns OAuth, token storage/refresh, and Todoist requests.
@@ -1068,14 +1069,29 @@ async function connect() {
     tools: { todoist: { enable: catalog.tools.map((tool: any) => tool.slug) } },
   }, { signal });
   const request = await session.authorize("todoist", undefined, { signal });
-  if (!request.redirectUrl || new URL(request.redirectUrl).protocol !== "https:") {
+  const url = request.redirectUrl;
+  if (!url || new URL(url).protocol !== "https:") {
     throw new Error("Composio did not return a valid authorization link.");
   }
-  state.pending = { id: request.id, url: request.redirectUrl };
+  state.pending = { id: request.id, url };
   await save(state);
   // Only an explicit Connect request opens the OAuth consent page.
   await new Promise<void>((resolve, reject) => {
-    execFile("/usr/bin/open", [state.pending!.url], { timeout: 8000, signal }, error => error ? reject(error) : resolve());
+    const onOpened = (error: Error | null) => error ? reject(error) : resolve();
+    if (platform() === "win32") {
+      // Pass the URL as data so query parameters aren't parsed as PowerShell code.
+      execFile("powershell.exe", [
+        "-NoProfile", "-NonInteractive", "-Command",
+        "Start-Process -FilePath $env:TODOIST_AUTHORIZATION_URL -ErrorAction Stop",
+      ], {
+        env: { ...process.env, TODOIST_AUTHORIZATION_URL: url },
+        windowsHide: true,
+        timeout: 8000,
+        signal,
+      }, onOpened);
+    } else {
+      execFile("/usr/bin/open", [url], { timeout: 8000, signal }, onOpened);
+    }
   });
   startBackgroundConnectWatcher(request.id);
   return accountResult(

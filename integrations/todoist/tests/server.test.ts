@@ -68,14 +68,17 @@ beforeAll(async () => {
   // Never run against the installed integration or copy its OAuth state.
   const source = readFileSync(join(ROOT, "server.ts"), "utf8");
   const browserImport = 'from "node:child_process"';
+  const platformImport = 'from "node:os"';
+  const browserMock = `from ${JSON.stringify(join(ROOT, "tests", "mock-composio.ts"))}`;
   expect(source.split(browserImport)).toHaveLength(2);
+  expect(source.split(platformImport)).toHaveLength(2);
   // Bun's built-in named exports cannot reliably be replaced with mock.module.
-  // Replace this one dependency in the disposable copy, leaving all server
-  // logic intact and making a real browser/process launch impossible.
-  writeFileSync(join(directory, "server.ts"), source.replace(
-    browserImport, `from ${JSON.stringify(join(ROOT, "tests", "mock-composio.ts"))}`,
-  ));
-  symlinkSync(join(ROOT, "node_modules"), join(directory, "node_modules"), "dir");
+  // Replace the browser launcher and platform lookup in the disposable copy.
+  // This exercises both branches without starting a real browser.
+  writeFileSync(join(directory, "server.ts"), source
+    .replace(browserImport, browserMock)
+    .replace(platformImport, browserMock));
+  symlinkSync(join(ROOT, "node_modules"), join(directory, "node_modules"), "junction");
   setScenario();
   setState();
   writeFileSync(eventsPath, "");
@@ -586,6 +589,17 @@ describe("account state and explicit OAuth setup", () => {
     expect(link?.body).toEqual({ toolkit: "todoist" });
   });
 
+  test("Windows Connect opens the intact OAuth URL and returns pending", async () => {
+    const redirectUrl = "https://example.invalid/authorize?state=a%2Bb&redirect_uri=https%3A%2F%2Fexample.invalid";
+    setState({ userId: ACTIVE_STATE.userId });
+    setScenario({ accountStatus: "INITIATED", browserPlatform: "win32", redirectUrl });
+    const result = await invoke("connect_account");
+    expect(result.isError).toBe(false);
+    expect(result.body).toMatchObject({ status: "Authorization pending", authorizationUrl: redirectUrl });
+    expect(browserEvents()).toEqual([{ kind: "browser", url: redirectUrl }]);
+    expect(savedState().pending).toEqual({ id: "ca_pending", url: redirectUrl });
+  });
+
   test("verifies browser approval on the next Connect without reopening authorization", async () => {
     setState({ userId: ACTIVE_STATE.userId });
     setScenario({ accountStatus: "INITIATED", activateAfterBrowser: true });
@@ -673,9 +687,9 @@ describe("account state and explicit OAuth setup", () => {
     expect(savedState().pending).toBeUndefined();
   });
 
-  test("a browser failure preserves the pending connection for recovery", async () => {
+  test.each(["darwin", "win32"] as const)("a browser failure on %s preserves the pending connection for recovery", async browserPlatform => {
     setState({ userId: ACTIVE_STATE.userId });
-    setScenario({ browserError: true });
+    setScenario({ browserError: true, browserPlatform });
     const result = await invoke("connect_account");
     expect(result.isError).toBe(true);
     expect(savedState().pending.id).toBe("ca_pending");
