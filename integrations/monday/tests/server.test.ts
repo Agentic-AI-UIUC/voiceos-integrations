@@ -14,7 +14,7 @@ const manifest = JSON.parse(readFileSync(join(ROOT, "voiceos.integration.json"),
 const KEY = "offline-monday-key-only";
 const IDENTITY = { userId: "voiceos-monday-test" };
 const ACTIVE = { ...IDENTITY, accountId: "ca_test" };
-const TOOLS = ["connect_account", "connection_status", "disconnect_account", "get_boards", "get_items", "prepare_create_item", "create_item", "update_item_values", "create_update", "create_board"].sort();
+const TOOLS = ["connect_account", "connection_status", "disconnect_account", "get_boards", "get_items", "prepare_create_item", "create_item", "update_item_values", "create_update", "prepare_create_board", "create_board"].sort();
 const directory = mkdtempSync(join(tmpdir(), "voiceos-monday-tests-"));
 const statePath = join(directory, ".composio-auth.json");
 const scenarioPath = join(directory, "scenario.json");
@@ -22,7 +22,9 @@ const eventsPath = join(directory, "events.jsonl");
 let client: Client;
 let transport: StdioClientTransport;
 let stderr = "";
-let notifications: { message: string; speak: boolean }[] = [];
+let notifications: {
+  message: string; speak: boolean; actions?: { id: string; label: string }[]; data?: { url: string };
+}[] = [];
 let rejectNotification = false;
 
 function scenario(value: Scenario = {}) { writeFileSync(scenarioPath, JSON.stringify(value)); }
@@ -58,7 +60,11 @@ beforeAll(async () => {
   client = new Client({ name: "monday-offline-tests", version: "1.0.0" });
   client.setRequestHandler(z.object({
     method: z.literal("voiceos/reminders/trigger"),
-    params: z.object({ message: z.string(), speak: z.boolean() }),
+    params: z.object({
+      message: z.string(), speak: z.boolean(),
+      actions: z.array(z.object({ id: z.string(), label: z.string() })).optional(),
+      data: z.object({ url: z.string() }).optional(),
+    }),
   }), async request => {
     notifications.push(request.params);
     if (rejectNotification) throw new Error("Test notification unavailable");
@@ -73,7 +79,7 @@ beforeEach(() => {
 afterEach(() => {
   expect(events().filter(event => event.kind === "unexpected")).toEqual([]);
   const executions = events().filter(event => event.path?.includes("/tools/execute/"));
-  expect(executions.every(event => ["MONDAY_BOARDS", "MONDAY_GET_ITEMS", "MONDAY_ITEMS_PAGE", "MONDAY_LIST_GROUPS", "MONDAY_COLUMNS", "MONDAY_LIST_USERS", "MONDAY_GET_TEAMS", "MONDAY_CREATE_ITEM", "MONDAY_UPDATE_ITEM", "MONDAY_CREATE_UPDATE", "MONDAY_CREATE_BOARD"].includes(event.path!.split("/").at(-1)!))).toBe(true);
+  expect(executions.every(event => ["MONDAY_BOARDS", "MONDAY_GET_ITEMS", "MONDAY_ITEMS_PAGE", "MONDAY_LIST_GROUPS", "MONDAY_COLUMNS", "MONDAY_LIST_USERS", "MONDAY_GET_TEAMS", "MONDAY_GET_WORKSPACES", "MONDAY_CREATE_ITEM", "MONDAY_UPDATE_ITEM", "MONDAY_CREATE_UPDATE", "MONDAY_CREATE_BOARD"].includes(event.path!.split("/").at(-1)!))).toBe(true);
 });
 afterAll(async () => {
   try { await client?.close(); } finally {
@@ -92,19 +98,27 @@ describe("account tools contract", () => {
       expect(actual.description).toBe(declared.description);
       expect(actual.inputSchema.properties).toEqual(declared.inputSchema.properties);
       expect(actual.inputSchema.additionalProperties).toBe(false);
-      if (["connection_status", "get_boards", "get_items", "prepare_create_item"].includes(actual.name)) {
+      if (["connection_status", "get_boards", "get_items", "prepare_create_item", "prepare_create_board"].includes(actual.name)) {
         expect(declared.confirmation).toBeUndefined();
         expect(declared.uiCallable).toBe(true);
         expect(actual.annotations?.readOnlyHint).toBe(true);
       } else if (["create_item", "update_item_values", "create_update", "create_board"].includes(actual.name)) {
-        if (actual.name === "create_item") {
+        if (actual.name === "create_item" || actual.name === "create_board") {
+          const item = actual.name === "create_item";
           const root = declared.confirmation.root;
           const fields = root.children.filter((block: { type: string }) => block.type === "textField");
-          expect(fields).toEqual([{ type: "textField", bind: "{{item_name}}", label: "Name", required: true }]);
+          expect(fields).toEqual([
+            { type: "textField", bind: item ? "{{item_name}}" : "{{board_name}}", label: item ? "Item name" : "Board name", required: true },
+            ...(!item ? [{ type: "textField", bind: "{{description}}", label: "Description", multiline: true }] : []),
+          ]);
           const widget = root.children.find((block: { type: string }) => block.type === "widget");
-          expect(widget.confirmLabel).toBe("Create item");
+          expect(widget.confirmLabel).toBe(item ? "Create item" : "Create board");
           expect(widget.visibleIf).toBeUndefined();
           expect(root.children.at(-1).children).toEqual([{ type: "button", label: "Cancel", role: "cancel" }]);
+          expect(declared.visibility).toBeUndefined();
+          if (!item) expect(root.children[0]).toMatchObject({
+            type: "text", text: "{{submission_error}}", visibleIf: "{{submission_error}}", color: "danger",
+          });
         } else {
           expect(declared.confirmation).toBeUndefined();
         }
@@ -714,6 +728,23 @@ describe("Monday create item confirmation", () => {
     .filter(event => event.path?.includes("/tools/execute/"))
     .map(event => event.path!.split("/").at(-1));
 
+  test("renames a pending item without changing the board, group, or column values", async () => {
+    scenario({ toolDataByAction: {
+      ...createBoardMetadata,
+      MONDAY_CREATE_ITEM: { create_item: { id: "456" } },
+    } });
+    const original = await createArguments({ item_name: "hello", group_id: "planned", column_values: { text: "Keep this" } });
+    const result = await invoke("prepare_create_item", { replaces_draft_id: original.draft_id, item_name: "study" });
+    expect(result.isError).toBe(false);
+    const renamed = result.body.create_item_arguments;
+    expect(renamed).toMatchObject({ item_name: "study", group_id: "planned", preview: original.preview });
+    expect((await invoke("create_item", original)).isError).toBe(true);
+    expect((await invoke("create_item", renamed)).body.id).toBe("456");
+    expect(providerActions()).not.toContain("MONDAY_CREATE_BOARD");
+    expect(events().find(event => event.path?.endsWith("/execute/MONDAY_CREATE_ITEM"))?.body?.arguments)
+      .toEqual({ board_id: "123", group_id: "planned", item_name: "study", column_values: '{"text":"Keep this"}' });
+  });
+
   test("asks for a board in one result card and keeps the item pending", async () => {
     scenario({ toolDataByAction: {
       MONDAY_BOARDS: { boards: [{ id: "123", name: "Roadmap" }, { id: "777", name: "Operations" }] },
@@ -897,6 +928,309 @@ describe("Monday create item confirmation", () => {
   });
 });
 
+async function prepareBoardArguments(input: Record<string, unknown> = {}) {
+  const result = await invoke("prepare_create_board", { board_name: "Test board", ...input });
+  expect(result.isError).toBe(false);
+  return result.body.create_board_arguments;
+}
+
+describe("Monday create board confirmation", () => {
+  const boardWrites = () => events().filter(event => event.path?.endsWith("/execute/MONDAY_CREATE_BOARD"));
+
+  test("a fresh board request asks for a name and uses defaults even with another named draft pending", async () => {
+    scenario({ workspacePages: { 1: [{ id: "123", name: "Design" }] } });
+    await prepareBoardArguments({ board_name: "voiceos", description: "integrations", board_kind: "private", workspace: "Design" });
+    const fresh = await invoke("prepare_create_board", { item_follow_up: "prepare_confirmation" });
+    expect(fresh.body.message).toBe("What should the board be named?");
+    expect(fresh.body.pending_board).toEqual({ draft_id: expect.any(String), item_follow_up: "prepare_confirmation" });
+    expect(fresh.body.create_board_arguments).toBeUndefined();
+    const named = await invoke("prepare_create_board", {
+      replaces_draft_id: fresh.body.pending_board.draft_id, board_name: "New board",
+    });
+    expect(named.body.create_board_arguments).toMatchObject({
+      board_name: "New board", board_kind: "public", description: "", workspace_choice: "default",
+    });
+    expect(boardWrites()).toHaveLength(0);
+  });
+
+  test("keeps description and visibility across follow-ups until the user supplies the name", async () => {
+    const description = await invoke("prepare_create_board", { description: "integrations" });
+    expect(description.body.message).toBe("What should the board be named?");
+    expect(description.body.create_board_arguments).toBeUndefined();
+    const visibility = await invoke("prepare_create_board", {
+      replaces_draft_id: description.body.pending_board.draft_id, board_kind: "private",
+    });
+    expect(visibility.body.pending_board).toMatchObject({ description: "integrations", board_kind: "private" });
+    expect(events()).toEqual([]);
+    const named = await invoke("prepare_create_board", {
+      replaces_draft_id: visibility.body.pending_board.draft_id, board_name: "Integrations roadmap",
+    });
+    expect(named.body.create_board_arguments).toMatchObject({
+      board_name: "Integrations roadmap", description: "integrations", board_kind: "private", workspace_choice: "default",
+    });
+    expect(boardWrites()).toHaveLength(0);
+  });
+
+  test("revises a named confirmation without asking for the name again and retires earlier confirmations", async () => {
+    scenario({ toolDataByAction: { MONDAY_CREATE_BOARD: { create_board: { id: "987" } } } });
+    const original = await prepareBoardArguments({ board_name: "Integrations roadmap" });
+    const description = await invoke("prepare_create_board", {
+      replaces_draft_id: original.draft_id, description: "integrations",
+    });
+    const edited = description.body.create_board_arguments;
+    const visibility = await invoke("prepare_create_board", { replaces_draft_id: edited.draft_id, board_kind: "private" });
+    const latest = visibility.body.create_board_arguments;
+    expect(latest).toMatchObject({ board_name: "Integrations roadmap", description: "integrations", board_kind: "private" });
+    expect((await invoke("create_board", original)).isError).toBe(true);
+    expect((await invoke("create_board", edited)).isError).toBe(true);
+    expect(boardWrites()).toHaveLength(0);
+    expect((await invoke("create_board", latest)).body.id).toBe("987");
+    expect(boardWrites()[0].body?.arguments).toEqual({
+      board_name: "Integrations roadmap", description: "integrations", board_kind: "private",
+    });
+  });
+
+  test("uses the latest board settings when a voice edit refers to an older confirmation", async () => {
+    scenario({ toolDataByAction: { MONDAY_CREATE_BOARD: { create_board: { id: "987" } } } });
+    const original = await prepareBoardArguments({ board_name: "Original" });
+    const updated = await invoke("prepare_create_board", {
+      replaces_draft_id: original.draft_id, description: "Keep this", board_kind: "private",
+    });
+    const latest = await invoke("prepare_create_board", { replaces_draft_id: original.draft_id, board_name: "cs173" });
+    expect(latest.isError).toBe(false);
+    const args = latest.body.create_board_arguments;
+    expect(args).toMatchObject({ board_name: "cs173", description: "Keep this", board_kind: "private" });
+    expect((await invoke("create_board", original)).isError).toBe(true);
+    expect((await invoke("create_board", updated.body.create_board_arguments)).isError).toBe(true);
+    expect(boardWrites()).toHaveLength(0);
+    expect((await invoke("create_board", args)).body.id).toBe("987");
+    const used = await invoke("prepare_create_board", { replaces_draft_id: original.draft_id, board_name: "Another name" });
+    expect(used.isError).toBe(false);
+    expect(used.body.board_draft_status).toBe("created");
+    expect(used.body._voiceos_glance).toBeUndefined();
+    expect(used.body.create_board_arguments).toBeUndefined();
+    expect(boardWrites()).toHaveLength(1);
+  });
+
+  test("returns a quiet recovery status for a missing draft reference", async () => {
+    const result = await invoke("prepare_create_board", {
+      replaces_draft_id: "da3d9451-474f-4e6b-b9ae-016a4ecb46b7", board_name: "cs173",
+    });
+    expect(result.isError).toBe(false);
+    expect(result.body.board_draft_status).toBe("unavailable");
+    expect(result.body._voiceos_glance).toBeUndefined();
+    expect(events()).toEqual([]);
+  });
+
+  test("prepares a name-only draft without writing and creates a public board in the default workspace after approval", async () => {
+    scenario({ toolDataByAction: { MONDAY_CREATE_BOARD: { create_board: { id: "987" } } } });
+    const args = await prepareBoardArguments();
+    expect(args).toMatchObject({
+      board_name: "Test board", board_kind: "public", description: "", workspace_choice: "default",
+      workspace_choices: [{ value: "default", label: "Default workspace" }],
+    });
+    expect(boardWrites()).toHaveLength(0);
+    const results = await Promise.all([invoke("create_board", args), invoke("create_board", args)]);
+    expect(results.filter(result => !result.isError).map(result => result.body.id)).toEqual(["987"]);
+    expect(boardWrites()).toHaveLength(1);
+    expect(boardWrites()[0].body?.arguments).toEqual({ board_name: "Test board", board_kind: "public" });
+  });
+
+  test("resolves workspaces by name across pages and applies changes made on the confirmation", async () => {
+    scenario({
+      workspacePages: {
+        1: Array.from({ length: 100 }, (_, index) => ({ id: String(index + 1), name: `Workspace ${index + 1}` })),
+        2: [{ id: "123", name: "Design" }, { id: "456", name: "Engineering" }, { id: "789", name: "Old", state: "archived" }],
+      },
+      toolDataByAction: { MONDAY_CREATE_BOARD: { create_board: { id: "987" } } },
+    });
+    const args = await prepareBoardArguments({ workspace: "design", board_kind: "private", description: "Initial" });
+    expect(args.board_kind).toBe("private");
+    expect(args.workspace_choices.find((choice: { value: string }) => choice.value === args.workspace_choice)?.label).toBe("Design");
+    expect(args.workspace_choices.some((choice: { label: string }) => choice.label === "Old")).toBe(false);
+    const engineering = args.workspace_choices.find((choice: { label: string }) => choice.label === "Engineering");
+    expect((await invoke("create_board", { ...args, workspace_choice: "456" })).isError).toBe(true);
+    expect((await invoke("create_board", { ...args, workspace_choices: [] })).isError).toBe(true);
+    expect(boardWrites()).toHaveLength(0);
+    const result = await invoke("create_board", {
+      ...args, board_name: "Updated board", board_kind: "share", description: "Updated description", workspace_choice: engineering.value,
+    });
+    expect(result.body.id).toBe("987");
+    expect(boardWrites()[0].body?.arguments).toEqual({
+      board_name: "Updated board", board_kind: "share", description: "Updated description", workspace_id: 456,
+    });
+  });
+
+  test.each([
+    ["Unknown", "No workspace matches"],
+    ["Design", "Multiple workspaces match"],
+  ])("requires clarification for workspace %s", async (workspace, message) => {
+    scenario({ workspacePages: { 1: [
+      { id: "123", name: "Design" }, { id: "456", name: "Design" }, { id: "789", name: "Engineering" },
+    ] } });
+    const original = await prepareBoardArguments({ board_kind: "private", workspace: "Engineering" });
+    const result = await invoke("prepare_create_board", { replaces_draft_id: original.draft_id, workspace });
+    expect(result.isError).toBe(false);
+    expect(result.body.message).toContain(message);
+    expect(result.body.create_board_arguments).toBeUndefined();
+    expect((await invoke("create_board", original)).isError).toBe(true);
+    const resolved = await invoke("prepare_create_board", {
+      replaces_draft_id: result.body.pending_board.draft_id, workspace: null,
+    });
+    expect(resolved.body.create_board_arguments).toMatchObject({
+      board_name: "Test board", board_kind: "private", workspace_choice: "default",
+    });
+    expect(boardWrites()).toHaveLength(0);
+  });
+
+  test("can use the default workspace without workspace read permission", async () => {
+    scenario({ toolDataByAction: {
+      MONDAY_GET_WORKSPACES: { errors: [{ message: "Missing workspaces:read scope" }] },
+      MONDAY_CREATE_BOARD: { create_board: { id: "987" } },
+    } });
+    const args = await prepareBoardArguments();
+    expect(args.workspace_choice).toBe("default");
+    expect(args.workspace_notice).toContain("unavailable");
+    expect((await invoke("prepare_create_board", { board_name: "Test board", workspace: "Design" })).isError).toBe(true);
+    expect((await invoke("create_board", args)).body.id).toBe("987");
+    expect(boardWrites()[0].body?.arguments).not.toHaveProperty("workspace_id");
+  });
+
+  test("reopens a visibility rejection with the submitted edits and requires approval of the corrected draft", async () => {
+    scenario({ workspacePages: { 1: [{ id: "123", name: "Design" }] } });
+    const args = await prepareBoardArguments({ workspace: "Design" });
+    scenario({ toolDataByAction: { MONDAY_CREATE_BOARD: { errors: [{ message: "Private boards are unavailable on this plan" }] } } });
+    const result = await invoke("create_board", { ...args, board_name: "Edited board", board_kind: "private", description: "Edited description" });
+    expect(result.isError).toBe(true);
+    expect(result.body.error).toContain("Private boards are unavailable");
+    const retry = result.body.retry_create_board_arguments;
+    expect(retry).toMatchObject({
+      board_name: "Edited board", board_kind: "private", description: "Edited description",
+      workspace_choice: args.workspace_choice, workspace_choices: args.workspace_choices,
+      submission_error: result.body.error,
+    });
+    expect(retry.draft_id).not.toBe(args.draft_id);
+    expect((await invoke("create_board", args)).isError).toBe(true);
+    expect(boardWrites()).toHaveLength(1);
+    expect(notifications).toEqual([]);
+    scenario({ toolDataByAction: { MONDAY_CREATE_BOARD: { create_board: { id: "987" } } } });
+    expect((await invoke("create_board", { ...retry, board_kind: "public" })).body.id).toBe("987");
+    expect(boardWrites().map(event => event.body?.arguments)).toEqual([
+      { board_name: "Edited board", board_kind: "private", description: "Edited description", workspace_id: 123 },
+      { board_name: "Edited board", board_kind: "public", description: "Edited description", workspace_id: 123 },
+    ]);
+  });
+
+  test.each([
+    { toolError: "Private board creation timed out while checking the plan" },
+    { toolData: { data: { create_board: { id: "987" } }, errors: [{ message: "Private boards require an upgraded plan" }] } },
+  ])("does not offer another approval when the board write outcome is uncertain", async failure => {
+    const args = await prepareBoardArguments({ board_kind: "private" });
+    scenario(failure);
+    const result = await invoke("create_board", args);
+    expect(result.isError).toBe(true);
+    expect(result.body.retry_create_board_arguments).toBeUndefined();
+    expect(boardWrites()).toHaveLength(1);
+  });
+
+  test("uses the created board ID and top group after a targeted metadata read and retries only the item", async () => {
+    const url = "https://example.monday.com/boards/987";
+    scenario({ toolDataByAction: {
+      MONDAY_CREATE_BOARD: { create_board: { id: "987" } },
+      MONDAY_BOARDS: { boards: [{ id: "987", name: "Integrations", url, workspace: { name: "Main workspace" },
+        groups: [{ id: "other", title: "Later", position: "200" }, { id: "topics", title: "New items", position: "100" }] }] },
+      MONDAY_CREATE_ITEM: { create_item: { id: "654" } },
+    } });
+    const initial = await prepareBoardArguments({
+      board_name: "Integrations", item_follow_up: "prepare_confirmation", follow_up_item_name: "hello",
+    });
+    const revised = await invoke("prepare_create_board", {
+      replaces_draft_id: initial.draft_id, follow_up_item_name: "study",
+    });
+    const args = revised.body.create_board_arguments;
+    expect(args).toMatchObject({ board_name: "Integrations", board_kind: "public", description: "", workspace_choice: "default" });
+    expect((await invoke("create_board", initial)).isError).toBe(true);
+    const board = await invoke("create_board", args);
+    const followUp = "Preparing the item confirmation…";
+    expect(board.body).toMatchObject({
+      id: "987", name: "Integrations", url, item_destination: { board_id: 987, item_name: "study" },
+      item_follow_up: followUp, notificationQueued: true,
+    });
+    expect(notifications[0]).toMatchObject({ message: `Created public board “Integrations” in Main workspace. ${followUp}`,
+      actions: [{ id: "open_board", label: "Open board" }], data: { url } });
+    expect(board.body._voiceos_glance.blocks[1].pairs).toContainEqual(["Next", followUp]);
+    expect(board.body._voiceos_glance.blocks.at(-1)).toMatchObject({ type: "widget", label: "Open board", data: { url } });
+    const open = await client.request({ method: "voiceos/reminders/action", params: {
+      notificationId: "notification_test", actionId: "open_board", data: { url },
+    } }, z.object({ ok: z.boolean() }));
+    expect(open.ok).toBe(true);
+    expect(browsers().at(-1)?.url).toBe(url);
+    const prep = board.body.item_destination;
+    const first = await invoke("prepare_create_item", prep);
+    expect(first.body.create_item_arguments).toMatchObject({ item_name: "study", group_id: "topics", preview: { board: "Integrations" } });
+    // Canceling the first confirmation leaves the item write uncalled.
+    expect(events().filter(event => event.path?.endsWith("/execute/MONDAY_CREATE_ITEM"))).toHaveLength(0);
+    const retried = await invoke("prepare_create_item", { ...prep, replaces_draft_id: first.body.create_item_arguments.draft_id });
+    expect((await invoke("create_item", retried.body.create_item_arguments)).body.id).toBe("654");
+    expect(boardWrites()).toHaveLength(1);
+    const reads = events().filter(event => event.path?.endsWith("/execute/MONDAY_BOARDS"));
+    expect(reads.map(event => event.body?.arguments)).toEqual([{ ids: [987], state: "active", limit: 1, page: 1 }]);
+    expect(events().find(event => event.path?.endsWith("/execute/MONDAY_CREATE_ITEM"))?.body?.arguments)
+      .toEqual({ board_id: "987", group_id: "topics", item_name: "study" });
+  });
+
+  test("keeps a confirmed board when link lookup fails", async () => {
+    scenario({ toolDataByAction: {
+      MONDAY_CREATE_BOARD: { create_board: { id: "987", url: "https://example.invalid/boards/987" } },
+      MONDAY_BOARDS: { errors: [{ message: "Metadata unavailable" }] },
+    } });
+    const result = await invoke("create_board", await prepareBoardArguments());
+    expect(result.isError).toBe(false);
+    expect(result.body).toMatchObject({ id: "987", url: null, item_destination: { board_id: 987 } });
+    expect(notifications[0].actions).toBeUndefined();
+    expect(boardWrites()).toHaveLength(1);
+  });
+
+  test.each([
+    ["ask_name", "Next, choose a name for the item."],
+    ["none", undefined],
+    [undefined, undefined],
+  ])("shows the appropriate handoff for %s without preparing the item automatically", async (item_follow_up, expected) => {
+    scenario({ toolDataByAction: {
+      MONDAY_CREATE_BOARD: { create_board: { id: "987", name: "Integrations", url: "https://example.monday.com/boards/987",
+        groups: [{ id: "topics", title: "New items" }] } },
+    } });
+    const args = await prepareBoardArguments(item_follow_up ? { item_follow_up } : {});
+    const board = await invoke("create_board", args);
+    expect(board.body.item_follow_up).toBe(expected);
+    const next = board.body._voiceos_glance.blocks[1].pairs.find(([label]: [string]) => label === "Next");
+    expect(next?.[1]).toBe(expected);
+    expect(events().filter(event => event.path?.includes("/tools/execute/")).map(event => event.path?.split("/").at(-1)))
+      .toEqual(["MONDAY_GET_WORKSPACES", "MONDAY_CREATE_BOARD"]);
+  });
+
+  test("keeps the board when the approved item write fails", async () => {
+    scenario({ toolDataByAction: {
+      MONDAY_CREATE_BOARD: { create_board: { id: "987", name: "Integrations", url: "https://example.monday.com/boards/987",
+        groups: [{ id: "topics", title: "New items" }] } },
+      MONDAY_CREATE_ITEM: { errors: [{ message: "Item permission denied" }] },
+    } });
+    const board = await invoke("create_board", await prepareBoardArguments());
+    expect(board.isError).toBe(false);
+    const item = await invoke("prepare_create_item", { ...board.body.item_destination, item_name: "item3" });
+    expect((await invoke("create_item", item.body.create_item_arguments)).isError).toBe(true);
+    expect(events().filter(event => event.path?.includes("/tools/execute/")).map(event => event.path?.split("/").at(-1)))
+      .toEqual(["MONDAY_GET_WORKSPACES", "MONDAY_CREATE_BOARD", "MONDAY_CREATE_ITEM"]);
+  });
+
+  test("a draft cannot be used after switching the connected account", async () => {
+    const args = await prepareBoardArguments();
+    state({ ...IDENTITY, accountId: "ca_other" });
+    expect((await invoke("create_board", args)).body.error).toContain("account changed");
+    expect(boardWrites()).toHaveLength(0);
+  });
+});
+
 describe("Monday write tools", () => {
   test("reads the created ID from Composio's live response envelope", async () => {
     const args = await preparedWrite();
@@ -936,16 +1270,23 @@ describe("Monday write tools", () => {
     { name: "create_item", args: { board_id: 123, item_name: "New task", column_values: '{"status":{"label":"Done"}}' }, action: "MONDAY_CREATE_ITEM", response: { create_item: { id: "456" } }, routed: { board_id: "123", group_id: "incoming", item_name: "New task", column_values: '{"status":{"label":"Done"}}' } },
     { name: "update_item_values", args: { board_id: 123, item_id: 456, column_values: { status: { label: "Done" }, text: "Hello" } }, action: "MONDAY_UPDATE_ITEM", response: { change_column_value: { id: "456" } }, routed: { board_id: "123", item_id: "456", column_id: "status", value: { label: "Done" } } },
     { name: "create_update", args: { item_id: 456, body: "A comment" }, action: "MONDAY_CREATE_UPDATE", response: { create_update: { id: "789" } }, routed: { item_id: 456, body: "A comment" } },
-    { name: "create_board", args: { board_name: "Test board", board_kind: "private", workspace_id: 123 }, action: "MONDAY_CREATE_BOARD", response: { create_board: { id: "987" } }, routed: { board_name: "Test board", board_kind: "private", workspace_id: 123 } },
+    { name: "create_board", args: { board_name: "Test board", board_kind: "private" }, action: "MONDAY_CREATE_BOARD", response: { create_board: { id: "987", url: "https://example.monday.com/boards/987", groups: [{ id: "topics", title: "New items" }] } }, routed: { board_name: "Test board", board_kind: "private" } },
   ];
+  async function writeArguments(c: (typeof cases)[number]) {
+    if (c.name === "create_item") return preparedWrite(c.args);
+    if (c.name !== "create_board") return c.args;
+    const args = await prepareBoardArguments(c.args);
+    writeFileSync(eventsPath, "");
+    return args;
+  }
   for (const c of cases) {
-    test(`${c.name} returns the confirmed ID and result card without a desktop notification`, async () => {
-      const args = c.name === "create_item" ? await preparedWrite(c.args) : c.args;
+    test(`${c.name} returns a confirmed ID and result card`, async () => {
+      const args = await writeArguments(c);
       scenario({ toolData: { data: c.response } });
       const result = await invoke(c.name, args);
       expect(result.isError).toBe(false);
       expect(result.body.id).toBeTruthy();
-      expect(result.body.notificationQueued).toBe(false);
+      expect(result.body.notificationQueued).toBe(c.name === "create_board");
       expect(result.body._voiceos_glance.blocks[0].trailing).toBe("Success");
       const calls = events().filter(e => e.path?.includes("/tools/execute/"));
       expect(calls[0]).toMatchObject({ path: `/api/v3.1/tools/execute/${c.action}`, body: {
@@ -966,7 +1307,7 @@ describe("Monday write tools", () => {
         }
       }
       expect(calls).toHaveLength(c.name === "update_item_values" ? 2 : 1);
-      expect(notifications).toEqual([]);
+      expect(notifications).toHaveLength(c.name === "create_board" ? 1 : 0);
     });
     for (const failure of [
       { toolHttpStatus: 500 }, { toolHttpStatus: 403 },
@@ -974,7 +1315,7 @@ describe("Monday write tools", () => {
       { toolData: { errors: [{ message: "Permission denied" }] } },
       { toolData: {} }, { accountStatus: "EXPIRED" },
     ]) test(`${c.name} reports failure without retry: ${JSON.stringify(failure)}`, async () => {
-      const args = c.name === "create_item" ? await preparedWrite(c.args) : c.args;
+      const args = await writeArguments(c);
       scenario(failure);
       const result = await invoke(c.name, args);
       expect(result.isError).toBe(true);
@@ -1010,6 +1351,8 @@ describe("Monday write tools", () => {
     ["update_item_values", { item_id: 1, column_values: { text: "Missing board" } }],
     ["create_board", { board_name: "Board" }],
     ["create_board", { board_name: "Board", board_kind: "public", board_owner_ids: [1] }],
+    ["prepare_create_board", { board_name: "Board", workspace_id: 123 }],
+    ["prepare_create_board", { board_name: "Board", folder_id: 123 }],
   ])("rejects missing/invalid write inputs for %s", async (name, args) => {
     expect((await invoke(name as string, args as Record<string, unknown>)).isError).toBe(true);
     expect(events()).toEqual([]);

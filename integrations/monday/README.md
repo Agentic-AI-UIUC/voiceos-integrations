@@ -36,7 +36,7 @@ Results contain `records` and `pagination`. Board and item-ID reads return `next
 
 Board and item browsing use `MONDAY_BOARDS`, `MONDAY_GET_ITEMS`, and `MONDAY_ITEMS_PAGE` through the Composio SDK using the saved installation identity and connected account, pinned to toolkit version `20261101_00`. Reads verify an active Monday connection first and have a 20-second account-check/execution deadline. Composio failures and Monday GraphQL errors are returned as errors, with reconnect guidance for invalid authorization. Reads never initiate OAuth automatically.
 
-The MCP allowlist contains three account controls, two browsing tools, one read-only preparation tool, and four writes. Delete board, archive board, and membership changes remain for pass 3.
+The MCP allowlist contains three account controls, two browsing tools, two read-only preparation tools, and four writes. Delete board, archive board, and membership changes remain for pass 3.
 
 ## Write tools (pass 2)
 
@@ -44,7 +44,10 @@ The MCP allowlist contains three account controls, two browsing tools, one read-
 - `create_item`: use the returned `create_item_arguments`. In VoiceOS, edit the item name or choose an active group on the selected board before creating the item. The board and column details are read-only.
 - `update_item_values`: required `board_id`, `item_id`, and nonempty `column_values` keyed by actual column IDs.
 - `create_update`: required `item_id` and nonempty `body` to post an update/comment.
-- `create_board`: required `board_name` and explicit `board_kind` (`public`, `private`, or `share`); optional `workspace_id`, `folder_id`, and `description`. Membership assignment is reserved for pass 3.
+- `prepare_create_board`: pass the known `board_name`, `board_kind` (`public`, `private`, or `share`), `description`, and `workspace` name. If the board name is missing or the workspace lookup has no unique match, the result includes a question and a `pending_board.draft_id`. For a follow-up to that question or an edit before approval, pass the latest draft ID as `replaces_draft_id` and the changed fields. Use `workspace: null` to switch to the default workspace.
+- `create_board`: pass the returned `create_board_arguments` to show the VoiceOS confirmation for standalone and chained requests. The user can edit the name, visibility, description, and workspace. Public and the default workspace are preselected when omitted. The default workspace remains available when the connection lacks workspace read access. After approval, the result includes the confirmed ID, name, and board URL when available. VoiceOS shows an **Open board** action when it has a verified link.
+- When Monday definitively rejects the requested visibility, use `retry_create_board_arguments` to show a fresh confirmation with the error and the submitted values. Wait for approval again. For an uncertain outcome, check Monday before another create.
+- For “create a board and add an item,” pass `item_follow_up` as `prepare_confirmation` with `follow_up_item_name` for a named item, or `ask_name` for an unnamed one. Before board approval, an explicit item rename updates only `follow_up_item_name` on the pending board draft. After board creation, use `item_destination` with `prepare_create_item`. An item rename on the item confirmation revises that draft with the new `item_name` and keeps the destination. If the item step is canceled or fails, the board remains available and the retry starts with item preparation.
 
 IDs use the same positive safe integer contract as reads. Column values accept an object or JSON object string and are validated before execution. The create action receives a canonical JSON string; the update action receives each typed value, which Composio serializes according to its schema. Null column values and nested arrays are not supported by the pinned update action. Resolve actual IDs and column types from Monday; provider validation remains authoritative for board-specific column formats.
 
@@ -52,7 +55,7 @@ IDs use the same positive safe integer contract as reads. Column values accept a
 {"name":"prepare_create_item","arguments":{"board_id":123,"item_name":"Review proposal","column_values":{"status":{"label":"Working on it"}}}}
 {"name":"update_item_values","arguments":{"board_id":123,"item_id":456,"column_values":{"status":{"label":"Done"},"text":"Reviewed"}}}
 {"name":"create_update","arguments":{"item_id":456,"body":"Review completed."}}
-{"name":"create_board","arguments":{"board_name":"Project planning","board_kind":"private"}}
+{"name":"prepare_create_board","arguments":{"board_name":"Project planning"}}
 ```
 
 The Composio catalog schemas were checked during implementation and are retained in `tests/catalog/`. The four provider actions are `MONDAY_CREATE_ITEM`, `MONDAY_UPDATE_ITEM`, `MONDAY_CREATE_UPDATE`, and `MONDAY_CREATE_BOARD`, all pinned to `20261101_00`. `MONDAY_UPDATE_ITEM` changes one column per request. Multi-column updates run sequentially and are **not atomic**: an error identifies completed columns, the unconfirmed column, and unattempted remaining columns. No rollback or automatic retry occurs. SDK execution disables HTTP retries; intercepted HTTP 500 tests verify one attempt.
@@ -96,7 +99,7 @@ bun test
 bun run build
 ```
 
-Tests run a disposable copy of the real MCP server with the real Composio SDK. All HTTP and browser calls are intercepted locally; real credentials and installed OAuth state are never loaded. Coverage includes the exact nine-tool allowlist and manifest/schema parity, confirmation contracts, OAuth completion/reuse/recovery, concurrent account calls, disconnect revocation/fallback/failures, credential redaction, and notifications. Read coverage includes saved-account/version routing, progress, filters, page/cursor pagination, column-value preservation, invalid inputs, empty and malformed results, GraphQL/HTTP failures, and expired/revoked/disabled connections.
+Tests run a disposable copy of the real MCP server with the real Composio SDK. All HTTP and browser calls are intercepted locally; real credentials and installed OAuth state are never loaded. Coverage includes the eleven-tool allowlist and manifest/schema parity, confirmation contracts, OAuth completion/reuse/recovery, concurrent account calls, disconnect revocation/fallback/failures, credential redaction, and notifications. Read coverage includes saved-account/version routing, progress, filters, page/cursor pagination, column-value preservation, invalid inputs, empty and malformed results, GraphQL/HTTP failures, and expired/revoked/disabled connections.
 
 Manual checks in VoiceOS are still required for rendered confirmation/result cards and notifications, and a live Monday login is required to verify real consent. The integration does not claim that offline tests verify provider token refresh.
 

@@ -133,7 +133,7 @@
       "name": "prepare_create_item",
       "visibility": "agent",
       "title": "Prepare Monday.com item",
-      "description": "Start every Monday item creation here. A follow-up such as 'change the board to voiceos' after a Create item card means change the pending item's destination. For that correction, call this tool with the new board_name and replaces_draft_id. If the pending ID is missing from the context, pass revises_item_name with the exact pending item's name from this conversation. If neither is known, ask which pending item should go on the requested board. Board renaming is unavailable. Omitted group and column arguments are carried over on a revision; ask if a requested value cannot be matched. For a new item, pass item_name and the board the user specified in the request, including a clear reference such as 'that board'. Use board_name or a verified board_id. If the user did not specify a destination, omit both board fields and ask the user to choose. Do not infer a destination from past requests or board lists. If the result is board_choices, ask its question as the final response for that turn and wait for the user to say or type a board name. This is a clarification, so do not open a confirmation yet. A bare board name after that question answers it, even if the reply contains no verb. Call prepare_create_item again with that board_name and pending_item.draft_id as replaces_draft_id, or use revises_item_name with pending_item.item_name if the draft ID is unavailable. Do not list boards or items in response to that choice. Once preparation returns create_item_arguments, call create_item for confirmation. This tool only reads Monday. With a resolved board and without item_name or a revision, it returns groups and columns. Pass optional group_id (ID or title; omit for the top group) and only requested column_values keyed by actual column ID or exact title. Use exact status labels, ISO dates, and Monday person names or IDs. Pass create_item_arguments verbatim to create_item. Never silently drop a requested value.",
+      "description": "Start every Monday item creation here. An explicit item rename, or \"change the name to …\" while the Create item confirmation is active, changes item_name. Pass the new item_name and replaces_draft_id, or revises_item_name with the previous item name. Omit board and group fields unless the user asks to change them. Never use create_board for an item rename. If it is unclear which name the user means, ask whether they mean the board or the item. A follow-up such as 'change the board to voiceos' after a Create item card means change the pending item's destination. For that correction, call this tool with the new board_name and replaces_draft_id. If the pending ID is missing from the context, pass revises_item_name with the exact pending item's name from this conversation. If neither is known, ask which pending item should go on the requested board. Board renaming is unavailable. Omitted group and column arguments are carried over on a revision; ask if a requested value cannot be matched. For a new item, pass item_name and the board the user specified in the request, including a clear reference such as 'that board'. Use board_name or a verified board_id. If the user did not specify a destination, omit both board fields and ask the user to choose. Do not infer a destination from past requests or board lists. If the result is board_choices, ask its question as the final response for that turn and wait for the user to say or type a board name. This is a clarification, so do not open a confirmation yet. A bare board name after that question answers it, even if the reply contains no verb. Call prepare_create_item again with that board_name and pending_item.draft_id as replaces_draft_id, or use revises_item_name with pending_item.item_name if the draft ID is unavailable. Do not list boards or items in response to that choice. Once preparation returns create_item_arguments, call create_item for confirmation. This tool only reads Monday. With a resolved board and without item_name or a revision, it returns groups and columns. Pass optional group_id (ID or title; omit for the top group) and only requested column_values keyed by actual column ID or exact title. Use exact status labels, ISO dates, and Monday person names or IDs. Pass create_item_arguments verbatim to create_item. Never silently drop a requested value.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -188,7 +188,7 @@
     {
       "name": "create_item",
       "title": "Create Monday.com item",
-      "description": "Use create_item_arguments from prepare_create_item verbatim. The confirmation lets the user edit the item name and choose a group on the selected board. Approval creates the item in the selected group. Never say an item was created unless the result confirms its ID. For a voice revision such as 'change the board to voiceos', call prepare_create_item with the new board_name and replaces_draft_id or the pending item's exact name in revises_item_name. Ask about any previously requested value with no clear match. Board renaming is unavailable. Do not retry a write automatically.",
+      "description": "Use create_item_arguments from prepare_create_item verbatim. For a spoken or typed item rename, or a name edit while this card is active, call prepare_create_item with the pending item draft ID and new item_name. Keep the destination and other values. The confirmation lets the user edit the item name and choose a group on the selected board. Approval creates the item in the selected group. Never say an item was created unless the result confirms its ID. For a voice revision such as 'change the board to voiceos', call prepare_create_item with the new board_name and replaces_draft_id or the pending item's exact name in revises_item_name. Ask about any previously requested value with no clear match. Board renaming is unavailable. Do not retry a write automatically.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -280,7 +280,7 @@
             {
               "type": "textField",
               "bind": "{{item_name}}",
-              "label": "Name",
+              "label": "Item name",
               "required": true
             },
             {
@@ -389,10 +389,10 @@
       }
     },
     {
-      "name": "create_board",
+      "name": "prepare_create_board",
       "visibility": "agent",
-      "title": "Create Monday.com board",
-      "description": "Create a Monday.com board with an explicit name and visibility, optionally in a workspace/folder. Does not modify memberships. Do not retry automatically after an uncertain outcome.",
+      "title": "Prepare Monday.com board",
+      "description": "Start every Monday board creation here. Treat a new request to create a board as a fresh draft, even in the same conversation. For a fresh draft, pass only details the user supplied in that request or explicitly asked to reuse. Omit replaces_draft_id. If the user gives no board name, omit board_name and ask for it using the tool result. Never fill in a board name, description, visibility, or workspace from an earlier unrelated request, a prior confirmation, or a previously created board. In \"create a board and add an item to it\", \"it\" means the new board in this request. Only when the user also requests an item, set item_follow_up to prepare_confirmation and follow_up_item_name to the name they supplied, or set item_follow_up to ask_name if it is missing. If the user explicitly renames the item before this board is created, revise the same pending board draft with only the updated follow_up_item_name and item_follow_up set to prepare_confirmation. Keep board_name and all other board settings. If a Create item confirmation is already active, use prepare_create_item for a name edit. When both the board and item are plausible targets and the user does not specify which, ask which name they mean before changing either. This shows the next step on the board success screen. Item creation still requires its own confirmation. Set item_follow_up to none if the user drops the item request before approving the board. Use replaces_draft_id only when the user edits the same pending board, such as \"change visibility to private\", or directly answers a question about it. Pass the latest draft ID and only the changed fields. Older references to the same pending board resolve to its latest revision. If the result has board_draft_status, follow its message. For unavailable, recover quietly only when the conversation confirms the board is still pending. For created, submitting, or unconfirmed, do not restart board creation. Pass workspace by name, null to switch to the default workspace, or description as an empty string to clear it. New boards default to public visibility, an empty description, and the default workspace. If the result has pending_board, ask its question about the missing name or unresolved workspace. When the user replies to that question or edits that same draft, pass pending_board.draft_id as replaces_draft_id. If the result has create_board_arguments, pass them verbatim to create_board for approval. This tool only reads Monday.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -408,24 +408,106 @@
               "share"
             ]
           },
-          "workspace_id": {
-            "type": "integer",
-            "exclusiveMinimum": 0,
-            "maximum": 9007199254740991
-          },
-          "folder_id": {
-            "type": "integer",
-            "exclusiveMinimum": 0,
-            "maximum": 9007199254740991
-          },
           "description": {
+            "type": "string"
+          },
+          "workspace": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "replaces_draft_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "item_follow_up": {
+            "type": "string",
+            "enum": [
+              "prepare_confirmation",
+              "ask_name",
+              "none"
+            ]
+          },
+          "follow_up_item_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        },
+        "additionalProperties": false
+      },
+      "uiCallable": true,
+      "execution": {
+        "mode": "sync",
+        "estimatedDurationMs": 5000
+      }
+    },
+    {
+      "name": "create_board",
+      "title": "Create Monday.com board",
+      "description": "Always show the Create board confirmation, including when the user also requests an item. Use create_board_arguments from the current draft verbatim. For a new create-board request, start with prepare_create_board and use that new draft. The user can edit the name, visibility, description, and workspace. For spoken or typed revisions, use prepare_create_board with the latest draft_id and changed fields. If the result has retry_create_board_arguments, show a fresh Create board confirmation with those arguments verbatim; the card shows Monday's rejection and the user's submitted settings. Wait for the user to edit and approve again. If no retry arguments are returned, report the error and check Monday before considering another create. On success, use item_destination.board_id and item_destination.item_name, when present, for prepare_create_item only if the user also requested an item. Follow the latest item name the user gave. A name edit while the Create item confirmation is active belongs to that item; use prepare_create_item and never reopen this board confirmation for that edit. Omit group_id for the top group unless the user specified a group. If the item name is missing, ask for it and retain this board ID for the reply. Always show a separate Create item confirmation. If the item is cancelled or fails, report that the board was created and the item wasn't confirmed. Resume from item preparation on this board if the user retries. Never create the board again to retry the item.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "board_name": {
             "type": "string",
             "minLength": 1
+          },
+          "board_kind": {
+            "type": "string",
+            "enum": [
+              "public",
+              "private",
+              "share"
+            ]
+          },
+          "description": {
+            "type": "string"
+          },
+          "draft_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "workspace_choice": {
+            "type": "string",
+            "minLength": 1
+          },
+          "workspace_choices": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "value",
+                "label"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "workspace_notice": {
+            "type": "string"
+          },
+          "submission_error": {
+            "type": "string"
           }
         },
         "required": [
           "board_name",
-          "board_kind"
+          "draft_id",
+          "workspace_choices"
         ],
         "additionalProperties": false
       },
@@ -433,6 +515,52 @@
       "execution": {
         "mode": "sync",
         "estimatedDurationMs": 5000
+      },
+      "confirmation": {
+        "schemaVersion": 1,
+        "root": {
+          "type": "card",
+          "title": "Create board",
+          "children": [
+            {
+              "type": "text",
+              "text": "{{submission_error}}",
+              "visibleIf": "{{submission_error}}",
+              "color": "danger"
+            },
+            {
+              "type": "textField",
+              "bind": "{{board_name}}",
+              "label": "Board name",
+              "required": true
+            },
+            {
+              "type": "textField",
+              "bind": "{{description}}",
+              "label": "Description",
+              "multiline": true
+            },
+            {
+              "type": "widget",
+              "label": "Visibility and workspace",
+              "confirmLabel": "Create board",
+              "height": 112,
+              "html": "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<style>\n:root {\n  --ink: rgba(255,255,255,.88);\n  --muted: rgba(255,255,255,.38);\n  --fill: rgba(255,255,255,.024);\n  --focus-fill: rgba(255,255,255,.052);\n  --divider: rgba(255,255,255,.08);\n  --menu-scheme: dark;\n  font: 12.5px/1.4 system-ui, sans-serif;\n  color: var(--ink);\n}\n:root[data-theme=\"light\"] {\n  --ink: rgba(0,0,0,.88);\n  --muted: rgba(0,0,0,.56);\n  --fill: rgba(0,0,0,.04);\n  --focus-fill: rgba(0,0,0,.07);\n  --divider: rgba(0,0,0,.09);\n  --menu-scheme: light;\n}\n/* Setting the color scheme on the document can give a transparent iframe an opaque canvas. */\nhtml, body { margin: 0; background: transparent; }\nlabel { display: grid; gap: 6px; color: var(--muted); font-size: 11.5px; font-weight: 500; }\n.control { position: relative; display: block; }\n.control::after {\n  content: \"\";\n  position: absolute;\n  top: 50%;\n  right: 12px;\n  width: 5px;\n  height: 5px;\n  border: solid currentColor;\n  border-width: 0 1px 1px 0;\n  transform: translateY(-75%) rotate(45deg);\n  pointer-events: none;\n}\nselect {\n  appearance: none;\n  box-sizing: border-box;\n  width: 100%;\n  padding: 8px 28px 8px 10px;\n  border: 0;\n  border-radius: 10px;\n  background: var(--fill);\n  color: var(--ink);\n  color-scheme: var(--menu-scheme);\n  font: 12.5px/normal system-ui, sans-serif;\n}\nselect:focus { background: var(--focus-fill); }\nselect:focus-visible { outline: 1px solid currentColor; outline-offset: -1px; }\n.fields { display: grid; gap: 8px; }\np { margin: 0; color: var(--muted); font-size: 11.5px; }\n</style>\n</head>\n<body>\n<div class=\"fields\">\n  <label>Visibility<span class=\"control\"><select id=\"board_kind\" disabled>\n    <option value=\"public\">Public</option>\n    <option value=\"private\">Private</option>\n    <option value=\"share\">Shareable</option>\n  </select></span></label>\n  <label>Workspace<span class=\"control\"><select id=\"workspace_choice\" disabled></select></span></label>\n  <p hidden></p>\n</div>\n<script>\nconst visibility = document.querySelector('#board_kind');\nconst workspace = document.querySelector('#workspace_choice');\nconst notice = document.querySelector('p');\nlet height = 0;\nfunction resize() {\n  const next = Math.ceil(document.body.getBoundingClientRect().height);\n  if (next < 1 || height === next) return;\n  height = next;\n  parent.postMessage({ type: 'voiceos:resize', height }, '*');\n}\naddEventListener('message', event => {\n  if (event.source !== parent || event.data?.type !== 'voiceos:init') return;\n  const { board_kind, workspace_choice, workspace_choices, workspace_notice } = event.data.args ?? {};\n  if (!Array.isArray(workspace_choices)) return;\n  document.documentElement.dataset.theme = event.data.theme?.mode === 'light' ? 'light' : 'dark';\n  visibility.value = board_kind ?? 'public';\n  visibility.disabled = false;\n  workspace.replaceChildren(...workspace_choices.map(({ value, label }) => new Option(label, value)));\n  workspace.value = workspace_choice ?? 'default';\n  workspace.disabled = workspace_choices.length < 2;\n  notice.textContent = workspace_notice ?? '';\n  notice.hidden = !workspace_notice;\n  resize();\n});\nfor (const select of [visibility, workspace]) {\n  select.addEventListener('change', () => {\n    parent.postMessage({ type: 'voiceos:updateInput', key: select.id, value: select.value }, '*');\n  });\n}\nnew ResizeObserver(resize).observe(document.body);\n</script>\n</body>\n</html>\n"
+            },
+            {
+              "type": "stack",
+              "direction": "vertical",
+              "align": "start",
+              "children": [
+                {
+                  "type": "button",
+                  "label": "Cancel",
+                  "role": "cancel"
+                }
+              ]
+            }
+          ]
+        }
       }
     }
   ]
