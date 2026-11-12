@@ -460,18 +460,53 @@ describe("reads", () => {
     expect((await h.call("list_videos", {})).j.summary).toBe("Your latest public post has 1 view.");
   });
 
-  test("get_user_stats: a missing profile scope retries once without the profile fields", async () => {
-    const h = await harness();
-    let n = 0;
+  // The retry asks only for user.info.stats + user.info.basic fields: username is a user.info.profile field, so a retry
+  // that still asked for it would fail the same way (QA, PR 47).
+  const STATS_ONLY = ["follower_count", "following_count", "likes_count", "video_count", "display_name", "avatar_url_100", "avatar_url"];
+  /** A connection without user.info.profile: any profile field (username included) fails the whole call, as TikTok does. */
+  const withoutProfileScope = (h: Awaited<ReturnType<typeof harness>>) => {
     const base = h.client.responders.TIKTOK_GET_USER_STATS;
     h.client.responders.TIKTOK_GET_USER_STATS = (a) => {
-      if (n++ === 0) throw new TikTokError("SCOPE_MISSING", { scope: "user.info.profile" });
+      const profile = ["username", "bio_description", "is_verified", "profile_deep_link"];
+      if ((a.fields as string[]).some((f) => profile.includes(f))) throw new TikTokError("SCOPE_MISSING", { tiktok_code: "scope_not_authorized" });
       return base(a);
     };
-    const { j } = await h.call("get_user_stats", { include_profile: true });
-    expect(h.client.execs.map((e) => e.args.fields.length)).toEqual([11, 8]);
-    expect(j).toMatchObject({ ok: true, profile_unavailable: true, follower_count: 12_345 });
+  };
+
+  test("get_user_stats: a missing profile scope retries once with the stats and basic fields alone (no username)", async () => {
+    const h = await harness();
+    withoutProfileScope(h);
+    const { j, blocks } = await h.call("get_user_stats", { include_profile: true });
+    expect(h.client.execs.map((e) => e.args.fields.length)).toEqual([11, 7]);
+    expect(h.client.execs[1].args.fields).toEqual(STATS_ONLY);
+    expect(j).toMatchObject({ ok: true, profile_unavailable: true, follower_count: 12_345, display_name: "Maya Makes" });
     expect(j.bio_description).toBeUndefined();
+    expect(j.username).toBeUndefined();
+    expect(j.summary).toContain("Username, bio, verified badge and profile link need the user.info.profile permission");
+    expect(blocks).toHaveLength(1);
+  });
+
+  test("get_user_stats without include_profile: a connection lacking user.info.profile still gets its stats (the username is the profile field)", async () => {
+    const h = await harness();
+    withoutProfileScope(h);
+    const { j } = await h.call("get_user_stats", {});
+    expect(h.client.execs.map((e) => e.args.fields)).toEqual([
+      ["follower_count", "following_count", "likes_count", "video_count", "display_name", "username", "avatar_url_100", "avatar_url"],
+      STATS_ONLY,
+    ]);
+    expect(j).toMatchObject({ ok: true, profile_unavailable: true, follower_count: 12_345, likes_count: 1_234_567, video_count: 48 });
+    expect(j.username).toBeUndefined();
+    expect(j.summary).toContain("The username needs the user.info.profile permission");
+  });
+
+  test("get_user_stats: a missing stats scope isn't retried (dropping profile fields can't help) and says which scope", async () => {
+    const h = await harness();
+    h.client.responders.TIKTOK_GET_USER_STATS = () => {
+      throw new TikTokError("SCOPE_MISSING", { tiktok_code: "scope_not_authorized", scope: "user.info.stats" });
+    };
+    const { j } = await h.call("get_user_stats", { include_profile: true });
+    expect(h.client.execs).toHaveLength(1);
+    expect(j.error.code).toBe("SCOPE_MISSING");
   });
 
   test("list_videos always passes max_count, keeps share_url, marks captions untrusted and keeps them out of the summary", async () => {
@@ -986,6 +1021,73 @@ describe("upload_video (drafts)", () => {
     expect(h.client.slugs()).toEqual(["TIKTOK_UPLOAD_VIDEO"]);
     expect(h.deps.ledger.latest()!.stage).toBe("failed");
   });
+
+  // QA (PR 47): the file was checked only at approval, so a re-export saved over the same path while the write waited
+  // its turn went out instead of the approved video. It's checked again right before the upload, and once staged.
+  test("a re-export saved over the video after approval is refused before anything is uploaded", async () => {
+    const h = await harness();
+    const ft = await h.fileToken();
+    const path = h.tokens.file(ft).path;
+    // The account check runs at the write's turn: after approval, before the upload.
+    h.client.assertAccount = async () => {
+      writeFileSync(path, new Uint8Array(4096).fill(9));
+      return "ca_test";
+    };
+    const { r, j } = await h.call("upload_video", h.signed("upload_video", { file_token: ft }));
+    expect(r.isError).toBe(true);
+    expect(j).toMatchObject({ outcome: "failed", nothing_sent: true, error: { code: "TOKEN_STALE", reason: "file_changed", name: "final_export.mp4" } });
+    expect(j.message).toContain("The video changed");
+    expect(h.client.staged).toEqual([]);
+    expect(h.client.slugs()).toEqual([]);
+  });
+
+  test("a video that changes while it's being staged never reaches TikTok", async () => {
+    const h = await harness();
+    const ft = await h.fileToken();
+    const path = h.tokens.file(ft).path;
+    const stage = h.client.stageFile.bind(h.client);
+    h.client.stageFile = async (...args: Parameters<FakeClient["stageFile"]>) => {
+      const staged = await stage(...args);
+      writeFileSync(path, new Uint8Array(1024).fill(3));
+      return staged;
+    };
+    const { j } = await h.call("upload_video", h.signed("upload_video", { file_token: ft }));
+    expect(j).toMatchObject({ outcome: "failed", nothing_sent: true, error: { code: "TOKEN_STALE", reason: "file_changed" } });
+    expect(h.client.staged).toHaveLength(1);
+    expect(h.client.slugs()).toEqual([]);
+  });
+
+  // QA (PR 47): the card's length and size come from the agent, so they have to agree with the file token.
+  test("a card showing another length or size than the file is refused; the file's own labels, retyped, are fine", async () => {
+    const h = await harness();
+    const found = (await h.call("find_recent_videos", {})).j.videos[0];
+    const ft = found.file_token as string;
+    expect(found).toMatchObject({ duration_label: "0:23", size_label: "2 KB" }); // the fixture: 23 s, 2,048 bytes
+    for (const [extra, field] of [
+      [{ duration_label: "1:23" }, "duration_label"],
+      [{ duration_label: "a while" }, "duration_label"],
+      [{ size_label: "2 GB" }, "size_label"],
+      [{ size_label: "tiny" }, "size_label"],
+    ] as const) {
+      const { r, j } = await h.call("upload_video", h.signed("upload_video", { file_token: ft, ...extra }));
+      expect(r.isError).toBe(true);
+      expect(j).toMatchObject({ outcome: "refused", nothing_sent: true, error: { code: "CONFIRMATION_REQUIRED", reason: "card_mismatch", field } });
+      expect(j.message).toContain(field === "duration_label" ? "another length" : "another size");
+    }
+    expect(h.client.staged).toEqual([]);
+    for (const extra of [{ duration_label: "0:23", size_label: "2 KB" }, { duration_label: "23 seconds", size_label: "2.05kb" }, {}]) {
+      expect((await h.call("upload_video", h.signed("upload_video", { file_token: ft, ...extra }))).j.ok).toBe(true);
+    }
+  });
+
+  test("a length shown for a video whose length couldn't be read is refused (find_recent_videos gave none)", async () => {
+    const h = await harness({ videos: [video("Downloads/unknown.mp4", { duration_sec: undefined })] });
+    const found = (await h.call("find_recent_videos", {})).j.videos[0];
+    expect(found.duration_label).toBeUndefined();
+    const { j } = await h.call("upload_video", h.signed("upload_video", { file_token: found.file_token, duration_label: "0:10" }));
+    expect(j.error).toMatchObject({ code: "CONFIRMATION_REQUIRED", reason: "card_mismatch", field: "duration_label" });
+    expect((await h.call("upload_video", h.signed("upload_video", { file_token: found.file_token }))).j.ok).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1273,6 +1375,23 @@ describe("publish_video (direct)", () => {
     expect(other.client.execs).toHaveLength(0);
   });
 
+  // QA (PR 47): cover_label comes from the agent; the card fills it in from cover_ms, and the server holds it to that.
+  test("a cover label naming another time than cover_ms, or a cover that isn't set, is refused; the same second is fine", async () => {
+    const h = await harness();
+    const ft = await h.fileToken();
+    for (const extra of [{ cover_ms: "0:05", cover_label: "Frame at 0:30" }, { cover_label: "0:05" }, { cover_ms: 5000, cover_label: "the opening shot" }]) {
+      const { j } = await h.call("publish_video", h.signed("publish_video", base(ft, h.post(ft), extra)));
+      expect(j).toMatchObject({ outcome: "refused", nothing_sent: true, error: { code: "CONFIRMATION_REQUIRED", reason: "card_mismatch", field: "cover_label" } });
+      expect(j.message).toContain("another cover time");
+    }
+    // An unreadable cover time keeps its own refusal.
+    expect((await h.call("publish_video", h.signed("publish_video", base(ft, h.post(ft), { cover_ms: "the end", cover_label: "0:05" })))).j.error.code).toBe("INVALID_PARAM");
+    expect(h.client.staged).toEqual([]);
+    for (const extra of [{ cover_ms: "0:05", cover_label: "Frame at 0:05" }, { cover_ms: "2.5", cover_label: "0:02" }, { cover_ms: 3000, cover_label: "Cover: 0:03" }]) {
+      expect((await h.call("publish_video", h.signed("publish_video", base(ft, h.post(ft), extra)))).j.ok).toBe(true);
+    }
+  });
+
   test("sends the direct args: card strings normalized, creator-disabled interactions forced off, both brand toggles; inbox ends it honestly", async () => {
     const h = await harness();
     const ft = await h.fileToken();
@@ -1312,23 +1431,28 @@ describe("photo writes", () => {
     return (await h.call("prepare_photo_post", { image_tokens: toks, cover_index: cover })).j.bundle_token as string;
   }
   const pics = () => [image("Pictures/one.heic"), image("Pictures/two.heic"), image("Pictures/three.heic")];
+  /** A photo card's arguments as the agent sends them: the bundle_token with prepare_photo_post's warning, unchanged. */
+  const shown = (h: Awaited<ReturnType<typeof harness>>, bt: string, extra: Record<string, unknown> = {}) => {
+    const warning = h.tokens.bundle(bt).warning;
+    return { bundle_token: bt, ...(warning ? { warning } : {}), ...extra };
+  };
 
   test("a card showing another photo count than its bundle is refused before anything is sent", async () => {
     const h = await harness({ images: pics() });
     const bt = await bundled(h);
     h.events.length = 0;
-    const { r, j } = await h.call("upload_photos", h.signed("upload_photos", { bundle_token: bt, count_label: "2 photos · cover: photo 1" }));
+    const { r, j } = await h.call("upload_photos", h.signed("upload_photos", { ...shown(h, bt), count_label: "2 photos · cover: photo 1" }));
     expect(r.isError).toBe(true);
     expect(j).toMatchObject({ outcome: "refused", nothing_sent: true, error: { code: "CONFIRMATION_REQUIRED", reason: "card_mismatch" } });
     expect(h.events).toEqual([]);
-    expect((await h.call("upload_photos", h.signed("upload_photos", { bundle_token: bt, count_label: "3 photos · cover: photo 1" }))).j.ok).toBe(true);
+    expect((await h.call("upload_photos", h.signed("upload_photos", { ...shown(h, bt), count_label: "3 photos · cover: photo 1" }))).j.ok).toBe(true);
   });
 
   test("upload_photos: convert → relay batch → PUT → MEDIA_UPLOAD init; the batch goes once TikTok has the photos", async () => {
     const h = await harness({ images: pics() });
     const bt = await bundled(h, 1);
     h.events.length = 0;
-    const { j } = await h.call("upload_photos", h.signed("upload_photos", { bundle_token: bt, title: "Lisbon weekend", description: "best 3 days #travel" }));
+    const { j } = await h.call("upload_photos", h.signed("upload_photos", { ...shown(h, bt), title: "Lisbon weekend", description: "best 3 days #travel" }));
     expect(j).toMatchObject({ ok: true, outcome: "inbox", kind: "photos", mode: "drafts", count: 3 });
     const init = h.client.execs.find((e) => e.slug === "TIKTOK_POST_PHOTO")!;
     expect(init.args).toEqual({
@@ -1341,16 +1465,114 @@ describe("photo writes", () => {
     expect(h.deps.ledger.latest()!.media.folder).toBe("Pictures");
     const order = h.events.filter((e) => !e.startsWith("account"));
     expect(order.slice(0, 5)).toEqual(["convert", "relay:create", "relay:put", "exec:TIKTOK_POST_PHOTO", "exec:TIKTOK_FETCH_PUBLISH_STATUS"]);
-    // Deleted after the status left PROCESSING_DOWNLOAD (the second check), not while TikTok was still pulling.
+    // Deleted after the final status (the second check), not while TikTok was still pulling.
     expect(order.indexOf("relay:delete")).toBeGreaterThan(order.lastIndexOf("exec:TIKTOK_FETCH_PUBLISH_STATUS") - 1);
     expect(h.relay.deleted).toEqual(["abcdef1234567890"]);
+  });
+
+  // QA (PR 47): the batch was deleted on any status but PROCESSING_DOWNLOAD, PROCESSING_UPLOAD included. TikTok can
+  // report that before it pulls the photos, and the carousel then fails. Only a final status ends the relay copy.
+  for (const [label, seq, outcome] of [
+    ["PROCESSING_UPLOAD before the pull, then the pull, then the inbox", ["PROCESSING_UPLOAD", "PROCESSING_DOWNLOAD", "SEND_TO_USER_INBOX"], "inbox"],
+    ["the pull, then PROCESSING_UPLOAD, then the inbox", ["PROCESSING_DOWNLOAD", "PROCESSING_UPLOAD", "SEND_TO_USER_INBOX"], "inbox"],
+    ["a failure after PROCESSING_UPLOAD", ["PROCESSING_UPLOAD", { status: "FAILED", fail_reason: "photo_pull_failed" }], "failed"],
+  ] as const) {
+    test(`upload_photos keeps the relay batch until a final status: ${label}`, async () => {
+      const h = await harness({ images: pics() });
+      const bt = await bundled(h);
+      h.client.responders.TIKTOK_POST_PHOTO = () => ({ publish_id: "p_seq~v2" });
+      h.client.statusSeq.set("p_seq~v2", [...seq]);
+      h.events.length = 0;
+      const { j } = await h.call("upload_photos", h.signed("upload_photos", shown(h, bt)));
+      expect(j.outcome).toBe(outcome);
+      const order = h.events.filter((e) => !e.startsWith("account"));
+      const checks = order.flatMap((e, i) => (e === "exec:TIKTOK_FETCH_PUBLISH_STATUS" ? [i] : []));
+      expect(checks).toHaveLength(seq.length);
+      // One delete, and only after the last (final) status check.
+      expect(h.relay.deleted).toEqual(["abcdef1234567890"]);
+      expect(order.indexOf("relay:delete")).toBeGreaterThan(checks.at(-1)!);
+    });
+  }
+
+  test("upload_photos: still processing when watching ends → the batch stays for the relay to expire (TikTok may not have pulled it)", async () => {
+    const h = await harness({ images: pics() });
+    const bt = await bundled(h);
+    h.client.responders.TIKTOK_POST_PHOTO = () => ({ publish_id: "p_slow~v2" });
+    h.client.statusSeq.set("p_slow~v2", ["PROCESSING_UPLOAD"]);
+    const { j } = await h.call("upload_photos", h.signed("upload_photos", shown(h, bt)));
+    expect(j).toMatchObject({ outcome: "processing", status: "PROCESSING_UPLOAD" });
+    expect(h.relay.deleted).toEqual([]);
+  });
+
+  test("a photo changed after approval is refused before it's converted or relayed, and the message speaks of photos", async () => {
+    const h = await harness({ images: pics() });
+    const bt = await bundled(h);
+    const path = h.tokens.bundle(bt).images[1].path;
+    h.client.assertAccount = async () => {
+      writeFileSync(path, new Uint8Array(900).fill(1));
+      return "ca_test";
+    };
+    h.events.length = 0;
+    const { j } = await h.call("upload_photos", h.signed("upload_photos", shown(h, bt)));
+    expect(j).toMatchObject({ outcome: "failed", nothing_sent: true, error: { code: "TOKEN_STALE", reason: "file_changed", kind: "image", name: "two.heic" } });
+    expect(j.message).toContain("The photos changed");
+    expect(h.events).not.toContain("convert");
+    expect(h.events).not.toContain("relay:create");
+    expect(h.client.slugs()).toEqual([]);
+  });
+
+  test("a photo that changes while being converted never goes to the relay, and the converted copies are cleaned up", async () => {
+    const h = await harness({ images: pics() });
+    const bt = await bundled(h);
+    const path = h.tokens.bundle(bt).images[0].path;
+    const convert = h.deps.convert;
+    h.deps.convert = async (images, runner) => {
+      const out = await convert(images, runner);
+      writeFileSync(path, new Uint8Array(700).fill(2));
+      return out;
+    };
+    h.events.length = 0;
+    const { j } = await h.call("upload_photos", h.signed("upload_photos", shown(h, bt)));
+    expect(j).toMatchObject({ outcome: "failed", nothing_sent: true, error: { code: "TOKEN_STALE", kind: "image" } });
+    expect(h.events).toContain("convert");
+    expect(h.events).not.toContain("relay:create");
+    expect(h.cleaned).toHaveLength(1);
+    expect(h.client.slugs()).toEqual([]);
+  });
+
+  // QA (PR 47): the warning comes from the agent, which could leave it off the card. When prepare_photo_post had one,
+  // the card has to show it; one it didn't have, or another one, is refused too.
+  test("a photo card has to show prepare_photo_post's warning as it was (any case or spacing)", async () => {
+    const h = await harness({ images: pics() });
+    const bt = await bundled(h);
+    const warning = h.tokens.bundle(bt).warning!;
+    expect(warning).toBe("3 photos are 4032×3024 and will be resized.");
+    for (const shownWarning of [undefined, "", "Some photos will be resized.", "1 photo has transparency; it will become white."]) {
+      const args = { bundle_token: bt, ...(shownWarning !== undefined ? { warning: shownWarning } : {}) };
+      const { j } = await h.call("upload_photos", h.signed("upload_photos", args));
+      expect(j).toMatchObject({ outcome: "refused", nothing_sent: true, error: { code: "CONFIRMATION_REQUIRED", reason: "card_mismatch", kind: "photos", field: "warning" } });
+      expect(j.message).toContain("note about these photos");
+    }
+    expect(h.relay.created).toEqual([]);
+    expect((await h.call("upload_photos", h.signed("upload_photos", { bundle_token: bt, warning: ` ${warning.toUpperCase().replace(/\.$/, "")}  ` }))).j.ok).toBe(true);
+    // Retyped punctuation reads the same: "4032x3024" for "4032×3024".
+    expect((await h.call("upload_photos", h.signed("upload_photos", { bundle_token: bt, warning: warning.replace("×", "x") }))).j.ok).toBe(true);
+    // A bundle with nothing to warn about: a warning the card made up is refused, none is fine.
+    const plain = await harness({
+      images: [image("Pictures/a.jpg", { width: 1080, height: 1350, format: "jpeg" })],
+      sipsMeta: async (paths) => new Map(paths.map((p) => [p, { width: 1080, height: 1350, format: "jpeg", has_alpha: false }])),
+    });
+    const pbt = await bundled(plain);
+    expect(plain.tokens.bundle(pbt).warning).toBeUndefined();
+    expect((await plain.call("upload_photos", plain.signed("upload_photos", { bundle_token: pbt, warning: "1 photo is HEIC." }))).j.error).toMatchObject({ field: "warning" });
+    expect((await plain.call("upload_photos", plain.signed("upload_photos", { bundle_token: pbt }))).j.ok).toBe(true);
   });
 
   test("a relay failure deletes the batch and never calls TikTok", async () => {
     const h = await harness({ images: pics() });
     const bt = await bundled(h);
     h.relay.failPut = new TikTokError("RELAY_UNAVAILABLE");
-    const { j } = await h.call("upload_photos", h.signed("upload_photos", { bundle_token: bt }));
+    const { j } = await h.call("upload_photos", h.signed("upload_photos", shown(h, bt)));
     expect(j).toMatchObject({ outcome: "failed", nothing_sent: true, error: { code: "RELAY_UNAVAILABLE" } });
     expect(h.relay.deleted).toEqual(["abcdef1234567890"]);
     expect(h.client.slugs().includes("TIKTOK_POST_PHOTO")).toBe(false);
@@ -1364,7 +1586,7 @@ describe("photo writes", () => {
     h.client.responders.TIKTOK_POST_PHOTO = () => ({ publish_id: "p_pub_url~v2.5" });
     h.client.statusSeq.set("p_pub_url~v2.5", ["PROCESSING_DOWNLOAD", "PUBLISH_COMPLETE"]);
     const { j } = await h.call("post_photos", h.signed("post_photos", {
-      bundle_token: bt, post_token: pt, creator_nickname: "Maya Makes", privacy_options: ["SELF_ONLY"], comment_disabled: true,
+      ...shown(h, bt), post_token: pt, creator_nickname: "Maya Makes", privacy_options: ["SELF_ONLY"], comment_disabled: true,
       title: "Lisbon", description: "", privacy_level: "SELF_ONLY", allow_comment: "true", auto_add_music: "true",
     }));
     expect(h.client.execs.find((e) => e.slug === "TIKTOK_POST_PHOTO")!.args).toMatchObject({
@@ -1413,18 +1635,18 @@ describe("photo writes", () => {
       joinPhotoStack([own.frames[0], fakePhotoFrame("stranger.heic")], { count: 3, cover: 0 }), // a stranger
     ];
     for (const preview of refusals) {
-      const res = await h.call("upload_photos", h.signed("upload_photos", { bundle_token: a.bundle_token, preview }));
+      const res = await h.call("upload_photos", h.signed("upload_photos", { ...shown(h, a.bundle_token), preview }));
       expect(res.j).toMatchObject({ outcome: "refused", nothing_sent: true, error: { code: "CONFIRMATION_REQUIRED", reason: "card_mismatch" } });
     }
     const pt = h.post(a.bundle_token, { media_kind: "photos" });
     const direct = await h.call("post_photos", h.signed("post_photos", {
-      bundle_token: a.bundle_token, post_token: pt, preview: b.preview, creator_nickname: "Maya Makes", privacy_options: ["SELF_ONLY"], privacy_level: "SELF_ONLY",
+      ...shown(h, a.bundle_token), post_token: pt, preview: b.preview, creator_nickname: "Maya Makes", privacy_options: ["SELF_ONLY"], privacy_level: "SELF_ONLY",
     }));
     expect(direct.j.error).toMatchObject({ code: "CONFIRMATION_REQUIRED", reason: "card_mismatch" });
     expect(h.client.slugs().includes("TIKTOK_POST_PHOTO")).toBe(false);
     // Its own stack (spaces aside), a subset in order (frames the card couldn't decode), garbage, or none: accepted.
     for (const preview of [` ${a.preview} `, joinPhotoStack([own.frames[0], own.frames[2]], { count: 3, cover: 0 }), "s1~AAAAAAAAAA", "not a stack", undefined]) {
-      const ok = await h.call("upload_photos", h.signed("upload_photos", { bundle_token: a.bundle_token, ...(preview !== undefined ? { preview } : {}) }));
+      const ok = await h.call("upload_photos", h.signed("upload_photos", { ...shown(h, a.bundle_token), ...(preview !== undefined ? { preview } : {}) }));
       expect(ok.j.ok).toBe(true);
     }
   });
@@ -1433,7 +1655,7 @@ describe("photo writes", () => {
     const h = await harness({ images: pics() });
     const bt = await bundled(h, 1);
     const thumbs = h.tokens.bundle(bt).thumbs!;
-    const { j, blocks } = await h.call("upload_photos", h.signed("upload_photos", { bundle_token: bt }));
+    const { j, blocks } = await h.call("upload_photos", h.signed("upload_photos", shown(h, bt)));
     expect(j).toMatchObject({ ok: true, outcome: "inbox", count: 3 });
     expect(JSON.stringify({ ...j, _voiceos_glance: undefined })).not.toContain("data:image");
     for (const t of thumbs) expect(blocks[0].html).toContain(t);
@@ -1452,7 +1674,7 @@ describe("photo writes", () => {
     h.client.responders.TIKTOK_POST_PHOTO = () => ({ publish_id: "p_pub_all~v2" });
     h.client.statusSeq.set("p_pub_all~v2", ["PROCESSING_DOWNLOAD", "PUBLISH_COMPLETE"]);
     const { j, blocks } = await h.call("post_photos", h.signed("post_photos", {
-      bundle_token: bt, post_token: pt, creator_nickname: "Maya Makes", privacy_options: ["SELF_ONLY"], privacy_level: "SELF_ONLY",
+      ...shown(h, bt), post_token: pt, creator_nickname: "Maya Makes", privacy_options: ["SELF_ONLY"], privacy_level: "SELF_ONLY",
     }));
     expect(j).toMatchObject({ outcome: "posted", count: 7 });
     for (const t of thumbs) expect(blocks[0].html).toContain(t);
@@ -1491,7 +1713,7 @@ describe("photo writes", () => {
     const h = await harness({ images: pics() });
     const bt = await bundled(h);
     h.relay.configured = false;
-    const args = h.signed("upload_photos", { bundle_token: bt });
+    const args = h.signed("upload_photos", shown(h, bt));
     const { j } = await h.call("upload_photos", args);
     expect(j).toMatchObject({ outcome: "refused", nothing_sent: true, error: { code: "RELAY_NOT_CONFIGURED" } });
     expect((await h.call("post_photos", { bundle_token: bt, post_token: "pt1.x" })).j.error.code).toBe("RELAY_NOT_CONFIGURED");

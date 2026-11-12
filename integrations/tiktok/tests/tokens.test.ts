@@ -288,6 +288,11 @@ describe("restat", () => {
     const e = failure(() => restat(ref));
     expect(e.code).toBe("TOKEN_STALE");
     expect(e.detail).toEqual({ reason: "file_changed", name: "final_export.mp4" });
+    expect(e.card).toContain("The video changed");
+    // A photo says so: its message speaks of the photos, not a video.
+    const photo = failure(() => restat(ref, "image"));
+    expect(photo.detail).toEqual({ reason: "file_changed", name: "final_export.mp4", kind: "image" });
+    expect(photo.card).toContain("The photos changed");
   });
 
   test("a changed mtime → TOKEN_STALE", () => {

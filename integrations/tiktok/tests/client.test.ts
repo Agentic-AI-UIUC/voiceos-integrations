@@ -571,6 +571,35 @@ describe("writes: never retried; a lost answer is OUTCOME_UNKNOWN", () => {
     });
   }
 
+  // QA (PR 47): any app failure on a write without TikTok's own error code is unknown, not "failed". Composio's words
+  // can't say whether TikTok already had the post, and a user told "it failed" sends it again: a duplicate post.
+  for (const [label, error] of [
+    ["a generic error", "Something went wrong while processing the request"],
+    ["a failed upload step", "Failed to upload video chunk 2 of 3"],
+    ["Composio's own slug and no TikTok code", { message: "Tool execution failed", slug: "ActionExecute_ToolExecutionFailed" }],
+    ["no error text at all", null],
+  ] as const) {
+    test(`successful:false with ${label} on a write → OUTCOME_UNKNOWN, one init, and the next call checks the account afresh`, async () => {
+      mock.on("TIKTOK_UPLOAD_VIDEO", () => ({ json: { successful: false, error, data: null } }));
+      const { client, soon } = setup();
+      const e = await failure(client.exec("TIKTOK_UPLOAD_VIDEO", videoDraftArgs(staged), { deadline: soon(), write: true }));
+      expect(e.code).toBe("OUTCOME_UNKNOWN");
+      expect(e.card).toContain("Check your drafts or profile before trying again");
+      expect(mock.executes().length).toBe(1);
+      const checks = () => mock.calls.filter((c) => c.path === "/connected_accounts").length;
+      const before = checks();
+      await client.assertAccount(new AbortController().signal);
+      expect(checks()).toBe(before + 1); // not the 60 s cache: a lapsed connection is caught before the next send
+    });
+  }
+
+  test("the same app failure on a read is an ordinary failure, not OUTCOME_UNKNOWN", async () => {
+    mock.on("TIKTOK_GET_USER_STATS", () => ({ json: { successful: false, error: "Something went wrong while processing the request", data: null } }));
+    const { client, soon } = setup();
+    const e = await failure(client.exec("TIKTOK_GET_USER_STATS", {}, { deadline: soon() }));
+    expect(e.code).toBe("UNKNOWN");
+  });
+
   test("TikTok's own error on a write keeps its meaning, and a read's timeout isn't OUTCOME_UNKNOWN", async () => {
     mock.once("TIKTOK_UPLOAD_VIDEO", () => ({
       json: { successful: false, error: "internal_error", data: { data: {}, error: { code: "internal_error", message: "", log_id: "log_x" } } },

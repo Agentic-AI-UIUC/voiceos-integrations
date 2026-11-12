@@ -102,7 +102,9 @@ console.log(
 
 const state = mkdtempSync(join(tmpdir(), "voiceos-tiktok-verify-"));
 const transport = new StdioClientTransport({
-  command: HOST_BUN ?? "bun",
+  // No Bun where VoiceOS looks: the one running this script. Never `bun` by name: hostEnvironment's PATH is
+  // VoiceOS's own list, which may not hold one (QA, PR 47: verify crashed on a machine without bun on PATH).
+  command: HOST_BUN ?? process.execPath,
   args: ["server.ts", `--composio-base-url=${mock.baseUrl}`, `--state-dir=${state}`, `--home=${home}`, "--poll-schedule=50,50,50"],
   cwd: launchDir,
   env: hostEnvironment({

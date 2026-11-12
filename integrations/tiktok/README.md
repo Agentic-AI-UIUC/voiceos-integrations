@@ -62,12 +62,12 @@ With a configured media relay:
 ## Privacy
 
 - No AI model runs inside the integration. It calls Composio (`backend.composio.dev`, plus Composio's upload host for video files), the configured photo relay, and TikTok's image CDNs for profile pictures and post covers. Composio passes your video and post details to TikTok.
-- Default searches use Downloads, Desktop and Movies (Videos on Windows) for videos, and Downloads, Desktop, Pictures and your screenshot folder for photos: the top level and one folder down. On request, it can read the selected video in Finder or File Explorer, or the one open in QuickTime on macOS. The agent sees file and folder names, never full paths.
-- Videos upload as they are, with their original metadata. If your camera recorded a location, TikTok gets it.
-- Photos are converted to JPEG first, which removes EXIF data, GPS location and Content Credentials. They sit on the media relay briefly so TikTok can fetch them, then they're deleted.
+- Default searches use Downloads, Desktop and Movies (Videos on Windows) for videos, and Downloads, Desktop, Pictures and your screenshot folder for photos: the top level and two folders down. On request, it can read the selected video in Finder or File Explorer, or the one open in QuickTime on macOS. The agent sees file and folder names, never full paths.
+- Photos are redrawn as new JPEGs before upload, which leaves their original metadata behind: camera details, capture time, GPS location and Content Credentials. Videos upload exactly as they are on your computer, so if your camera saved a location in the file, Composio and TikTok get it too.
+- Photos sit on the media relay briefly so TikTok can fetch them, then they're deleted.
 - The clipboard is used only when you switch on Copy caption.
 - Approval fingerprints prevent reuse across restarts. They're kept in `spent-receipts.json` (SHA-256 digests only), in `~/Library/Application Support/VoiceOS/integration-state/com.voiceos.generated.tiktok/` on macOS and `%APPDATA%\VoiceOS\integration-state\com.voiceos.generated.tiktok\` on Windows.
-- In the same folder, `ledger.json` keeps up to 100 recent sends for 30 days, scoped to the current TikTok connection. It stores status, basenames and captions clipped to 150 characters, with no keys or full file paths.
+- In the same folder, `ledger.json` keeps up to 100 recent sends for 30 days, scoped to the current TikTok connection. It stores status, basenames and the captions, titles and descriptions you approved, clipped to 150 characters, with no keys or full file paths. Beside it, `ledger-pictures.json` keeps small stills (poster frames and photo thumbnails) of the 8 newest sends, so their cards survive a restart.
 - Its logs leave out keys, account ids, file paths, captions and links.
 - Your Composio key is sent only to `backend.composio.dev`.
 

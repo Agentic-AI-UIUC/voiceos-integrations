@@ -53,6 +53,11 @@ function firstPicture(...candidates: unknown[]): string | undefined {
 // 56 px circle at 2× wants 112), else the 100 px one. Only avatar_url_100 is ever part of the data.
 const BASE_FIELDS = ["follower_count", "following_count", "likes_count", "video_count", "display_name", "username", "avatar_url_100", "avatar_url"];
 const PROFILE_FIELDS = ["bio_description", "is_verified", "profile_deep_link"];
+// username is a user.info.profile field, like the bio (TikTok's user fields; Composio's TIKTOK_GET_USER_STATS schema
+// says the same). STATS_FIELDS need only user.info.stats and user.info.basic: the retry when profile is missing.
+const STATS_FIELDS = BASE_FIELDS.filter((f) => f !== "username");
+/** A scope the retry without user.info.profile fields can do without (unnamed: TikTok's notice often names none). */
+const retryHelps = (scope: unknown) => scope === undefined || scope === "user.info.profile";
 
 export function getUserStats(args: Args, deps: Deps, extra: ToolExtra): Promise<ToolResult> {
   return guarded("get_user_stats", deps, async () => {
@@ -65,11 +70,12 @@ export function getUserStats(args: Args, deps: Deps, extra: ToolExtra): Promise<
     try {
       data = await readExec(deps, "TIKTOK_GET_USER_STATS", { fields: wantProfile ? [...BASE_FIELDS, ...PROFILE_FIELDS] : BASE_FIELDS }, signal);
     } catch (e) {
-      // A field without its scope fails the whole call (TikTok's scope notice): retry once with the stats alone.
+      // A field without its scope fails the whole call (TikTok's scope notice). Without user.info.profile that is the
+      // username (always asked for) and the profile fields: retry once with the stats and basic fields alone.
       const err = normalizeError(e, { slug: "TIKTOK_GET_USER_STATS" });
-      if (!wantProfile || err.code !== "SCOPE_MISSING") throw err;
+      if (err.code !== "SCOPE_MISSING" || !retryHelps(err.detail.scope)) throw err;
       profileUnavailable = true;
-      data = await readExec(deps, "TIKTOK_GET_USER_STATS", { fields: BASE_FIELDS }, signal);
+      data = await readExec(deps, "TIKTOK_GET_USER_STATS", { fields: STATS_FIELDS }, signal);
     }
     const nested = field(data, "user");
     const u = nested && typeof nested === "object" ? nested : data;
@@ -105,7 +111,11 @@ export function getUserStats(args: Args, deps: Deps, extra: ToolExtra): Promise<
         : facts.length
           ? `${facts.join(", ")}.`
           : "TikTok returned the profile without stats.";
-    if (profileUnavailable) summary += " Bio, verified badge and profile link need the user.info.profile permission, which this connection lacks.";
+    if (profileUnavailable) {
+      summary += wantProfile
+        ? " Username, bio, verified badge and profile link need the user.info.profile permission, which this connection lacks."
+        : " The username needs the user.info.profile permission, which this connection lacks.";
+    }
     return ok(
       {
         ...user,

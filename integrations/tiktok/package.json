@@ -1,6 +1,6 @@
 {
   "name": "tiktok",
-  "version": "1.3.1",
+  "version": "1.3.2",
   "private": true,
   "description": "Check your TikTok stats and post details, and send videos and photo carousels from your computer to TikTok by voice.",
   "type": "module",

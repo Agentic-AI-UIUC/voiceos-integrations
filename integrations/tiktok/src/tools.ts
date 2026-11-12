@@ -140,7 +140,7 @@ const META: ToolMeta[] = [
     execution: { mode: "background", estimatedDurationMs: 180_000 },
     write: true,
     description:
-      "Post a video straight to the user's profile. Use when the user says post, publish, put it up, go live or share it on my profile, or turns a drafts card into a post ('make it a post', 'actually post it'). The latest instruction wins and keeps everything else; the video just named or shown is the one. While a card shows, any change or addition (caption, hashtags, @tags, privacy, AI label, comments, video) means calling this again at once with it applied: the old card is gone once the user speaks, so an acknowledgement alone leaves none. First call query_creator_info for the same file_token and pass its fields through unchanged. Requires file_token and preview from find_recent_videos (pick 'current' returns the video in progress). Public isn't allowed yet: show the Only me card, which is the question. Runs in the background; approval is by clicking Post: a yes in words sends nothing.",
+      "Post a video straight to the user's profile. Use when the user says post, publish, put it up, go live or share it on my profile, or turns a drafts card into a post ('make it a post', 'actually post it'). The latest instruction wins and keeps everything else; the video just named or shown is the one. While a card shows, any change or addition (caption, hashtags, @tags, privacy, AI label, comments, video) means calling this again at once with it applied: the old card is gone once the user speaks, so an acknowledgement alone leaves none. First call query_creator_info for the same file_token and pass its fields through unchanged. Requires file_token and preview from find_recent_videos (pick 'current' returns the video in progress). Public isn't allowed yet: show the card with privacy empty as the question. Runs in the background; approval is by clicking Post: a yes in words sends nothing.",
     annotations: write("Post video to TikTok"),
   },
   {
@@ -160,7 +160,7 @@ const META: ToolMeta[] = [
     write: true,
     photo: true,
     description:
-      "Use when the user asks to post photos directly; upload_photos is the default. For a TikTok AI-generated label, use upload_photos and add the label in TikTok. 1-35 photos, Only me until TikTok audits the app: for a wider audience, show the Only me card, which is the question. Leave privacy_level empty unless the user named one: they pick it on the card. First call query_creator_info and pass post_token, privacy_options, creator_nickname and comment_disabled through unchanged. Requires bundle_token, preview and any warning from prepare_photo_post, unchanged. While a card shows, any change or addition (text, hashtags, @tags, privacy) means calling this again at once with it applied: the old card is gone once the user speaks, so an acknowledgement alone leaves none. Runs in the background; approval is by clicking Post: a yes in words sends nothing. Processing takes a few minutes.",
+      "Use when the user asks to post photos directly; upload_photos is the default. For a TikTok AI-generated label, use upload_photos and add the label in TikTok. 1-35 photos, Only me until TikTok audits the app: for a wider audience, show the card with privacy empty as the question. Leave privacy_level empty unless the user named one: they pick it on the card. First call query_creator_info and pass post_token, privacy_options, creator_nickname and comment_disabled through unchanged. Requires bundle_token, preview and any warning from prepare_photo_post, unchanged. While a card shows, any change or addition (text, hashtags, @tags, privacy) means calling this again at once with it applied: the old card is gone once the user speaks, so an acknowledgement alone leaves none. Runs in the background; approval is by clicking Post: a yes in words sends nothing. Processing takes a few minutes.",
     annotations: write("Post photo carousel to TikTok"),
   },
 ];
@@ -212,7 +212,7 @@ const privacyLevel = () =>
     z
       .string()
       .default("")
-      .describe("Who can see the post: empty unless the user named one (they pick it on the card from privacy_options). TikTok's codes or the user's own words both work, in any case: 'everyone', 'public', 'anyone': PUBLIC_TO_EVERYONE. 'Followers': FOLLOWER_OF_CREATOR. 'Friends', 'mutual friends': MUTUAL_FOLLOW_FRIENDS. 'Only me', 'just me', 'me', 'private': SELF_ONLY. Until TikTok audits this app, direct posts are Only me: when the user asks for wider, say so in a few words and show the card with SELF_ONLY (the card is the question; drafts are the other option)."),
+      .describe("Who can see the post: empty unless the user named one that privacy_options allows (they pick it on the card). TikTok's codes or the user's own words both work, in any case: 'everyone', 'public', 'anyone': PUBLIC_TO_EVERYONE. 'Followers': FOLLOWER_OF_CREATOR. 'Friends', 'mutual friends': MUTUAL_FOLLOW_FRIENDS. 'Only me', 'just me', 'me', 'private': SELF_ONLY. Until TikTok audits this app, direct posts are Only me: when the user asks for wider, say so in a few words and show the card with privacy_level empty, so the user picks (TikTok wants no audience preselected; drafts are the other option)."),
   );
 /** hashtags and mentions: folded by the card into `target` (the signed text); the server never reads them. */
 const hashtagList = (target: string) =>
@@ -233,7 +233,7 @@ const privacyOptions = () => lenient(z.array(z.string()).optional().describe("pr
 const nickname = () => label("creator_nickname from query_creator_info, passed through unchanged. Shown on the card.");
 const countLabel = () => label("count_label from prepare_photo_post, shown on the card.");
 const orderLabel = () => label("order_label from prepare_photo_post, shown on the card.");
-const warning = () => label("prepare_photo_post's warning line, passed through unchanged (display only).");
+const warning = () => label("prepare_photo_post's warning line, passed through unchanged. When it gave one, a card without it is refused.");
 const photoTitle = () => capped(90, "Photo post title, up to 90 characters. It fills in TikTok's editor.");
 const photoDescription = () =>
   capped(4000, "Photo post description (the caption), up to 4,000 characters including hashtags and mentions.");
@@ -255,7 +255,7 @@ const SCHEMAS = {
       include_profile: z
         .boolean()
         .default(false)
-        .describe("Also return bio, verified badge, avatar and profile link. Display name and username are always returned."),
+        .describe("Also return bio, verified badge, avatar and profile link. Display name is always returned, and so is the username when the connection has TikTok's user.info.profile permission."),
     })
     .strict(),
 
@@ -371,8 +371,8 @@ const SCHEMAS = {
     file_name: label("The video's file name from find_recent_videos, shown on the card."),
     preview: videoPreview(),
     account_label: label("The TikTok account shown on the card, such as '@maya' from get_user_stats."),
-    duration_label: label("duration_label from find_recent_videos, shown on the card."),
-    size_label: label("size_label from find_recent_videos, shown on the card."),
+    duration_label: label("duration_label from find_recent_videos, passed through unchanged; shown on the card."),
+    size_label: label("size_label from find_recent_videos, passed through unchanged; shown on the card."),
     caption: capped(2200, "The caption the user gave, or one you wrote when asked (up to 2,200 characters). TikTok drafts take no caption; the card can copy it for pasting in TikTok."),
     copy_caption: toggle("Copy the caption to the clipboard. The user turns this on on the card; leave it false."),
     hashtags: hashtagList("caption"),
@@ -407,7 +407,7 @@ const SCHEMAS = {
         .optional()
         .describe("Cover frame: the time in the video the user named, such as '0:05', '1:02', '5s', '5.5 seconds' or '2.5' (seconds), or a whole number of milliseconds (3000 is 3 s)."),
     ),
-    cover_label: label("How the cover is shown on the card, such as 'Frame at 0:03'. Left out, the card shows the time ('0:05')."),
+    cover_label: label("Leave it out: the card shows the cover_ms time itself ('0:05'), and replaces a label that names another time."),
     hashtags: hashtagList("caption"),
     mentions: mentionList("caption"),
   }),

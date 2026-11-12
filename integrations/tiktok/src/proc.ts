@@ -15,10 +15,17 @@ const UTF8 = /utf-?8/i;
  * then read and print text as MacRoman: pbcopy turned "Café 🎉" into "Caf√© …", and osascript and `defaults`
  * garble non-ASCII names the same way. Every child gets a UTF-8 locale; a UTF-8 one the user has is kept.
  * Passed explicitly, because Bun.spawn's default is the environment as it was at startup.
+ *
+ * The integration's own settings never reach a child. VoiceOS injects them as environment variables
+ * (src/config.ts loadConfig: COMPOSIO_API_KEY, COMPOSIO_USER_ID, COMPOSIO_CONNECTED_ACCOUNT_ID, MEDIA_RELAY_TOKEN),
+ * and sips, osascript, ffmpeg and the rest need none of them; inherited, the API key and the relay token would be
+ * readable by every tool we start. Matched by prefix and in any case, because Windows ignores the case of names.
  */
+const PRIVATE_ENV = /^(?:COMPOSIO_|MEDIA_RELAY_)/i;
+
 function childEnv(base: Record<string, string | undefined>): Record<string, string> {
   const env: Record<string, string> = {};
-  for (const [k, v] of Object.entries(base)) if (typeof v === "string") env[k] = v;
+  for (const [k, v] of Object.entries(base)) if (typeof v === "string" && !PRIVATE_ENV.test(k)) env[k] = v;
   if (!UTF8.test(env.LANG ?? "")) env.LANG = "en_US.UTF-8";
   if (!UTF8.test(env.LC_CTYPE ?? "")) env.LC_CTYPE = env.LANG;
   if (env.LC_ALL !== undefined && !UTF8.test(env.LC_ALL)) delete env.LC_ALL;

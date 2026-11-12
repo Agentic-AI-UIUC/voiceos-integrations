@@ -28,7 +28,7 @@ import { TOOL_META, handlerFor, inputSchemaFor, type ToolExtra } from "./tools.t
 import { ChannelMemo, ledgerStatusCard } from "./tools/reads.ts";
 import { SOFT_DEADLINE_MS } from "./tools/writes.ts";
 import { Session, type SessionLike } from "./session.ts";
-import { windowsRunner } from "./windows.ts";
+import { POWERSHELL_TIMEOUT_MS, windowsRunner } from "./windows.ts";
 import { TokenStore } from "./tokens.ts";
 import type {
   BundleImage, BundleRef, Clock, CredentialsResult, FileRef, FoundImage, FoundVideo, ImageRef, PostRef, Runner, StagedFile, WriteTool,
@@ -174,7 +174,8 @@ export function createDeps(cfg: Config, overrides: Partial<Deps> = {}): Deps {
     copyToClipboard:
       overrides.copyToClipboard ??
       (async (text: string) => {
-        const r = await runner(["pbcopy"], { stdin: text, timeoutMs: 5_000 });
+        // On Windows pbcopy is a PowerShell job (src/windows.ts), whose cold start can pass 5 s.
+        const r = await runner(["pbcopy"], { stdin: text, timeoutMs: POWERSHELL_TIMEOUT_MS });
         if (r.code !== 0) throw new Error(`pbcopy exited with ${r.code}`);
       }),
     pollScheduleMs: overrides.pollScheduleMs?.length ? overrides.pollScheduleMs : DEFAULT_POLL_SCHEDULE_MS,
@@ -231,7 +232,7 @@ export const CAPABILITY_GUIDANCE =
   "The latest instruction wins: 'make it a post', 'actually just a draft', another video ('no, the other one'), a new caption, " +
   "hashtags, privacy or the AI label each change only what the user mentioned, and the video, caption and settings carry over. " +
   "VoiceOS drops a confirmation card as soon as the user speaks, so a change or addition while a card shows is answered with the same " +
-  "card again, the change applied; a request for public shows the Only me card, which is the question. " +
+  "card again, the change applied; a request for public shows the card again with privacy left empty, which is the question. " +
   "'It', 'that' and 'the same video' are the video last named or shown; find_recent_videos returns it again when its file_token is gone. " +
   "Privacy words: only me, just me or private is SELF_ONLY; friends is MUTUAL_FOLLOW_FRIENDS; followers is FOLLOWER_OF_CREATOR; " +
   "public or everyone is PUBLIC_TO_EVERYONE, which TikTok allows only after it audits the app, so Only me or drafts are the options until then. " +

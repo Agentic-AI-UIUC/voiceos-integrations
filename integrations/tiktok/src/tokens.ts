@@ -146,9 +146,10 @@ export class TokenStore {
  * gone → FILE_NOT_FOUND; no longer readable → FOLDER_PERMISSION_DENIED;
  * different size or mtime → TOKEN_STALE { reason: "file_changed" }. Errors
  * carry the basename only. mtimes within 1 ms count as equal, so a ref whose
- * mtime was rounded to whole milliseconds still matches.
+ * mtime was rounded to whole milliseconds still matches. `kind: "image"` makes
+ * a changed photo's message speak of photos rather than the video.
  */
-export function restat(ref: { path: string; size: number; mtimeMs: number; folder?: string }): void {
+export function restat(ref: { path: string; size: number; mtimeMs: number; folder?: string }, kind?: "image"): void {
   const name = basename(ref.path);
   let st: Stats;
   try {
@@ -163,7 +164,7 @@ export function restat(ref: { path: string; size: number; mtimeMs: number; folde
   }
   if (!st.isFile()) throw new TikTokError("FILE_NOT_FOUND", { name });
   if (st.size !== ref.size || !(Math.abs(st.mtimeMs - ref.mtimeMs) < 1)) {
-    throw new TikTokError("TOKEN_STALE", { reason: "file_changed", name });
+    throw new TikTokError("TOKEN_STALE", { reason: "file_changed", name, ...(kind ? { kind } : {}) });
   }
 }
 

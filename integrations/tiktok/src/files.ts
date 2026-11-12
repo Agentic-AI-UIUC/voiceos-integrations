@@ -20,7 +20,7 @@ import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { TikTokError } from "./errors.ts";
 import { mp4Details, mp4Info, sipsMeta, type VideoDetailsInfo, type VideoInfo } from "./media.ts";
-import { isWindowsRunner } from "./windows.ts";
+import { POWERSHELL_TIMEOUT_MS, isWindowsRunner } from "./windows.ts";
 import { log } from "./proc.ts";
 import { finderSelection, quicktimeDocuments, type PointedFailure } from "./finderApps.ts";
 import { chips, descriptor, evaluate, factsOf, keywordHit, rank as rankVideos, whenLabel, whichQuestion, type Confidence, type Evaluation, type Facts, type Ranking } from "./finderMatch.ts";
@@ -246,7 +246,7 @@ async function resolveRoots(all: string[], home: string, folders: string[] | und
   const native: Record<string, string> = {};
   if (isWindowsRunner(runner) && canon(home) === canon(homedir())) {
     try {
-      const r = await runner(["voiceos-windows", "folders"], { timeoutMs: 5000 });
+      const r = await runner(["voiceos-windows", "folders"], { timeoutMs: POWERSHELL_TIMEOUT_MS });
       if (!r.code && !r.timedOut) {
         const values = JSON.parse(r.stdout);
         for (const [k, v] of Object.entries(values)) if (typeof v === "string" && isAbsolute(v)) native[k] = v;
@@ -368,7 +368,7 @@ async function assignArrival(files: Candidate[], q: Query, runner: Runner): Prom
   if (!files.length) return;
   if (isWindowsRunner(runner)) {
     try {
-      const r = await runner(["voiceos-windows", "attributes", ...files.map(f => f.path)], { timeoutMs: 5000 });
+      const r = await runner(["voiceos-windows", "attributes", ...files.map(f => f.path)], { timeoutMs: POWERSHELL_TIMEOUT_MS });
       if (!r.code && !r.timedOut) {
         const rows = JSON.parse(r.stdout) as Array<{ path: string; offline: boolean }>;
         const offline = new Set(rows.filter(x => x.offline).map(x => x.path));

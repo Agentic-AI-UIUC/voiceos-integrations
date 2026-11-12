@@ -441,6 +441,7 @@ describe("version 2 frames", () => {
     }
   });
 
+  // ~2,200 decodes: ~2 s on an M3 Max, 7.5 s on its efficiency cores, so slower machines ran past Bun's 5 s default.
   test("the 12-bit check: a mangled copy decodes to nothing (and never throws), in both decoders", () => {
     let passed = 0, tries = 0;
     const A = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
@@ -469,7 +470,7 @@ describe("version 2 frames", () => {
       expect(decodeFrame(bad as string)).toBeNull();
       expect(TKP.decode2(bad)).toBeNull();
     }
-  });
+  }, 30_000);
 
   test("trailing zero characters are padding: dropped by the encoder, harmless in a copy", () => {
     for (const f of video) expect(f.endsWith("A")).toBe(false);

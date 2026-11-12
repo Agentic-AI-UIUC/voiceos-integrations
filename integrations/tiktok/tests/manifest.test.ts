@@ -15,6 +15,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildConfirmation, CARD_KEYS, RECEIPT_CORE_JS } from "../confirm-card/build.ts";
+import { BUILD_BUN_VERSION, STAMP, sourceDigest } from "../scripts/sources.ts";
 import { COMPOSIO_BASE, COMPOSIO_UPLOAD_HOST, INTEGRATION_ID, INTEGRATION_VERSION, MEDIA_RELAY_BASE, TIKTOK_IMAGE_HOSTS, loadConfig } from "../src/config.ts";
 import { TRANSCRIPT_HOOK, isHookTool } from "../src/conversation.ts";
 import { hostMatches } from "../src/covers.ts";
@@ -462,12 +463,21 @@ describe("conversation: the transcript hook and the rules the agent reads", () =
       expect(d).toContain("pick 'current'");
     }
     // Live 2026-11-06: "its ai generated btw" over a Post card got an acknowledgement and no card (VoiceOS drops a
-    // card the moment the user speaks), and "make it public" got a question instead of the Only me card.
+    // card the moment the user speaks), and "make it public" got a question instead of a card. The card is the
+    // question, with privacy left empty: TikTok's audit wants no audience preselected (QA, PR 47), so the agent is no
+    // longer told to fill in SELF_ONLY when the user asks for more than the account allows.
     for (const name of WRITES) {
       expect(byName[name].description).toContain("calling this again at once with it applied: the old card is gone once the user speaks");
       expect(byName[name].description).toContain("a yes in words sends nothing");
     }
-    for (const name of ["publish_video", "post_photos"]) expect(byName[name].description).toMatch(/show the Only me card, which is the question/);
+    for (const name of ["publish_video", "post_photos"]) {
+      expect(byName[name].description).toMatch(/show the card with privacy empty as the question/);
+      const privacyText = byName[name].inputSchema.properties.privacy_level.description;
+      expect(privacyText).toContain("show the card with privacy_level empty, so the user picks");
+      for (const text of [byName[name].description, privacyText]) expect(text).not.toMatch(/Only me card|card with SELF_ONLY/);
+    }
+    expect(CAPABILITY_GUIDANCE).toContain("a request for public shows the card again with privacy left empty");
+    expect(CAPABILITY_GUIDANCE).not.toContain("Only me card");
     expect(byName.query_creator_info.description).toContain("make it a post");
     expect(byName.fetch_publish_status.description).toMatch(/can't become a post.*offer to post the same video directly/);
     const privacy = byName.publish_video.inputSchema.properties.privacy_level.description;
@@ -556,6 +566,17 @@ describe("what the share package runs", () => {
     expect(specs.filter((s) => !/^(node|bun):/.test(s) && !s.startsWith(".") && !builtins.has(s.split("/")[0]))).toEqual([]);
     // Relative imports would need src/ or node_modules, which Publish doesn't ship.
     expect(specs.filter((s) => s.startsWith("."))).toEqual([]);
+  });
+
+  // QA (PR 47): the committed bundle had been built with another Bun than the PR names, and no CI step checked that it
+  // was rebuilt at all. The build stamps the Bun it ran on and a digest of every input (scripts/sources.ts), so this
+  // fails in any CI, the club's Ubuntu-only one included, until server.ts is rebuilt and committed.
+  test("server.ts was rebuilt from these exact sources, with the pinned Bun", () => {
+    const head = readFileSync(join(ROOT, "server.ts"), "utf8").split("\n").slice(0, 5).join("\n");
+    const stamp = STAMP.exec(head);
+    expect(stamp).not.toBeNull();
+    // A mismatch: run `bun run build` (it uses VoiceOS's bundled Bun BUILD_BUN_VERSION when there) and commit server.ts.
+    expect({ bun: stamp![1], sources: stamp![2] }).toEqual({ bun: BUILD_BUN_VERSION, sources: sourceDigest(ROOT) });
   });
 
   test("preview fixtures cover reads only: VoiceOS's previewer really runs every fixture", () => {

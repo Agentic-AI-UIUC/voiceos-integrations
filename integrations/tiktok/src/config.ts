@@ -14,7 +14,7 @@ import { join, posix, win32 } from "node:path";
 
 /** IMMUTABLE once installed: VoiceOS keys settings and secrets off it. */
 export const INTEGRATION_ID = "com.voiceos.generated.tiktok";
-export const INTEGRATION_VERSION = "1.3.1";
+export const INTEGRATION_VERSION = "1.3.2";
 
 /** The Composio TikTok toolkit version every execute call pins. Bump only after re-checking Composio's tool schemas at the new version and re-testing every tool. */
 export const TIKTOK_TOOLKIT_VERSION = "20261101_00";

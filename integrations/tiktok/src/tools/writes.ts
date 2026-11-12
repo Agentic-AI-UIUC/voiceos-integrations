@@ -205,7 +205,7 @@ export function accept(tool: WriteTool, args: Args, deps: Deps): Accepted {
   }
   if (a.file) videoChecks(a);
   if (a.file) restat(a.file);
-  for (const image of a.bundle?.images ?? []) restat(image);
+  for (const image of a.bundle?.images ?? []) restat(image, "image");
   if (kind === "video") checkText("caption", a.caption);
   else {
     checkText("title", a.title);
@@ -302,6 +302,60 @@ function cardShowsTheMedia(a: Accepted): void {
   if (a.bundle && count && Number(count[0]) !== a.bundle.images.length) {
     throw new TikTokError("CONFIRMATION_REQUIRED", { reason: "card_mismatch", kind: "photos" });
   }
+  cardLabelsAreTrue(a);
+}
+
+const mismatch = (kind: MediaKind, field: string) => new TikTokError("CONFIRMATION_REQUIRED", { reason: "card_mismatch", kind, field });
+/** The words of a line as a model may retype them: any case, spacing and quote style, × as x, no closing period. */
+const plainLine = (v: unknown) =>
+  cleanText(v)
+    .replace(/[\u2018\u2019\u02bc]/g, "'")
+    .replace(/[\u201c\u201d]/g, '"')
+    .replace(/[\u2013\u2014]/g, "-")
+    .replace(/\u00d7/g, "x")
+    .replace(/\u2026/g, "...")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase()
+    .replace(/[.!]+$/, "");
+/** "Frame at 0:03", "Cover: 0:03" → "0:03", as the card shows a cover_label beside its own "Cover". */
+const coverWords = (v: unknown) => cleanText(v).trim().replace(/^(?:cover|frame)(?:\s+frame)?(?:\s+at)?\s*:?\s*/i, "");
+const SIZE_LABEL = /^(\d+(?:\.\d+)?)\s*(bytes?|b|kb|mb|gb|tb)$/;
+const SIZE_UNIT: Record<string, number> = { b: 1, byte: 1, bytes: 1, kb: 1e3, mb: 1e6, gb: 1e9, tb: 1e12 };
+/** A size label ("12.3 MB", as format.ts bytes() writes it, any case or spacing) in bytes; undefined when unreadable. */
+function sizeOfLabel(v: unknown): number | undefined {
+  const m = SIZE_LABEL.exec(cleanText(v).trim().toLowerCase());
+  return m ? Number(m[1]) * SIZE_UNIT[m[2]] : undefined;
+}
+
+/**
+ * The card's other labels come from the agent too (QA, PR 47): a length, a size or a cover time the file doesn't
+ * have, or a photo warning left out, would have the user approve something other than what's sent. Each shown label
+ * has to agree with the token or the signed cover time; a label left out is fine, except the warning: when
+ * prepare_photo_post had one, the card has to show it. Compared as a model may retype them: lengths to the second,
+ * sizes within 5 %, words in any case and spacing.
+ */
+function cardLabelsAreTrue(a: Accepted): void {
+  if (a.file) {
+    const dur = a.file.duration_sec;
+    if (present(a.args.duration_label)) {
+      const shown = coverMsOf(cleanText(a.args.duration_label));
+      if (dur === undefined || !shown || !(Math.abs(Number(shown) / 1000 - dur) < 1)) throw mismatch("video", "duration_label");
+    }
+    if (present(a.args.size_label)) {
+      const shown = sizeOfLabel(a.args.size_label);
+      if (shown === undefined || !(Math.abs(shown - a.file.size) <= a.file.size * 0.05)) throw mismatch("video", "size_label");
+    }
+    if (present(a.args.cover_label)) {
+      // The card fills cover_label in from cover_ms (TKC.settle). A label naming another time, or one with no cover set,
+      // is refused; a cover time that can't be read is directRules' to refuse, in its own words.
+      const shown = coverMsOf(coverWords(a.args.cover_label));
+      const cover = present(a.args.cover_ms) ? coverMsOf(a.args.cover_ms) : "";
+      const unreadableCover = present(a.args.cover_ms) && !cover;
+      if (!unreadableCover && (!shown || !cover || !(Math.abs(Number(shown) - Number(cover)) < 1000))) throw mismatch("video", "cover_label");
+    }
+  }
+  if (a.bundle && plainLine(a.args.warning) !== plainLine(a.bundle.warning)) throw mismatch("photos", "warning");
 }
 
 /**
@@ -696,7 +750,11 @@ async function execute(a: Accepted, entry: LedgerEntry, release: () => void, dep
       const file = a.file!;
       const timeoutMs = uploadTimeoutMs(file.size);
       progress(extra, 1, 4, "Uploading the video");
+      // Checked again now, not only at approval: the write may have waited its turn, and a re-export saved over the
+      // same path since then is another video (QA, PR 47). Again once staged, in case it changed while being read.
+      restat(file);
       const staged = await deps.client.stageFile(file.path, file.mime, "TIKTOK_UPLOAD_VIDEO", deps.clock.now() + timeoutMs, signal);
+      restat(file);
       deps.ledger.update(id, { stage: "uploading" });
       progress(extra, 2, 4, "Sending to TikTok");
       phase = "init";
@@ -708,9 +766,12 @@ async function execute(a: Accepted, entry: LedgerEntry, release: () => void, dep
     } else {
       const bundle = a.bundle!;
       progress(extra, 1, 4, "Preparing the photos");
+      // The photos too: checked again at the write's turn, and once read, so only the approved ones go out.
+      for (const image of bundle.images) restat(image, "image");
       const converted = await deps.convert(bundle.images, deps.runner);
       let urls: string[];
       try {
+        for (const image of bundle.images) restat(image, "image");
         const batch = await deps.relay.createBatch(converted.files.length, signal);
         batchId = batch.batch_id;
         const files = converted.files.map((f) => ({ bytes: new Uint8Array(readFileSync(f.path)), mime: "image/jpeg" as const }));
@@ -739,8 +800,10 @@ async function execute(a: Accepted, entry: LedgerEntry, release: () => void, dep
     progress(extra, 3, 4, "TikTok is processing it");
     const polled = await poll(publishId, deps, signal, async (status) => {
       deps.ledger.update(id, { last_status: status });
-      // Once TikTok has pulled the photos (or finished), the relay copy goes.
-      if (a.kind === "photos" && status !== "PROCESSING_DOWNLOAD") await dropBatch();
+      // The relay copy goes once TikTok reports a final status (in the inbox, posted or failed): by then it has the
+      // photos or won't fetch them. No earlier status proves the pull is over: PROCESSING_UPLOAD can come before it
+      // (QA, PR 47), and deleting too soon fails the carousel. A batch left when watching ends expires on the relay.
+      if (a.kind === "photos" && TERMINAL[status] !== undefined) await dropBatch();
     });
     await withPoster();
     return finish(a, id, polled, deps, cardInput, facts, done);

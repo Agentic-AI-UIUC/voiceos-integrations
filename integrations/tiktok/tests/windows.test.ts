@@ -2,7 +2,9 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import { windowsOperation, windowsRunner } from "../src/windows.ts";
+import { POWERSHELL_TIMEOUT_MS, removeJobDir, windowsOperation, windowsRunner } from "../src/windows.ts";
+import { loadConfig } from "../src/config.ts";
+import { createDeps } from "../src/mcpServer.ts";
 import { run, realClock } from "../src/proc.ts";
 import { convertForTikTok } from "../src/images.ts";
 import { sipsMeta } from "../src/media.ts";
@@ -93,4 +95,36 @@ describe.skipIf(process.platform !== "win32")("native Windows media and desktop"
     const preview = await videoPreview(path, { duration_sec: 3, width: 160, height: 90, size: statSync(path).size, mtimeMs: statSync(path).mtimeMs }, native, { budgetMs: 15000 });
     expect(preview.poster).toStartWith("data:image/jpeg;base64,"); expect(preview.micro).toBeDefined();
   }, 20000);
+});
+
+// QA (PR 47): a PowerShell killed at its deadline can hold its job files a moment longer, and Windows then refuses the
+// delete (EBUSY). Cleanup is best effort and retried: it never turns the job's result into a throw.
+test("a job folder Windows won't delete yet (EBUSY) is retried in the background, never thrown", async () => {
+  let calls = 0;
+  const busy = () => {
+    calls++;
+    if (calls < 3) throw Object.assign(new Error("resource busy or locked"), { code: "EBUSY" });
+  };
+  expect(() => removeJobDir("C:\\Temp\\tiktok-windows-x", busy)).not.toThrow();
+  expect(calls).toBe(1);
+  await Bun.sleep(1_000); // retries after 250 ms, then 500 ms
+  expect(calls).toBe(3);
+});
+
+test("a killed PowerShell's result comes back even when its folder can't be removed yet", async () => {
+  const r = await windowsOperation(async () => ({ code: 124, stdout: "", stderr: "", timedOut: true }), { operation: "folders" });
+  expect(r).toMatchObject({ code: 124, timedOut: true });
+});
+
+test("the clipboard copy gives PowerShell time for a cold start (15 s, not 5 s)", async () => {
+  expect(POWERSHELL_TIMEOUT_MS).toBe(15_000);
+  const asked: Array<{ cmd: string[]; timeoutMs?: number; stdin?: string }> = [];
+  const deps = createDeps(loadConfig({}, [`--state-dir=${fresh()}`, `--home=${fresh()}`]), {
+    runner: async (cmd, opts = {}) => {
+      asked.push({ cmd: [...cmd], timeoutMs: opts.timeoutMs, stdin: opts.stdin });
+      return { code: 0, stdout: "", stderr: "", timedOut: false };
+    },
+  });
+  await deps.copyToClipboard("Café 🎉");
+  expect(asked).toEqual([{ cmd: ["pbcopy"], timeoutMs: 15_000, stdin: "Café 🎉" }]);
 });

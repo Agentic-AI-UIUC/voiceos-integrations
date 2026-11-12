@@ -7,7 +7,8 @@
  *   be ACTIVE, not disabled, a TikTok account and owned by COMPOSIO_USER_ID (checked with the list filters,
  *   because the single-account GET's user_id is deprecated); the result is cached for 60 s.
  * - Reads: one retry on a 5xx, a network error or an unreadable 200, after ~500 ms of jitter, never past the
- *   deadline. Writes: never retried; a lost answer is OUTCOME_UNKNOWN, because the post may exist.
+ *   deadline. Writes: never retried; a lost answer is OUTCOME_UNKNOWN, because the post may exist, and so is a
+ *   failure Composio reports without TikTok's own error code.
  * - Writes go out on a fresh connection (`keepalive: false`). On Bun 1.3.13, when a reused keep-alive socket
  *   closes before any answer, fetch re-sends the request once by itself; for a write that is a second upload.
  * - Logs (stderr): slug, duration, our code and the Composio/TikTok log ids. Nothing else.
@@ -51,19 +52,14 @@ export const ACCOUNT_CACHE_MS = 60_000;
  */
 const writeOutcomeLost = (status: number) => status >= 500;
 
-/** Composio's words for "TikTok's answer never came", e.g. Python requests' "Read timed out." or a dropped connection. */
-const LOST_TEXT = /timed?\s?out|timeout|connection (?:aborted|reset|broken)|remote ?disconnected|max retries exceeded|broken pipe|bad gateway|gateway time-?out|service unavailable/i;
-
 /**
- * An app failure (HTTP 200 + successful:false) where Composio's backend lost TikTok's answer: a timeout or a
- * dropped connection in its words, or a 5xx with no TikTok error code. On a write the post may exist.
+ * A write's app failure (HTTP 200 + successful:false) without TikTok's own error code has an unknown outcome.
+ * Composio ran the tool, and its words alone can't say whether TikTok already has the post: its backend may have lost
+ * TikTok's answer (a timeout, a dropped connection, a 5xx), or failed at a step after TikTok accepted the init. A
+ * failure reported as "failed" gets sent again, and a second send is a duplicate post (QA, PR 47); with TikTok's
+ * code, TikTok itself refused, and the code keeps its meaning.
  */
-function appAnswerLost(json: Record<string, any>, err: TikTokError): boolean {
-  if (err.detail.tiktok_code !== undefined) return false;
-  if (err.code === "TIKTOK_SERVER" || err.code === "TIMEOUT") return true;
-  const text = (v: unknown) => (typeof v === "string" ? v : isObject(v) ? JSON.stringify(v) : "");
-  return LOST_TEXT.test(`${text(json.error)} ${text(json.data)}`);
-}
+const writeAppFailureUnknown = (err: TikTokError) => err.detail.tiktok_code === undefined;
 /** What a fresh account check can conclude; anything else means the check itself couldn't run. */
 const ACCOUNT_CODES = new Set<TikTokErrorCode>(["NOT_CONFIGURED", "NOT_CONNECTED", "AUTH_EXPIRED", "AUTH_REVOKED"]);
 const ENVELOPE_KEYS = new Set(["data", "error", "successful", "log_id"]);
@@ -371,7 +367,11 @@ export class ComposioClient {
     if (!a.ok) throw await this.reconcile(composioError(a, { slug }), opts);
     if (a.json.successful === false) {
       const err = appFailure(a.json, slug);
-      if (opts.write && appAnswerLost(a.json, err)) throw new TikTokError("OUTCOME_UNKNOWN", { slug, reason: "lost_upstream" });
+      if (opts.write && writeAppFailureUnknown(err)) {
+        // The next call checks the connection afresh, so a connection that lapsed is caught before anything is sent again.
+        this.verified = null;
+        throw new TikTokError("OUTCOME_UNKNOWN", { slug, reason: "app_failure" });
+      }
       throw await this.reconcile(err, opts);
     }
     try {

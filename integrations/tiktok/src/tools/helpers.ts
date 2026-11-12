@@ -66,7 +66,7 @@ export function queryCreatorInfo(args: Args, deps: Deps, extra: ToolExtra): Prom
       deps.session?.setFocus?.(file, "post_prepared", deps.clock.now(), { intent: { mode: "post", outcome: "prepared" } });
     } else {
       const bundle = deps.tokens.bundle(bundleToken);
-      for (const image of bundle.images) restat(image);
+      for (const image of bundle.images) restat(image, "image");
       look = Promise.resolve({ kind: "photos" as const, count: bundle.images.length, cover_index: bundle.cover_index, ...(bundle.thumbs?.length ? { thumbs: bundle.thumbs } : {}) });
     }
     if (!deps.limits.creatorInfo.tryTake()) throw new TikTokError("RATE_LIMITED", {});
@@ -664,7 +664,7 @@ export function preparePhotoPost(args: Args, deps: Deps, extra: ToolExtra): Prom
       }
       seen.set(r.path, i);
     });
-    for (const r of refs) restat(r);
+    for (const r of refs) restat(r, "image");
     const meta = await deps.sipsMeta(refs.map((r) => r.path), deps.runner);
     const credentials = await Promise.all(
       refs.map((r) =>
@@ -697,6 +697,7 @@ export function preparePhotoPost(args: Args, deps: Deps, extra: ToolExtra): Prom
       images, cover_index: cover,
       ...(look.stack ? { preview: look.stack } : {}),
       ...(look.thumbs?.length ? { thumbs: look.thumbs } : {}),
+      ...(plan.warning ? { warning: plan.warning } : {}),
     });
     let summary = `${plan.count_label}. Order: ${plan.order_label}.`;
     if (plan.warning) summary += ` ${plan.warning}`;

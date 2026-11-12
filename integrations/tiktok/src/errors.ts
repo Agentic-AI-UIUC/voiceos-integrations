@@ -47,6 +47,14 @@ interface Copy {
   card: (d: Detail) => string;
 }
 
+/** What a card that didn't match its token showed wrong, by label (src/tools/writes.ts cardLabelsAreTrue). */
+const MISMATCH_LINE: Record<string, string> = {
+  duration_label: "The card showed another length for this video. Ask again and check the card.",
+  size_label: "The card showed another size for this video. Ask again and check the card.",
+  cover_label: "The card showed another cover time. Ask again and check the card.",
+  warning: "The card didn't show the right note about these photos. Ask again and check the card.",
+};
+
 const COPY: Record<TikTokErrorCode, Copy> = {
   NOT_CONFIGURED: {
     title: "Set up TikTok",
@@ -240,10 +248,10 @@ const COPY: Record<TikTokErrorCode, Copy> = {
     // A file, photo or bundle token goes stale when VoiceOS restarts the server or the file changes: the agent finds
     // the same media again (find_recent_videos returns the video in progress) and keeps the caption and settings.
     card: (d) =>
-      d.kind === "file" || d.reason === "file_changed"
-        ? "The video changed, or VoiceOS restarted. Say 'the same video' to keep the caption and settings."
-        : d.kind === "image" || d.kind === "bundle"
-          ? "The photos changed, or VoiceOS restarted. Ask again to keep the same order."
+      d.kind === "image" || d.kind === "bundle"
+        ? "The photos changed, or VoiceOS restarted. Ask again to keep the same order."
+        : d.kind === "file" || d.reason === "file_changed"
+          ? "The video changed, or VoiceOS restarted. Say 'the same video' to keep the caption and settings."
           : "Ask again and I'll refresh your options.",
   },
   APP_VERSION_TOO_OLD: {
@@ -261,9 +269,10 @@ const COPY: Record<TikTokErrorCode, Copy> = {
     spoken: "Not sent. Nothing reached TikTok.",
     card: (d) =>
       d.reason === "card_mismatch"
-        ? d.kind === "photos"
-          ? "The card showed a different number of photos. Ask again and check the card."
-          : "The card named a different video. Ask again and check the file name."
+        ? (Object.prototype.hasOwnProperty.call(MISMATCH_LINE, String(d.field)) ? MISMATCH_LINE[String(d.field)] : undefined) ??
+          (d.kind === "photos"
+            ? "The card showed a different number of photos. Ask again and check the card."
+            : "The card named a different video. Ask again and check the file name.")
         : "Ask again and click the card's button; saying yes sends nothing. No card? Turn on Ask before every action.",
   },
   OUTCOME_UNKNOWN: {

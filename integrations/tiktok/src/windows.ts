@@ -100,6 +100,25 @@ try {
 
 const empty = (code = 0, stdout = ""): RunResult => ({ code, stdout, stderr: "", timedOut: false });
 
+/**
+ * For the quick PowerShell jobs (known folders, file attributes, the clipboard): PowerShell's cold start alone can
+ * pass 5 s on a slow or freshly booted PC (QA, PR 47), and a job killed at its deadline loses its answer.
+ */
+export const POWERSHELL_TIMEOUT_MS = 15_000;
+
+/**
+ * Remove a job's temp folder, best effort. A PowerShell killed at its deadline can hold its files a moment longer,
+ * and Windows then refuses the delete (EBUSY): that must never turn the job's result into a throw. Retried a few
+ * times in the background, so the job file (it can hold a caption, for the clipboard) doesn't linger.
+ */
+export function removeJobDir(dir: string, rm: (dir: string) => void = (d) => rmSync(d, { recursive: true, force: true }), attempt = 0): void {
+  try {
+    rm(dir);
+  } catch {
+    if (attempt < 3) setTimeout(() => removeJobDir(dir, rm, attempt + 1), 250 * 2 ** attempt).unref?.();
+  }
+}
+
 export async function windowsOperation(base: Runner, job: Record<string, unknown>, opts: RunOptions = {}): Promise<RunResult> {
   const dir = mkdtempSync(join(tmpdir(), "tiktok-windows-"));
   try {
@@ -107,7 +126,7 @@ export async function windowsOperation(base: Runner, job: Record<string, unknown
     writeFileSync(script, "\ufeff" + WINDOWS_SCRIPT, { mode: 0o600 });
     writeFileSync(data, JSON.stringify(job), { mode: 0o600 });
     return await base(["powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-STA", "-ExecutionPolicy", "Bypass", "-File", script, "-JobFile", data], opts);
-  } finally { rmSync(dir, { recursive: true, force: true }); }
+  } finally { removeJobDir(dir); }
 }
 
 const nativeRunners = new WeakSet<Runner>();

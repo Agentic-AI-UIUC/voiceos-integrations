@@ -221,6 +221,18 @@ describe("TKC.settle folds tags on every write; the direct-post rules stay direc
     expect(settle("upload_video", { cover_ms: "0:05" })).toEqual({});
   });
 
+  // QA (PR 47): cover_label comes from the agent, so the card could show one time while another is signed and sent.
+  test("the cover line shows the signed time: a label naming another second is replaced, one with no readable cover cleared", () => {
+    const base = { privacy_options: ["SELF_ONLY"], privacy_level: "SELF_ONLY" };
+    expect(settle("publish_video", { ...base, cover_ms: "0:05", cover_label: "Frame at 0:30" })).toEqual({ cover_ms: "5000", cover_label: "0:05" });
+    expect(settle("publish_video", { ...base, cover_ms: 3000, cover_label: "the opening shot" })).toEqual({ cover_label: "0:03" });
+    expect(settle("publish_video", { ...base, cover_label: "Frame at 0:03" })).toEqual({ cover_label: "" });
+    expect(settle("publish_video", { ...base, cover_ms: "the end", cover_label: "0:03" })).toEqual({ cover_label: "" });
+    // Within the same second it's the agent's wording ("Frame at 0:02" for 2.5 s), and settled arguments stay as they are.
+    expect(settle("publish_video", { ...base, cover_ms: "2500", cover_label: "Frame at 0:02" })).toEqual({});
+    expect(settle("publish_video", { ...base, cover_ms: "5000", cover_label: "0:05" })).toEqual({});
+  });
+
   test("the receipt over the settled args signs the digit string, the same as one minted over milliseconds", () => {
     const a = { post_token: "pt", file_token: "ft", privacy_options: ["SELF_ONLY"], privacy_level: "only me", caption: "c", cover_ms: "0:05" };
     const s = { ...a, ...settle("publish_video", a) };

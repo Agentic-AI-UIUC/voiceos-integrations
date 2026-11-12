@@ -8,7 +8,8 @@
  *   GET    /p/{id}/{index}.jpg               → 200 bytes (public, no auth) | 404
  *
  * Every authenticated call must carry `Authorization: Bearer <token>` (else 401).
- * Knobs are plain mutable fields; `reset()` clears them and all recorded state.
+ * Knobs are plain mutable fields; `reset()` clears them and all recorded state, but not requests still on
+ * the wire: a PUT the client aborted can arrive after it. Isolate tests with a fresh relay, not reset().
  */
 import { createHash, randomBytes } from "node:crypto";
 

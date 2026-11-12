@@ -2,7 +2,7 @@
  * Media relay client (src/relay.ts) against the loopback mock relay, plus the
  * `pool` helper. No real network: every request goes to 127.0.0.1.
  */
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { TikTokError } from "../src/errors.ts";
 import { RelayClient, pool, type RelayBatch } from "../src/relay.ts";
 import type { Clock } from "../src/types.ts";
@@ -38,12 +38,14 @@ async function caught(p: Promise<unknown>): Promise<TikTokError> {
   throw new Error("expected a rejection");
 }
 
+// A fresh relay per test. When a PUT fails, the client aborts the PUTs still in flight, but an aborted
+// request can reach the server after the test has ended; a shared relay recorded it in the next test
+// (the 409 test saw the network-error test's aborted PUT of item 0 as a second PUT).
 let relay: MockRelay;
-beforeAll(() => {
+beforeEach(() => {
   relay = startMockRelay({ token: "tok-SECRET-123" });
 });
-afterAll(() => relay.stop());
-beforeEach(() => relay.reset());
+afterEach(() => relay.stop());
 
 // ---------------------------------------------------------------------------
 // pool
@@ -423,8 +425,4 @@ describe("RelayClient against the mock relay", () => {
       spy.mockRestore();
     }
   });
-});
-
-afterEach(() => {
-  relay.putDelayMs = 0;
 });

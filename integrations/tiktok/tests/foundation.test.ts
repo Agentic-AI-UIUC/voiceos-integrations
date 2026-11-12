@@ -137,6 +137,27 @@ describe("child processes", () => {
       }
     }
   });
+  test("children never inherit the integration's settings: the Composio key and the relay token stay in this process", async () => {
+    const keys = ["COMPOSIO_API_KEY", "COMPOSIO_USER_ID", "COMPOSIO_CONNECTED_ACCOUNT_ID", "MEDIA_RELAY_TOKEN", "TIKTOK_TEST_KEEP"] as const;
+    const saved = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
+    const show = script(
+      'const env = process.env; process.stdout.write(JSON.stringify({ ours: Object.keys(env).filter((k) => /^(composio_|media_relay_)/i.test(k)), ' +
+        'secret: Object.values(env).some((v) => String(v).includes("SECRET-")), keep: env.TIKTOK_TEST_KEEP ?? "unset" }))',
+    );
+    try {
+      process.env.COMPOSIO_API_KEY = "ak_SECRET-key";
+      process.env.COMPOSIO_USER_ID = "SECRET-user";
+      process.env.COMPOSIO_CONNECTED_ACCOUNT_ID = "ca_SECRET-account";
+      process.env.MEDIA_RELAY_TOKEN = "SECRET-relay";
+      process.env.TIKTOK_TEST_KEEP = "kept"; // everything else still goes through
+      expect(JSON.parse((await run(show)).stdout)).toEqual({ ours: [], secret: false, keep: "kept" });
+    } finally {
+      for (const k of keys) {
+        if (saved[k] === undefined) delete process.env[k];
+        else process.env[k] = saved[k];
+      }
+    }
+  });
   test("kills a hung child at its deadline (users' Macs have no `timeout`)", async () => {
     const started = Date.now();
     const r = await run(script("setTimeout(() => {}, 5000)"), { timeoutMs: 200 });

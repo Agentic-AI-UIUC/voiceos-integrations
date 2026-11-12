@@ -169,6 +169,9 @@ var TKC = (function (LABELS) {
   }
 
   // A cover time as the card shows it: "0:05", "1:02", "1:02:03", tenths when there are any ("0:05.5").
+  // "Frame at 0:03", "Cover: 0:03" -> "0:03": a cover_label's time, as the card shows it beside its own "Cover".
+  function coverWords(v) { return txt(v).replace(/^(?:cover|frame)(?:\s+frame)?(?:\s+at)?\s*:?\s*/i, ""); }
+
   function coverLabel(ms) {
     var n = Number(ms);
     if (!isFinite(n) || n < 0) return "";
@@ -227,7 +230,8 @@ var TKC = (function (LABELS) {
   // The staged corrections (key -> string) that make the arguments match what the card shows.
   // Every write: hashtags and mentions folded into the signed caption (photos: description) and
   // staged as "", so a click sends the folded text alone (the server ignores both fields); a worded
-  // cover time as milliseconds, with a cover_label when none was given. Direct posts only:
+  // cover time as milliseconds, and a cover_label that shows it: one naming another second is replaced,
+  // and one with no readable cover is cleared (the server refuses a label that disagrees). Direct posts only:
   // creator-disabled interactions off; brand options only with disclosure on (a disclosure the
   // agent proposed is kept, never dropped); privacy one of the creator's options (audience words
   // read as TikTok's codes), never Only me with Branded content. `changed` is the key the user just
@@ -244,11 +248,15 @@ var TKC = (function (LABELS) {
       if (given(a.hashtags)) out.hashtags = "";
       if (given(a.mentions)) out.mentions = "";
     }
-    if (t.cover && given(a.cover_ms)) {
-      var cover = coverMs(a.cover_ms), whole = typeof a.cover_ms === "number" ? Math.floor(a.cover_ms) === a.cover_ms : /^\s*\d+\s*$/.test(String(a.cover_ms));
+    if (t.cover) {
+      var cover = given(a.cover_ms) ? coverMs(a.cover_ms) : "";
+      var whole = typeof a.cover_ms === "number" ? Math.floor(a.cover_ms) === a.cover_ms : /^\s*\d+\s*$/.test(txt(a.cover_ms));
       // A whole number stays as it came (TKR.normInt signs it as before); words and decimals become the digit string.
       if (cover && !whole) out.cover_ms = cover;
-      if (cover && !txt(a.cover_label)) out.cover_label = coverLabel(cover);
+      // The cover line shows the signed time (to the second, like src/tools/writes.ts cardLabelsAreTrue).
+      var shown = txt(a.cover_label) ? coverMs(coverWords(a.cover_label)) : "";
+      if (cover && !(shown && Math.abs(Number(shown) - Number(cover)) < 1000)) out.cover_label = coverLabel(cover);
+      else if (!cover && txt(a.cover_label)) out.cover_label = "";
     }
     if (!t.direct) return out;
     for (var i = 0; i < t.gated.length; i++) {
