@@ -347,7 +347,7 @@
     {
       "name": "update_task",
       "title": "Update task",
-      "description": "Update an existing Todoist task. Find the exact task with get_active_tasks first. Include only requested changes. When changing labels, pass the current task labels separately for display if available. For a follow-up before approval, revise the pending update, preserve the selected task and other pending edits, and show the confirmation again.",
+      "description": "Update an existing Todoist task. Find the exact task with get_active_tasks first. Include only requested changes. For a specific due date without a time, use due_date in the format Nov 13, 2026. When changing labels, pass the current task labels separately for display if available. For a follow-up before approval, revise the pending update, preserve the selected task and other pending edits, and show the confirmation again.",
       "inputSchema": {
         "type": "object",
         "title": "UpdateTaskRequest",
@@ -381,11 +381,8 @@
           "due_date": {
             "type": "string",
             "title": "Due Date",
-            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
-            "examples": [
-              "2023-12-31"
-            ],
-            "description": "Due date in YYYY-MM-DD format."
+            "examples": ["Nov 13, 2026"],
+            "description": "Date without a time. Use the English short month, day, and four-digit year (e.g. Nov 13, 2026) for a readable confirmation. YYYY-MM-DD is also accepted."
           },
           "due_lang": {
             "type": "string",

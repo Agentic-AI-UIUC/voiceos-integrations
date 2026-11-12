@@ -191,7 +191,7 @@ const catalog: any = {
       "name": "update_task",
       "title": "Update task",
       "slug": "TODOIST_UPDATE_TASK",
-      "description": "Update an existing Todoist task. Find the exact task with get_active_tasks first. Include only requested changes. When changing labels, pass the current task labels separately for display if available. For a follow-up before approval, revise the pending update, preserve the selected task and other pending edits, and show the confirmation again.",
+      "description": "Update an existing Todoist task. Find the exact task with get_active_tasks first. Include only requested changes. For a specific due date without a time, use due_date in the format Nov 13, 2026. When changing labels, pass the current task labels separately for display if available. For a follow-up before approval, revise the pending update, preserve the selected task and other pending edits, and show the confirmation again.",
       "readOnly": false,
       "inputSchema": {
         "type": "object",
@@ -226,11 +226,8 @@ const catalog: any = {
           "due_date": {
             "type": "string",
             "title": "Due Date",
-            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
-            "examples": [
-              "2023-12-31"
-            ],
-            "description": "Due date in YYYY-MM-DD format."
+            "examples": ["Nov 13, 2026"],
+            "description": "Date without a time. Use the English short month, day, and four-digit year (e.g. Nov 13, 2026) for a readable confirmation. YYYY-MM-DD is also accepted."
           },
           "due_lang": {
             "type": "string",
@@ -1219,6 +1216,22 @@ function normalizeConfirmationEdits(name: string, args: Record<string, any>) {
   }
 }
 
+function normalizeUpdateDueDate(value: string): string {
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const readable = /^([A-Z][a-z]{2}) (\d{1,2}), (\d{4})$/.exec(value);
+  let iso = value;
+  if (readable) {
+    const [, month, day, year] = readable;
+    const monthNumber = months.indexOf(month) + 1;
+    iso = `${year}-${String(monthNumber).padStart(2, "0")}-${day.padStart(2, "0")}`;
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
+    const date = new Date(`${iso}T00:00:00Z`);
+    if (Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === iso) return iso;
+  }
+  throw new Error("Enter a valid due date such as Nov 13, 2026.");
+}
+
 function validateArguments(name: string, args: Record<string, any>) {
   for (const key of ["content", "name", "task_id", "project_id", "section_id", "label_id"]) {
     if (typeof args[key] === "string" && !args[key].trim()) throw new Error(`${key} cannot be blank.`);
@@ -1322,6 +1335,9 @@ for (const tool of catalog.tools) {
       const { target_name, current_labels, ...args } = input;
       normalizeConfirmationEdits(tool.name, args);
       validateArguments(tool.name, args);
+      if (tool.name === "update_task" && args.due_date !== undefined) {
+        args.due_date = normalizeUpdateDueDate(args.due_date);
+      }
       const state = await load();
       const account = await requireAccount(state);
       // A single selected action, no fallback tool names and no automatic OAuth.

@@ -252,6 +252,18 @@ describe("real server routing through the real Composio SDK", () => {
     expect(browserEvents()).toHaveLength(0);
   });
 
+  test.each([
+    [{ due_date: "Nov 13, 2026" }, { due_date: "2026-11-13" }],
+    [{ due_date: "2028-02-29" }, { due_date: "2028-02-29" }],
+    [{ due_datetime: "2026-11-13T15:00:00Z" }, { due_datetime: "2026-11-13T15:00:00Z" }],
+    [{ due_string: "every Friday" }, { due_string: "every Friday" }],
+    [{ due_string: "no date" }, { due_string: "no date" }],
+  ])("sends the expected Todoist due date for %j", async (input, expected) => {
+    const result = await invoke("update_task", { task_id: "task_1", ...input });
+    expect(result.isError).toBe(false);
+    expect(operations()[0].body?.arguments).toEqual({ task_id: "task_1", ...expected });
+  });
+
   test("partial updates preserve labels and omit all unspecified fields", async () => {
     await invoke("update_task", { task_id: "task_1", labels: [] });
     expect(operations()[0].body?.arguments).toEqual({ task_id: "task_1", labels: [] });
@@ -316,6 +328,9 @@ describe("validation before executing a Todoist operation", () => {
     ["create_task", { content: "Buy milk", duration: 0, duration_unit: "minute" }],
     ["create_task", { content: "Buy milk", order: 0 }],
     ["update_task", { task_id: "task_1" }],
+    ["update_task", { task_id: "task_1", due_date: "Feb 29, 2026" }],
+    ["update_task", { task_id: "task_1", due_date: "2026-04-31" }],
+    ["update_task", { task_id: "task_1", due_date: "Nov 13, 2026", due_string: "tomorrow" }],
     ["update_task", { task_id: "task_1", target_name: "Display name only" }],
     ["update_task", { task_id: "task_1", clear_description: true, description: "Conflicting edit" }],
     ["update_task", { task_id: "task_1", due_date: "2026-11-13", description: "" }],
