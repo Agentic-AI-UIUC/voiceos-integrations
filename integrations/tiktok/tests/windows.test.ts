@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import { POWERSHELL_TIMEOUT_MS, removeJobDir, windowsOperation, windowsRunner } from "../src/windows.ts";
+import { POWERSHELL_TIMEOUT_MS, WINDOWS_SCRIPT, removeJobDir, windowsOperation, windowsRunner } from "../src/windows.ts";
 import { loadConfig } from "../src/config.ts";
 import { createDeps } from "../src/mcpServer.ts";
 import { run, realClock } from "../src/proc.ts";
@@ -127,4 +127,15 @@ test("the clipboard copy gives PowerShell time for a cold start (15 s, not 5 s)"
   });
   await deps.copyToClipboard("Café 🎉");
   expect(asked).toEqual([{ cmd: ["pbcopy"], timeoutMs: 15_000, stdin: "Café 🎉" }]);
+});
+
+// QA (PR 47): the jobs hit their deadlines inside VoiceOS-like environments because the first auto-loaded cmdlet made
+// PowerShell analyze every installed module (no PSModuleAnalysisCachePath). The built-in modules are imported first.
+test("the job script imports its built-in modules before its first cmdlet", () => {
+  const imports = WINDOWS_SCRIPT.indexOf("Import-Module Microsoft.PowerShell.Management, Microsoft.PowerShell.Utility");
+  expect(imports).toBeGreaterThan(0);
+  for (const cmdlet of ["Get-Content", "ConvertFrom-Json", "ConvertTo-Json", "Get-ItemProperty", "Set-Clipboard", "Add-Type", "New-Object"]) {
+    const first = WINDOWS_SCRIPT.indexOf(cmdlet);
+    if (first !== -1) expect({ cmdlet, afterImport: first > imports }).toEqual({ cmdlet, afterImport: true });
+  }
 });

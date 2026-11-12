@@ -233,7 +233,7 @@ const privacyOptions = () => lenient(z.array(z.string()).optional().describe("pr
 const nickname = () => label("creator_nickname from query_creator_info, passed through unchanged. Shown on the card.");
 const countLabel = () => label("count_label from prepare_photo_post, shown on the card.");
 const orderLabel = () => label("order_label from prepare_photo_post, shown on the card.");
-const warning = () => label("prepare_photo_post's warning line, passed through unchanged. When it gave one, a card without it is refused.");
+const warning = () => label("prepare_photo_post's warning line, passed through unchanged. A card that changes it is refused, and so is one that leaves out a warning about AI or content credentials.");
 const photoTitle = () => capped(90, "Photo post title, up to 90 characters. It fills in TikTok's editor.");
 const photoDescription = () =>
   capped(4000, "Photo post description (the caption), up to 4,000 characters including hashtags and mentions.");

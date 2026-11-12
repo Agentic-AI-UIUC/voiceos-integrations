@@ -7,8 +7,15 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import type { RunOptions, RunResult, Runner } from "./types.ts";
 
+/**
+ * The script's two built-in modules are imported by name up front. Left to auto-load, the first cmdlet makes
+ * PowerShell analyze every installed module unless PSModuleAnalysisCachePath points at a ready cache, and VoiceOS's
+ * launch environment (the MCP SDK's defaults) doesn't pass it: on a Windows CI runner that took over 20 s, so every
+ * job hit its deadline (QA, PR 47, read it as a slow cold start). With the imports, the jobs answer in under a second.
+ */
 export const WINDOWS_SCRIPT = String.raw`param([string]$JobFile)
 $ErrorActionPreference = 'Stop'
+Import-Module Microsoft.PowerShell.Management, Microsoft.PowerShell.Utility
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 $j = Get-Content -LiteralPath $JobFile -Raw -Encoding UTF8 | ConvertFrom-Json
 function Offline([string]$p) { return (([int][IO.File]::GetAttributes($p) -band 0x441000) -ne 0) }
@@ -101,8 +108,9 @@ try {
 const empty = (code = 0, stdout = ""): RunResult => ({ code, stdout, stderr: "", timedOut: false });
 
 /**
- * For the quick PowerShell jobs (known folders, file attributes, the clipboard): PowerShell's cold start alone can
- * pass 5 s on a slow or freshly booted PC (QA, PR 47), and a job killed at its deadline loses its answer.
+ * The deadline for the quick PowerShell jobs (known folders, file attributes, the clipboard). They answer in well
+ * under a second (see WINDOWS_SCRIPT); 15 s, not 5, leaves room for PowerShell's own start on a slow or freshly
+ * booted PC (QA, PR 47), since a job killed at its deadline loses its answer.
  */
 export const POWERSHELL_TIMEOUT_MS = 15_000;
 

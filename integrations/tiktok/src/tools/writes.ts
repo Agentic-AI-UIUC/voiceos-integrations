@@ -331,9 +331,11 @@ function sizeOfLabel(v: unknown): number | undefined {
 /**
  * The card's other labels come from the agent too (QA, PR 47): a length, a size or a cover time the file doesn't
  * have, or a photo warning left out, would have the user approve something other than what's sent. Each shown label
- * has to agree with the token or the signed cover time; a label left out is fine, except the warning: when
- * prepare_photo_post had one, the card has to show it. Compared as a model may retype them: lengths to the second,
- * sizes within 5 %, words in any case and spacing.
+ * has to agree with the token or the signed cover time; a label left out is fine, except a warning about AI or
+ * content credentials (it bears on TikTok's AI label): when the photos carry credentials, the card has to show it.
+ * A format note (resize, HEIC, transparency) may be left out: it doesn't change what the user approves, and nearly
+ * every phone carousel has one, so requiring the agent to copy it would refuse good cards. Compared as a model may
+ * retype them: lengths to the second, sizes within 5 %, words in any case, spacing and quote style.
  */
 function cardLabelsAreTrue(a: Accepted): void {
   if (a.file) {
@@ -355,7 +357,11 @@ function cardLabelsAreTrue(a: Accepted): void {
       if (!unreadableCover && (!shown || !cover || !(Math.abs(Number(shown) - Number(cover)) < 1000))) throw mismatch("video", "cover_label");
     }
   }
-  if (a.bundle && plainLine(a.args.warning) !== plainLine(a.bundle.warning)) throw mismatch("photos", "warning");
+  if (a.bundle) {
+    const shown = plainLine(a.args.warning), own = plainLine(a.bundle.warning);
+    const credentials = a.bundle.images.some((i) => i.credentials === "ai" || i.credentials === "present");
+    if (shown ? shown !== own : credentials && own !== "") throw mismatch("photos", "warning");
+  }
 }
 
 /**

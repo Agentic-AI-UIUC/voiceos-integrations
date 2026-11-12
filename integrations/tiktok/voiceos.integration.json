@@ -823,7 +823,7 @@
           },
           "warning": {
             "type": "string",
-            "description": "prepare_photo_post's warning line, passed through unchanged. When it gave one, a card without it is refused."
+            "description": "prepare_photo_post's warning line, passed through unchanged. A card that changes it is refused, and so is one that leaves out a warning about AI or content credentials."
           },
           "account_label": {
             "type": "string",
@@ -925,7 +925,7 @@
           },
           "warning": {
             "type": "string",
-            "description": "prepare_photo_post's warning line, passed through unchanged. When it gave one, a card without it is refused."
+            "description": "prepare_photo_post's warning line, passed through unchanged. A card that changes it is refused, and so is one that leaves out a warning about AI or content credentials."
           },
           "creator_nickname": {
             "type": "string",

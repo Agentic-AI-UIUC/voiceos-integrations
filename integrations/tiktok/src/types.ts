@@ -127,7 +127,7 @@ export interface BundleRef {
   preview?: string;
   /** The first photos as small 3:4 JPEG data URIs, for the result cards. Never part of a result's data, never logged. */
   thumbs?: string[];
-  /** prepare_photo_post's warning line, when it had one: a card's `warning` must be it (and must be there). */
+  /** prepare_photo_post's warning line, when it had one: a card's `warning` must be it (and must be there when it's about credentials). */
   warning?: string;
 }
 

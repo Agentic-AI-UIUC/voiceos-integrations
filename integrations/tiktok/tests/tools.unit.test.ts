@@ -306,7 +306,8 @@ async function harness(over: Partial<Deps> & { videos?: FoundVideo[]; images?: F
     findVideos: async (o) => ({ videos: vids.slice(0, o.limit), query_matched: !o.query || vids.some((v) => v.name.includes(o.query!)), denied_folders: [], searched_folders: ["Downloads"] }),
     findImages: async (o) => ({ images: imgs.slice(0, o.limit), query_matched: true, denied_folders: [], unsupported_count: 0, searched_folders: ["Downloads"], ...(over.batchHint ? { batch_hint: over.batchHint } : {}) }),
     sipsMeta: async (paths) => new Map(paths.map((p) => [p, p.includes("broken") ? null : { width: 4032, height: 3024, format: "heic", has_alpha: false }])),
-    credentials: async (p) => (p.includes("ai") ? "ai" : "none"),
+    // By file name, not the whole path: a temp folder whose random name holds "ai" mustn't mark every photo.
+    credentials: async (p) => (basename(p).includes("ai") ? "ai" : "none"),
     convert: async (images) => {
       events.push("convert");
       const dir = mkdtempSync(join(ROOT, "conv-"));
@@ -1540,23 +1541,25 @@ describe("photo writes", () => {
     expect(h.client.slugs()).toEqual([]);
   });
 
-  // QA (PR 47): the warning comes from the agent, which could leave it off the card. When prepare_photo_post had one,
-  // the card has to show it; one it didn't have, or another one, is refused too.
-  test("a photo card has to show prepare_photo_post's warning as it was (any case or spacing)", async () => {
+  // QA (PR 47): the warning comes from the agent, which could leave it off the card or change it. A warning the card
+  // shows has to be the bundle's own; one about AI or content credentials has to be there. A format note (resize,
+  // HEIC, transparency) may be left out: nearly every phone carousel has one, and it doesn't change what's approved.
+  test("a photo card's warning has to be the bundle's own; a format note may be left out", async () => {
     const h = await harness({ images: pics() });
     const bt = await bundled(h);
     const warning = h.tokens.bundle(bt).warning!;
     expect(warning).toBe("3 photos are 4032×3024 and will be resized.");
-    for (const shownWarning of [undefined, "", "Some photos will be resized.", "1 photo has transparency; it will become white."]) {
-      const args = { bundle_token: bt, ...(shownWarning !== undefined ? { warning: shownWarning } : {}) };
-      const { j } = await h.call("upload_photos", h.signed("upload_photos", args));
+    for (const changed of ["Some photos will be resized.", "1 photo has transparency; it will become white."]) {
+      const { j } = await h.call("upload_photos", h.signed("upload_photos", { bundle_token: bt, warning: changed }));
       expect(j).toMatchObject({ outcome: "refused", nothing_sent: true, error: { code: "CONFIRMATION_REQUIRED", reason: "card_mismatch", kind: "photos", field: "warning" } });
       expect(j.message).toContain("note about these photos");
     }
     expect(h.relay.created).toEqual([]);
-    expect((await h.call("upload_photos", h.signed("upload_photos", { bundle_token: bt, warning: ` ${warning.toUpperCase().replace(/\.$/, "")}  ` }))).j.ok).toBe(true);
-    // Retyped punctuation reads the same: "4032x3024" for "4032×3024".
-    expect((await h.call("upload_photos", h.signed("upload_photos", { bundle_token: bt, warning: warning.replace("×", "x") }))).j.ok).toBe(true);
+    // As it was (any case, spacing, "x" for "×"), or left out: accepted.
+    for (const shownWarning of [` ${warning.toUpperCase().replace(/\.$/, "")}  `, warning.replace("×", "x"), "", undefined]) {
+      const args = { bundle_token: bt, ...(shownWarning !== undefined ? { warning: shownWarning } : {}) };
+      expect((await h.call("upload_photos", h.signed("upload_photos", args))).j.ok).toBe(true);
+    }
     // A bundle with nothing to warn about: a warning the card made up is refused, none is fine.
     const plain = await harness({
       images: [image("Pictures/a.jpg", { width: 1080, height: 1350, format: "jpeg" })],
@@ -1566,6 +1569,20 @@ describe("photo writes", () => {
     expect(plain.tokens.bundle(pbt).warning).toBeUndefined();
     expect((await plain.call("upload_photos", plain.signed("upload_photos", { bundle_token: pbt, warning: "1 photo is HEIC." }))).j.error).toMatchObject({ field: "warning" });
     expect((await plain.call("upload_photos", plain.signed("upload_photos", { bundle_token: pbt }))).j.ok).toBe(true);
+  });
+
+  test("a warning about AI or content credentials has to be on the card (it bears on TikTok's AI label)", async () => {
+    const h = await harness({ images: [image("Pictures/ai-cast.heic"), image("Pictures/two.heic")] });
+    const bt = await bundled(h);
+    const warning = h.tokens.bundle(bt).warning!;
+    expect(warning).toContain("TikTok can't label photos sent from here");
+    for (const left of [undefined, ""]) {
+      const args = { bundle_token: bt, ...(left !== undefined ? { warning: left } : {}) };
+      const { j } = await h.call("upload_photos", h.signed("upload_photos", args));
+      expect(j).toMatchObject({ outcome: "refused", nothing_sent: true, error: { code: "CONFIRMATION_REQUIRED", reason: "card_mismatch", field: "warning" } });
+    }
+    expect(h.relay.created).toEqual([]);
+    expect((await h.call("upload_photos", h.signed("upload_photos", { bundle_token: bt, warning }))).j.ok).toBe(true);
   });
 
   test("a relay failure deletes the batch and never calls TikTok", async () => {
