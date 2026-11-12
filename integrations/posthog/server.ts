@@ -279,8 +279,13 @@ function formatVolume(val: number | null | undefined): string {
   return String(val);
 }
 
+// Status shorthand for list rows: an off flag reaches nobody, whatever its rollout.
 function parseRollout(flag: any): string {
-  if (!flag.active) return "Inactive";
+  return flag.active ? describeRollout(flag) : "Inactive";
+}
+
+// The configured rollout, independent of whether the flag is on.
+function describeRollout(flag: any): string {
   const groups = flag.filters?.groups;
   if (Array.isArray(groups) && groups.length > 0) {
     const pct = groups[0].rollout_percentage;
@@ -1090,7 +1095,7 @@ server.registerTool(
         key: f.key,
         name: f.name || "",
         active: Boolean(f.active),
-        rollout: parseRollout(f),
+        rollout: describeRollout(f),
         release_conditions: groups.map((g: any) => ({
           rollout_percentage: g.rollout_percentage ?? 100,
           property_filters: Array.isArray(g.properties) ? g.properties.length : 0,
@@ -1109,7 +1114,7 @@ server.registerTool(
       vKeyValue([
         { label: "Key", value: String(f.key ?? "—") },
         { label: "Status", value: f.active ? "Active" : "Inactive", tone: f.active ? "good" : "neutral" },
-        { label: "Rollout", value: parseRollout(f) },
+        { label: "Rollout", value: describeRollout(f) },
         { label: "Conditions", value: `${groups.length} group${groups.length === 1 ? "" : "s"}${variants.length ? `, ${variants.length} variants` : ""}` },
         { label: "Created", value: formatDate(f.created_at) },
       ]),

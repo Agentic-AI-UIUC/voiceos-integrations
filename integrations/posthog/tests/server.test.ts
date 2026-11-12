@@ -190,6 +190,16 @@ describe("create_feature_flag", () => {
   });
 });
 
+describe("get_feature_flag", () => {
+  test("shows an off flag's rollout percentage, not its status", async () => {
+    const { isError, body, html } = await run("get_feature_flag", { flag_id: "3" });
+    expect(isError).toBe(false);
+    expect(body.flag).toMatchObject({ active: false, rollout: "25% of users" });
+    expect(html).toContain("25% of users");
+    expect(html.match(/Inactive/g)).toHaveLength(1);
+  });
+});
+
 describe("capture_event", () => {
   test("rejects a blank distinct ID and invalid properties", async () => {
     const before = calls().length;

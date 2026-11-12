@@ -1,6 +1,6 @@
 # PostHog for VoiceOS: handoff
 
-Version 1.1.1 of a VoiceOS integration that lets the voice agent read PostHog analytics, create feature flags, and capture events. All PostHog access goes through Composio's REST API v3.1, using the user's own PostHog personal API key.
+Version 1.1.2 of a VoiceOS integration that lets the voice agent read PostHog analytics, create feature flags, and capture events. All PostHog access goes through Composio's REST API v3.1, using the user's own PostHog personal API key.
 
 Install link: https://api.voiceos.com/integration-share/ULwa_N-k5wRV/page
 
@@ -51,7 +51,7 @@ Setup page, where the user enters their keys (stored masked):
 
 ## Setup
 
-1. Create a Composio API key and a PostHog personal API key.
+1. Create a Composio API key at platform.composio.dev -> API Keys, in a Platform workspace (not For You), and a PostHog personal API key.
 2. Open the install link in VoiceOS and install the app.
 3. Enter both keys in the app's setup fields and choose the PostHog region (US or EU).
 4. Set a project ID only if the account has more than one project. With a single project, it's detected automatically.
@@ -93,5 +93,6 @@ Optional variables are `POSTHOG_REGION` (default `us`) and `POSTHOG_PROJECT_ID`,
 
 ## Known limitations
 
+- Windows is listed as supported from 1.1.2. It uses the same generated `run.cmd` launcher as Asana and Excel, but hasn't been run on Windows yet.
 - Some VoiceOS builds don't re-read a changed manifest after install. See `AGENTS.md` for how to load one.
 - Annotations aren't supported.
