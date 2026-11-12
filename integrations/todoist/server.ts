@@ -534,7 +534,8 @@ const catalog: any = {
         "type": "object",
         "title": "TodoistDeleteProject2Request",
         "required": [
-          "project_id"
+          "project_id",
+          "target_name"
         ],
         "properties": {
           "project_id": {
@@ -548,6 +549,7 @@ const catalog: any = {
           },
           "target_name": {
             "type": "string",
+            "minLength": 1,
             "title": "Selected target",
             "description": "Human-readable name/title from the lookup, for confirmation display only. Never invent a name or substitute it for the required ID."
           }
@@ -1251,6 +1253,23 @@ function listPage(data: any, keys: string[], depth = 0): { items: any[]; nextCur
   throw new Error("Unexpected list response from Composio; no empty list was assumed.");
 }
 
+function formatTaskDueDate(due: { date?: string; timezone?: string | null } | null | undefined) {
+  if (typeof due?.date !== "string") return;
+  // Date-only and floating values already use the intended calendar day.
+  const isFixed = due.date.endsWith("Z");
+  const date = new Date(isFixed ? due.date : due.date.slice(0, 10) + "T00:00:00Z");
+  if (!Number.isFinite(date.getTime())) return;
+  try {
+    return date.toLocaleDateString("en-US", {
+      timeZone: isFixed ? due.timezone ?? "UTC" : "UTC",
+      weekday: "short", month: "short", day: "numeric", year: "numeric",
+    });
+  } catch {
+    // An unsupported timezone should only suppress this row's subtitle.
+    return undefined;
+  }
+}
+
 function operationResult(tool: any, args: Record<string, any>, data: any) {
   const listKeys: Record<string, string> = {
     list_projects: "projects", list_sections: "sections", get_active_tasks: "tasks", list_labels: "labels",
@@ -1264,10 +1283,16 @@ function operationResult(tool: any, args: Record<string, any>, data: any) {
     if (page.nextCursor) payload.next_cursor = page.nextCursor;
     blocks[0].trailing = `${page.items.length} returned`;
     if (page.items.length) {
-      blocks.push({ type: "list", rows: page.items.slice(0, 6).map(item => ({
-        title: String(item.name ?? item.content ?? item.id ?? "Item").slice(0, 60),
-        ...(item.id ? { subtitle: `ID: ${item.id}` } : {}),
-      })) });
+      const rows = page.items.slice(0, 6).map(item => {
+        const due = entity === "tasks" ? formatTaskDueDate(item.due) : undefined;
+        const isFavorite = (entity === "projects" || entity === "labels") && item.is_favorite === true;
+        const subtitle = due ? `Due ${due}` : isFavorite ? "Favorite" : undefined;
+        return {
+          title: String(item.name ?? item.content ?? "Item").slice(0, 60),
+          ...(subtitle ? { subtitle } : {}),
+        };
+      });
+      blocks.push({ type: "list", rows });
     } else blocks.push({ type: "keyValue", pairs: [["Results", "No items returned"]] });
     if (page.nextCursor) blocks.push({ type: "keyValue", pairs: [["More results", "Ask for the next page"]] });
   } else if (tool.name === "get_productivity_stats") {

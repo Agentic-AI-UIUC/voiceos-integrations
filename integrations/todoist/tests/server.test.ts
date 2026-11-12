@@ -192,6 +192,13 @@ describe("manifest and MCP contract", () => {
     }
   });
 
+  test("Delete Project confirms with the required project name", () => {
+    const tool = manifest.tools.find((tool: JsonObject) => tool.name === "delete_project");
+    expect(tool.inputSchema.required).toEqual(["project_id", "target_name"]);
+    const details = tool.confirmation.root.children[0].children.find((block: JsonObject) => block.type === "keyValue");
+    expect(details.rows).toEqual([{ label: "Name", value: "{{target_name}}" }]);
+  });
+
   test("creation cards bind their editable name to the argument that executes", () => {
     for (const [name, argument] of [["create_task", "content"], ["create_project", "name"], ["create_section", "name"], ["create_label", "name"]]) {
       const tool = manifest.tools.find((tool: JsonObject) => tool.name === name);
@@ -317,6 +324,7 @@ describe("validation before executing a Todoist operation", () => {
     ["create_project", { name: "" }],
     ["create_project", { name: "Launch", color: 41 }],
     ["delete_project", {}],
+    ["delete_project", { project_id: "project_1" }],
     ["create_section", { name: "Section" }],
     ["delete_section", { section_id: " " }],
     ["list_labels", { action: "create" }],
@@ -359,8 +367,31 @@ describe("result data and native cards", () => {
     const blocks = result.body._voiceos_glance.blocks;
     expect(blocks).toHaveLength(3);
     expect(blocks.find((block: JsonObject) => block.type === "list").rows).toHaveLength(6);
-    for (const row of blocks[1].rows) expect(row.title.length).toBeLessThanOrEqual(60);
+    for (const row of blocks[1].rows) {
+      expect(row.title.length).toBeLessThanOrEqual(60);
+      expect(row).not.toHaveProperty("subtitle");
+    }
     expect(notifications).toHaveLength(0);
+  });
+
+  test.each([
+    ["list_projects", [{ id: "p_1", name: "Home", is_favorite: true }, { id: "p_2" }],
+      [{ title: "Home", subtitle: "Favorite" }, { title: "Item" }]],
+    ["list_labels", [{ id: "l_1", name: "Read", is_favorite: true }, { id: "l_2", name: "Work" }],
+      [{ title: "Read", subtitle: "Favorite" }, { title: "Work" }]],
+    ["get_active_tasks", [
+      { id: "t_1", content: "Send notes", due: { date: "2026-11-13" } },
+      { id: "t_2", content: "Start draft", due: null },
+      { id: "t_3", content: "Review", due: { date: "2026-11-14T02:00:00Z", timezone: "America/Chicago" } },
+    ], [
+      { title: "Send notes", subtitle: "Due Fri, Nov 13, 2026" },
+      { title: "Start draft" },
+      { title: "Review", subtitle: "Due Fri, Nov 13, 2026" },
+    ]],
+  ] as [string, JsonObject[], JsonObject[]][])("%s shows useful details in the card", async (name, items, rows) => {
+    setScenario({ responseData: { results: items } });
+    const result = await invoke(name);
+    expect(result.body._voiceos_glance.blocks[1].rows).toEqual(rows);
   });
 
   test("returns a successful empty list and an explicit empty card", async () => {

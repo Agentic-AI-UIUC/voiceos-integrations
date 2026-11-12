@@ -801,7 +801,8 @@
         "type": "object",
         "title": "TodoistDeleteProject2Request",
         "required": [
-          "project_id"
+          "project_id",
+          "target_name"
         ],
         "properties": {
           "project_id": {
@@ -815,6 +816,7 @@
           },
           "target_name": {
             "type": "string",
+            "minLength": 1,
             "title": "Selected target",
             "description": "Human-readable name/title from the lookup, for confirmation display only. Never invent a name or substitute it for the required ID."
           }
@@ -831,7 +833,7 @@
               "type": "stack", "direction": "vertical", "gap": "md",
               "children": [
                 { "type": "text", "text": "Review the selected project before deleting it.", "color": "muted" },
-                { "type": "keyValue", "rows": [{ "label": "Name", "value": "{{target_name}}" }, { "label": "ID", "value": "{{project_id}}" }] },
+                { "type": "keyValue", "rows": [{ "label": "Name", "value": "{{target_name}}" }] },
                 { "type": "text", "text": "This also deletes every section and task in the project.", "color": "danger" }
               ]
             }
