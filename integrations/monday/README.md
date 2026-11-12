@@ -34,13 +34,14 @@ IDs are positive safe integers; lists accept 1–100 IDs and page sizes default 
 
 Results contain `records` and `pagination`. Board and item-ID reads return `nextPage` when a full page suggests another page may exist; it is not a guarantee of more results. Board-item reads return `nextCursor` (null at the end).
 
-Only `MONDAY_BOARDS`, `MONDAY_GET_ITEMS`, and `MONDAY_ITEMS_PAGE` are executed, through the Composio SDK using the saved installation identity and connected account, pinned to toolkit version `20261101_00`. Reads verify an active Monday connection first and have a 20-second account-check/execution deadline. Composio failures and Monday GraphQL errors are returned as errors, with reconnect guidance for invalid authorization. Reads never initiate OAuth automatically.
+Board and item browsing use `MONDAY_BOARDS`, `MONDAY_GET_ITEMS`, and `MONDAY_ITEMS_PAGE` through the Composio SDK using the saved installation identity and connected account, pinned to toolkit version `20261101_00`. Reads verify an active Monday connection first and have a 20-second account-check/execution deadline. Composio failures and Monday GraphQL errors are returned as errors, with reconnect guidance for invalid authorization. Reads never initiate OAuth automatically.
 
-The current MCP allowlist contains nine tools: three account controls, two reads, and four writes. Delete board, archive board, and membership changes remain for pass 3.
+The MCP allowlist contains three account controls, two browsing tools, one read-only preparation tool, and four writes. Delete board, archive board, and membership changes remain for pass 3.
 
 ## Write tools (pass 2)
 
-- `create_item`: required `board_id` and `item_name` (1–256 characters), optional `group_id` and `column_values`.
+- `prepare_create_item`: pass `board_name` or a verified `board_id` when the user specifies a board. Otherwise the card lists boards and asks the user to say or type a board name. Use their reply as `board_name` and pass the returned `pending_item.draft_id` as `replaces_draft_id`. The first active group is the default. For a voice revision, pass `replaces_draft_id` or the exact pending item name as `revises_item_name`. This step only reads Monday.
+- `create_item`: use the returned `create_item_arguments`. In VoiceOS, edit the item name or choose an active group on the selected board before creating the item. The board and column details are read-only.
 - `update_item_values`: required `board_id`, `item_id`, and nonempty `column_values` keyed by actual column IDs.
 - `create_update`: required `item_id` and nonempty `body` to post an update/comment.
 - `create_board`: required `board_name` and explicit `board_kind` (`public`, `private`, or `share`); optional `workspace_id`, `folder_id`, and `description`. Membership assignment is reserved for pass 3.
@@ -48,7 +49,7 @@ The current MCP allowlist contains nine tools: three account controls, two reads
 IDs use the same positive safe integer contract as reads. Column values accept an object or JSON object string and are validated before execution. The create action receives a canonical JSON string; the update action receives each typed value, which Composio serializes according to its schema. Null column values and nested arrays are not supported by the pinned update action. Resolve actual IDs and column types from Monday; provider validation remains authoritative for board-specific column formats.
 
 ```json
-{"name":"create_item","arguments":{"board_id":123,"item_name":"Review proposal","column_values":{"status":{"label":"Working on it"}}}}
+{"name":"prepare_create_item","arguments":{"board_id":123,"item_name":"Review proposal","column_values":{"status":{"label":"Working on it"}}}}
 {"name":"update_item_values","arguments":{"board_id":123,"item_id":456,"column_values":{"status":{"label":"Done"},"text":"Reviewed"}}}
 {"name":"create_update","arguments":{"item_id":456,"body":"Review completed."}}
 {"name":"create_board","arguments":{"board_name":"Project planning","board_kind":"private"}}

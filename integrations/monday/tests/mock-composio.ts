@@ -17,6 +17,8 @@ export type Scenario = {
   pollIntervalMs?: number;
   failColumn?: string;
   toolData?: Record<string, unknown>;
+  toolDataByAction?: Record<string, Record<string, unknown>>;
+  userPages?: Record<number, Record<string, unknown>[]>;
   toolSuccessful?: boolean;
   toolError?: string;
   toolHttpStatus?: number;
@@ -30,6 +32,7 @@ function record(event: Event) { appendFileSync(eventsPath!, JSON.stringify(event
 const respond = (data: unknown, status = 200) => new Response(JSON.stringify(data), {
   status, headers: { "content-type": "application/json" },
 });
+const toolNames = "MONDAY_BOARDS|MONDAY_GET_ITEMS|MONDAY_ITEMS_PAGE|MONDAY_LIST_GROUPS|MONDAY_COLUMNS|MONDAY_LIST_USERS|MONDAY_GET_TEAMS|MONDAY_CREATE_ITEM|MONDAY_UPDATE_ITEM|MONDAY_CREATE_UPDATE|MONDAY_CREATE_BOARD";
 
 export function execFile(command: string, args: string[], _options: unknown, callback: (error: Error | null) => void) {
   if (command !== "/usr/bin/open") throw new Error("Unexpected child process request");
@@ -51,7 +54,7 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
   }
   record({ kind: "request", path, method: request.method, body, ...(path.includes("/tools/") ? { version: url.searchParams.get("version") } : {}) });
   if (url.origin === "https://backend.composio.dev") {
-    const tool = path.match(/^\/api\/v3\.1\/tools\/(MONDAY_BOARDS|MONDAY_GET_ITEMS|MONDAY_ITEMS_PAGE|MONDAY_CREATE_ITEM|MONDAY_UPDATE_ITEM|MONDAY_CREATE_UPDATE|MONDAY_CREATE_BOARD)$/);
+    const tool = path.match(new RegExp(`^/api/v3\\.1/tools/(${toolNames})$`));
     if (tool && request.method === "GET") {
       return respond({
         slug: tool[1], name: tool[1], description: "Offline read tool", version: "20261101_00",
@@ -60,7 +63,7 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
         tags: ["readOnlyHint"],
       });
     }
-    const execute = path.match(/^\/api\/v3\.1\/tools\/execute\/(MONDAY_BOARDS|MONDAY_GET_ITEMS|MONDAY_ITEMS_PAGE|MONDAY_CREATE_ITEM|MONDAY_UPDATE_ITEM|MONDAY_CREATE_UPDATE|MONDAY_CREATE_BOARD)$/);
+    const execute = path.match(new RegExp(`^/api/v3\\.1/tools/execute/(${toolNames})$`));
     if (execute && request.method === "POST") {
       return config.failColumn && body?.arguments?.column_id === config.failColumn
         ? respond({ successful: false, error: "Column permission denied", data: {} })
@@ -68,7 +71,9 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
         ? respond({ message: config.errorMessage ?? "Test tool unavailable" }, config.toolHttpStatus)
         : respond({
           successful: config.toolSuccessful ?? true, error: config.toolError ?? null,
-          data: config.toolData ?? (execute[1] === "MONDAY_BOARDS" ? { boards: [] }
+          data: config.toolDataByAction?.[execute[1]] ?? config.toolData ?? (execute[1] === "MONDAY_LIST_USERS"
+            ? { users: config.userPages?.[body?.arguments?.page] ?? [] }
+            : execute[1] === "MONDAY_BOARDS" ? { boards: [] }
             : execute[1] === "MONDAY_GET_ITEMS" ? { items: [] } : { items: [], cursor: null }),
         });
     }

@@ -18,6 +18,7 @@
   "preferences": [
     {
       "name": "COMPOSIO_API_KEY",
+      "visibility": "agent",
       "title": "Composio API key",
       "description": "Your project API key from the Composio dashboard. Monday credentials are managed by Composio.",
       "type": "password",
@@ -34,6 +35,7 @@
   "tools": [
     {
       "name": "connect_account",
+      "visibility": "agent",
       "title": "Connect Monday.com",
       "description": "Connect Monday.com through Composio OAuth. Use when asked to connect, authorize, reconnect, or verify the saved Monday.com connection. Verify an active saved account; otherwise open browser authorization and immediately return pending with its link. After browser approval, run Connect again to verify. Only report connected when connected=true; no background sidebar result is scheduled.",
       "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false },
@@ -56,6 +58,7 @@
     },
     {
       "name": "connection_status",
+      "visibility": "agent",
       "title": "Monday.com account",
       "description": "Show Monday.com connection status with Connect, Disconnect, and Refresh controls. Use when asked about Monday.com account settings, connection status, expired authorization, or account linking. Read only; does not start OAuth.",
       "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false },
@@ -63,6 +66,7 @@
     },
     {
       "name": "disconnect_account",
+      "visibility": "agent",
       "title": "Disconnect Monday.com",
       "description": "Disconnect this installation's Monday.com account. Use only when asked to disconnect or unlink Monday.com. Revoke authorization when supported; otherwise disable the Composio connection. Does not delete boards, items, or users.",
       "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false },
@@ -106,7 +110,7 @@
     {
       "name": "get_items",
       "title": "Get Monday.com items",
-      "description": "Retrieve Monday.com tasks/items using exactly one of ids, board_id, or cursor. For a named board, first resolve its ID with get_boards: prefer an exact match, otherwise use a unique clear partial match; ask if ambiguous. Pass the exact resolved board_name for display and name that board in the final task answer. Never present get_boards results as tasks; wait for this call to succeed before listing tasks, or report its error. Item-ID reads support page, newest_first, and exclude_nonactive; pagination.nextPage is a possible next page. Board reads include column values and optionally group_id. For an explicit next-page request, use pagination.nextCursor with the previous limit and optional board_name display context. For a general list request, use the short message and let the glance card show the names. Offer to show the next page when there is a cursor, or offer to narrow by group when appropriate. Use the full records from the current page to answer item-specific follow-ups, including items outside the preview. Counts describe the returned page. Keep IDs internal unless explicitly requested, and use only confirmed IDs and names. Read only; does not start OAuth or send notifications.",
+      "description": "List Monday.com items when the user asks to view or retrieve them. A bare board name in answer to a pending create-item board question selects the destination for prepare_create_item. Use exactly one of ids, board_id, or cursor. For a named board, first resolve its ID with get_boards: prefer an exact match, otherwise use a unique clear partial match; ask if ambiguous. Pass the exact resolved board_name for display and name that board in the final task answer. Never present get_boards results as tasks; wait for this call to succeed before listing tasks, or report its error. Item-ID reads support page, newest_first, and exclude_nonactive; pagination.nextPage is a possible next page. Board reads include column values and optionally group_id. For an explicit next-page request, use pagination.nextCursor with the previous limit and optional board_name display context. For a general list request, use the short message and let the glance card show the names. Offer to show the next page when there is a cursor, or offer to narrow by group when appropriate. Use the full records from the current page to answer item-specific follow-ups, including items outside the preview. Counts describe the returned page. Keep IDs internal unless explicitly requested, and use only confirmed IDs and names. Read only; does not start OAuth or send notifications.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -126,9 +130,10 @@
       "execution": { "mode": "sync", "estimatedDurationMs": 5000 }
     },
     {
-      "name": "create_item",
-      "title": "Create Monday.com item",
-      "description": "Create an item on a specific Monday.com board, optionally in a group with JSON column values. Use actual board and column IDs. Do not retry automatically; check Monday.com after an uncertain outcome.",
+      "name": "prepare_create_item",
+      "visibility": "agent",
+      "title": "Prepare Monday.com item",
+      "description": "Start every Monday item creation here. A follow-up such as 'change the board to voiceos' after a Create item card means change the pending item's destination. For that correction, call this tool with the new board_name and replaces_draft_id. If the pending ID is missing from the context, pass revises_item_name with the exact pending item's name from this conversation. If neither is known, ask which pending item should go on the requested board. Board renaming is unavailable. Omitted group and column arguments are carried over on a revision; ask if a requested value cannot be matched. For a new item, pass item_name and the board the user specified in the request, including a clear reference such as 'that board'. Use board_name or a verified board_id. If the user did not specify a destination, omit both board fields and ask the user to choose. Do not infer a destination from past requests or board lists. If the result is board_choices, ask its question as the final response for that turn and wait for the user to say or type a board name. This is a clarification, so do not open a confirmation yet. A bare board name after that question answers it, even if the reply contains no verb. Call prepare_create_item again with that board_name and pending_item.draft_id as replaces_draft_id, or use revises_item_name with pending_item.item_name if the draft ID is unavailable. Do not list boards or items in response to that choice. Once preparation returns create_item_arguments, call create_item for confirmation. This tool only reads Monday. With a resolved board and without item_name or a revision, it returns groups and columns. Pass optional group_id (ID or title; omit for the top group) and only requested column_values keyed by actual column ID or exact title. Use exact status labels, ISO dates, and Monday person names or IDs. Pass create_item_arguments verbatim to create_item. Never silently drop a requested value.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -136,6 +141,11 @@
             "type": "integer",
             "exclusiveMinimum": 0,
             "maximum": 9007199254740991
+          },
+          "board_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
           },
           "item_name": {
             "type": "string",
@@ -156,12 +166,17 @@
                 "additionalProperties": {}
               }
             ]
+          },
+          "replaces_draft_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "revises_item_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
           }
         },
-        "required": [
-          "board_id",
-          "item_name"
-        ],
         "additionalProperties": false
       },
       "uiCallable": true,
@@ -171,7 +186,138 @@
       }
     },
     {
+      "name": "create_item",
+      "title": "Create Monday.com item",
+      "description": "Use create_item_arguments from prepare_create_item verbatim. The confirmation lets the user edit the item name and choose a group on the selected board. Approval creates the item in the selected group. Never say an item was created unless the result confirms its ID. For a voice revision such as 'change the board to voiceos', call prepare_create_item with the new board_name and replaces_draft_id or the pending item's exact name in revises_item_name. Ask about any previously requested value with no clear match. Board renaming is unavailable. Do not retry a write automatically.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "draft_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "item_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "group_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "preview": {
+            "type": "object",
+            "properties": {
+              "board": {
+                "type": "string"
+              },
+              "groups": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "label": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "label"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "columns": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "label": {
+                      "type": "string"
+                    },
+                    "value": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "label",
+                    "value"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "board",
+              "groups",
+              "columns"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "draft_id",
+          "item_name",
+          "group_id",
+          "preview"
+        ],
+        "additionalProperties": false
+      },
+      "uiCallable": true,
+      "execution": {
+        "mode": "sync",
+        "estimatedDurationMs": 5000
+      },
+      "confirmation": {
+        "schemaVersion": 1,
+        "root": {
+          "type": "card",
+          "title": "Create item",
+          "children": [
+            {
+              "type": "textField",
+              "bind": "{{item_name}}",
+              "label": "Name",
+              "required": true
+            },
+            {
+              "type": "keyValue",
+              "rows": [
+                {
+                  "label": "Board",
+                  "value": "{{preview.board}}"
+                }
+              ]
+            },
+            {
+              "type": "widget",
+              "label": "Group and column values",
+              "confirmLabel": "Create item",
+              "height": 56,
+              "html": "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<style>\n:root {\n  --ink: rgba(255,255,255,.88);\n  --muted: rgba(255,255,255,.38);\n  --fill: rgba(255,255,255,.024);\n  --focus-fill: rgba(255,255,255,.052);\n  --divider: rgba(255,255,255,.08);\n  --menu-scheme: dark;\n  font: 12.5px/1.4 system-ui, sans-serif;\n  color: var(--ink);\n}\n:root[data-theme=\"light\"] {\n  --ink: rgba(0,0,0,.88);\n  --muted: rgba(0,0,0,.56);\n  --fill: rgba(0,0,0,.04);\n  --focus-fill: rgba(0,0,0,.07);\n  --divider: rgba(0,0,0,.09);\n  --menu-scheme: light;\n}\n/* Setting the color scheme on the document can give a transparent iframe an opaque canvas. */\nhtml, body { margin: 0; background: transparent; }\nlabel { display: grid; gap: 6px; color: var(--muted); font-size: 11.5px; font-weight: 500; }\n.control { position: relative; display: block; }\n.control::after {\n  content: \"\";\n  position: absolute;\n  top: 50%;\n  right: 12px;\n  width: 5px;\n  height: 5px;\n  border: solid currentColor;\n  border-width: 0 1px 1px 0;\n  transform: translateY(-75%) rotate(45deg);\n  pointer-events: none;\n}\nselect {\n  appearance: none;\n  box-sizing: border-box;\n  width: 100%;\n  padding: 8px 28px 8px 10px;\n  border: 0;\n  border-radius: 10px;\n  background: var(--fill);\n  color: var(--ink);\n  color-scheme: var(--menu-scheme);\n  font: 12.5px/normal system-ui, sans-serif;\n}\nselect:focus { background: var(--focus-fill); }\nselect:focus-visible { outline: 1px solid currentColor; outline-offset: -1px; }\ndl:not(:empty) { margin-top: 8px; }\ndl { margin: 0; max-height: 196px; overflow: auto; }\ndl > div { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 7px 0; }\ndl > div + div { border-top: 1px solid var(--divider); }\ndt, dd { min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; }\ndt { font-size: 11px; color: var(--muted); }\ndd { margin: 0; text-align: right; }\n</style>\n</head>\n<body>\n<label>Group<span class=\"control\"><select disabled></select></span></label>\n<dl aria-label=\"Column values\"></dl>\n<script>\nconst group = document.querySelector('select');\nconst list = document.querySelector('dl');\nlet height = 0;\nfunction resize() {\n  const next = Math.ceil(document.body.getBoundingClientRect().height);\n  if (next < 1 || height === next) return;\n  height = next;\n  parent.postMessage({ type: 'voiceos:resize', height }, '*');\n}\naddEventListener('message', event => {\n  if (event.source !== parent || event.data?.type !== 'voiceos:init') return;\n  const { group_id, preview } = event.data.args ?? {};\n  if (!Array.isArray(preview?.groups) || !Array.isArray(preview.columns)) return;\n  group.replaceChildren(...preview.groups.map(({ id, label }) => new Option(label, id)));\n  group.value = group_id;\n  group.disabled = false;\n  document.documentElement.dataset.theme = event.data.theme?.mode === 'light' ? 'light' : 'dark';\n  list.replaceChildren(...preview.columns.map(({ label, value }) => {\n    const row = document.createElement('div');\n    const term = document.createElement('dt');\n    const detail = document.createElement('dd');\n    term.textContent = label;\n    detail.textContent = value;\n    row.append(term, detail);\n    return row;\n  }));\n  resize();\n});\ngroup.addEventListener('change', () => {\n  parent.postMessage({ type: 'voiceos:updateInput', key: 'group_id', value: group.value }, '*');\n});\nnew ResizeObserver(resize).observe(document.body);\n</script>\n</body>\n</html>"
+            },
+            {
+              "type": "stack",
+              "direction": "vertical",
+              "align": "start",
+              "children": [
+                {
+                  "type": "button",
+                  "label": "Cancel",
+                  "role": "cancel"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
       "name": "update_item_values",
+      "visibility": "agent",
       "title": "Update Monday.com item values",
       "description": "Update column values on a specific Monday.com item and board. column_values is a JSON object keyed by column ID. Columns are applied sequentially, not atomically; failures report completed columns. Do not retry automatically.",
       "inputSchema": {
@@ -214,6 +360,7 @@
     },
     {
       "name": "create_update",
+      "visibility": "agent",
       "title": "Create Monday.com update/comment",
       "description": "Post a comment/update on a specific existing Monday.com item. Requires item_id and a nonempty body. Do not retry automatically after an uncertain outcome.",
       "inputSchema": {
@@ -243,6 +390,7 @@
     },
     {
       "name": "create_board",
+      "visibility": "agent",
       "title": "Create Monday.com board",
       "description": "Create a Monday.com board with an explicit name and visibility, optionally in a workspace/folder. Does not modify memberships. Do not retry automatically after an uncertain outcome.",
       "inputSchema": {

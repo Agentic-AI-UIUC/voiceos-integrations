@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import { readFile, writeFile, rename } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { setTimeout as delay } from "node:timers/promises";
+import { isDeepStrictEqual } from "node:util";
 
 const server = new McpServer({ name: "composio-monday", version: "0.1.3" });
 const stateFile = new URL("./.composio-auth.json", import.meta.url);
@@ -31,9 +32,11 @@ type Output = {
   providerRevoked?: boolean;
 };
 type ReadOutput = {
-  resultType: "boards" | "tasks";
+  resultType: "boards" | "tasks" | "board_choices";
   boardName?: string;
   groupName?: string;
+  itemName?: string;
+  pending_item?: { draft_id: string; item_name: string };
   status: string;
   message: string;
   records: Record<string, unknown>[];
@@ -44,6 +47,10 @@ const readActions = [
   "MONDAY_BOARDS",
   "MONDAY_GET_ITEMS",
   "MONDAY_ITEMS_PAGE",
+  "MONDAY_LIST_GROUPS",
+  "MONDAY_COLUMNS",
+  "MONDAY_LIST_USERS",
+  "MONDAY_GET_TEAMS",
 ] as const;
 const writeActions = ["MONDAY_CREATE_ITEM", "MONDAY_UPDATE_ITEM", "MONDAY_CREATE_UPDATE", "MONDAY_CREATE_BOARD"] as const;
 const approvedActions = [...readActions, ...writeActions];
@@ -53,7 +60,53 @@ const id = () => z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 const ids = () => z.array(id()).min(1).max(100);
 const nonempty = () => z.string().trim().min(1);
 const columnValues = () => z.union([z.string(), z.record(z.unknown())]);
-const createItemSchema = z.object({ board_id: id(), item_name: nonempty().max(256), group_id: nonempty().optional(), column_values: columnValues().optional() }).strict();
+const itemName = () => nonempty().max(256);
+const draftId = () => z.string().uuid();
+const prepareCreateItemSchema = z.object({
+  board_id: id().optional(),
+  board_name: nonempty().max(256).optional(),
+  item_name: itemName().optional(),
+  group_id: nonempty().optional(),
+  column_values: columnValues().optional(),
+  replaces_draft_id: draftId().optional(),
+  revises_item_name: itemName().optional(),
+}).strict();
+const createItemPreview = z.object({
+  board: z.string(),
+  groups: z.array(z.object({ id: z.string(), label: z.string() }).strict()),
+  columns: z.array(z.object({ label: z.string(), value: z.string() }).strict()),
+}).strict();
+const createItemSchema = z.object({
+  draft_id: draftId(),
+  item_name: itemName(),
+  group_id: nonempty(),
+  preview: createItemPreview,
+}).strict();
+type CreateItemPreview = z.infer<typeof createItemPreview>;
+type CreateItemInput = z.infer<typeof prepareCreateItemSchema>;
+type CreateItemDraft = {
+  preview?: CreateItemPreview;
+  args?: { board_id: string; column_values?: string };
+  itemName: string;
+  groupTitle?: string;
+  columns: Record<string, unknown>;
+  columnTitles?: Record<string, string>;
+  columnTypes?: Record<string, unknown>;
+  carriedByTitle?: boolean;
+  carriedGroupByTitle?: boolean;
+  retired?: boolean;
+  accountId: string;
+  expires: number;
+};
+type PrepareCreateItemOutput = {
+  status: string;
+  message: string;
+  create_item_arguments?: z.infer<typeof createItemSchema>;
+  board?: { name: string; groups: Record<string, unknown>[]; columns: Record<string, unknown>[] };
+};
+const createItemDrafts = new Map<string, CreateItemDraft>();
+const prepareCreateItemDescription = "Start every Monday item creation here. A follow-up such as 'change the board to voiceos' after a Create item card means change the pending item's destination. For that correction, call this tool with the new board_name and replaces_draft_id. If the pending ID is missing from the context, pass revises_item_name with the exact pending item's name from this conversation. If neither is known, ask which pending item should go on the requested board. Board renaming is unavailable. Omitted group and column arguments are carried over on a revision; ask if a requested value cannot be matched. For a new item, pass item_name and the board the user specified in the request, including a clear reference such as 'that board'. Use board_name or a verified board_id. If the user did not specify a destination, omit both board fields and ask the user to choose. Do not infer a destination from past requests or board lists. If the result is board_choices, ask its question as the final response for that turn and wait for the user to say or type a board name. This is a clarification, so do not open a confirmation yet. A bare board name after that question answers it, even if the reply contains no verb. Call prepare_create_item again with that board_name and pending_item.draft_id as replaces_draft_id, or use revises_item_name with pending_item.item_name if the draft ID is unavailable. Do not list boards or items in response to that choice. Once preparation returns create_item_arguments, call create_item for confirmation. This tool only reads Monday. With a resolved board and without item_name or a revision, it returns groups and columns. Pass optional group_id (ID or title; omit for the top group) and only requested column_values keyed by actual column ID or exact title. Use exact status labels, ISO dates, and Monday person names or IDs. Pass create_item_arguments verbatim to create_item. Never silently drop a requested value.";
+const createItemDescription = "Use create_item_arguments from prepare_create_item verbatim. The confirmation lets the user edit the item name and choose a group on the selected board. Approval creates the item in the selected group. Never say an item was created unless the result confirms its ID. For a voice revision such as 'change the board to voiceos', call prepare_create_item with the new board_name and replaces_draft_id or the pending item's exact name in revises_item_name. Ask about any previously requested value with no clear match. Board renaming is unavailable. Do not retry a write automatically.";
 const updateItemValuesSchema = z.object({ board_id: id(), item_id: id(), column_values: columnValues() }).strict();
 const createUpdateSchema = z.object({ item_id: id(), body: nonempty() }).strict();
 const createBoardSchema = z.object({ board_name: nonempty(), board_kind: z.enum(["public", "private", "share"]), workspace_id: id().optional(), folder_id: id().optional(), description: nonempty().optional() }).strict();
@@ -256,7 +309,7 @@ function providerError(message: string): Error {
   return new Error(`Monday.com request failed: ${message}`);
 }
 
-async function executeAction(action: Action, args: Record<string, unknown>) {
+async function executeAction(action: Action, args: Record<string, unknown>, expectedAccountId?: string) {
   if (!approvedActions.includes(action))
     throw new Error("This Monday.com operation is not approved.");
   if (disconnecting)
@@ -269,6 +322,8 @@ async function executeAction(action: Action, args: Record<string, unknown>) {
     throw new Error(
       "Monday.com is not connected. Run Connect Monday.com to authorize or verify browser approval.",
     );
+  if (expectedAccountId && state.accountId !== expectedAccountId)
+    throw new Error("The connected Monday.com account changed. Prepare the item again.");
   const saved = await account(state.accountId, signal);
   if (!saved || saved.isDisabled || saved.status !== "ACTIVE") {
     throw new Error(
@@ -368,7 +423,8 @@ function itemSubtitle(item: Record<string, unknown>, groupName?: string): string
 }
 
 function readGlance(data: ReadOutput) {
-  const isBoards = data.resultType === "boards";
+  const choosingBoard = data.resultType === "board_choices";
+  const isBoards = data.resultType !== "tasks";
   const count = data.records.length;
   const visibleCount = count > readPreviewLimit ? readPreviewLimit - 1 : count;
   const rows = data.records.slice(0, visibleCount).map(entry => {
@@ -379,6 +435,13 @@ function readGlance(data: ReadOutput) {
     };
   });
   if (visibleCount < count) rows.push({ title: `and ${count - visibleCount} more` });
+  if (choosingBoard) {
+    return [
+      { type: "header", title: data.itemName ? `Choose a board for “${data.itemName.slice(0, 39)}”` : "Choose a Monday board" },
+      { type: "keyValue", pairs: [["Next", count ? "Say or type the board name." : "Give the exact board name or ID."]] },
+      ...(rows.length ? [{ type: "list", rows }] : []),
+    ];
+  }
   return [
     {
       type: "header",
@@ -389,12 +452,12 @@ function readGlance(data: ReadOutput) {
 }
 
 // Validate every column before executing any write. Keep canonical JSON conversion here.
-function normalizeColumns(value: string | Record<string, unknown>): Record<string, unknown> {
+function normalizeColumns(value: string | Record<string, unknown>, allowEmpty = false): Record<string, unknown> {
   let parsed: unknown;
   try { parsed = typeof value === "string" ? JSON.parse(value) : value; }
   catch { throw new Error("column_values must be a valid JSON object keyed by column ID."); }
   const columns = record(parsed);
-  if (!columns || !Object.keys(columns).length || Object.keys(columns).some(key => !key.trim()))
+  if (!columns || (!allowEmpty && !Object.keys(columns).length) || Object.keys(columns).some(key => !key.trim()))
     throw new Error("column_values must be a nonempty JSON object keyed by column ID.");
   return JSON.parse(JSON.stringify(columns));
 }
@@ -404,12 +467,334 @@ function writeResult(data: Record<string, unknown>, keys: string[], message: str
     throw new Error("Monday.com did not return a confirmed object ID. Check Monday.com before retrying; the write may have completed.");
   return { status: "Success", message, id: String(target.id) };
 }
-async function createItem(input: z.infer<typeof createItemSchema>): Promise<WriteOutput> {
-  const { column_values, ...args } = input;
-  const data = await executeAction("MONDAY_CREATE_ITEM", {
-    ...args, board_id: String(input.board_id),
-    ...(column_values !== undefined ? { column_values: JSON.stringify(normalizeColumns(column_values)) } : {}),
+function metadataRows(value: unknown): Record<string, unknown>[] {
+  const parsed = z.array(z.record(z.unknown())).safeParse(value);
+  if (!parsed.success) throw new Error("Monday.com returned incomplete board or assignment details.");
+  return parsed.data;
+}
+
+function boardMetadata(data: Record<string, unknown>, boardId: string, field: "groups" | "columns") {
+  const boards = Array.isArray(data.boards) ? metadataRows(data.boards) : [];
+  const board = boards.find(entry => String(entry.id) === boardId)
+    ?? (boards.length === 1 && boards[0].id === undefined ? boards[0] : undefined);
+  return metadataRows(board?.[field] ?? data[field]);
+}
+
+function settingsFor(column: Record<string, unknown>) {
+  const settings = column.settings ?? column.settings_str;
+  if (typeof settings !== "string") return record(settings);
+  try { return record(JSON.parse(settings)); } catch { return undefined; }
+}
+
+function columnLabels(column: Record<string, unknown>) {
+  const settings = settingsFor(column);
+  const labels = settings?.labels;
+  if (Array.isArray(labels)) {
+    return metadataRows(labels)
+      .filter(label => !label.is_deactivated && !label.is_archived)
+      .map(label => ({ id: String(label.id), label: String(label.label ?? label.name ?? "") }));
+  }
+  const archived = settings?.labels_archived;
+  return Object.entries(record(labels) ?? {})
+    .filter(([id, label]) => typeof label === "string" &&
+      !(Array.isArray(archived) ? archived.some(entry => String(entry) === id) : record(archived)?.[id]))
+    .map(([id, label]) => ({ id, label: label as string }));
+}
+
+function emptyColumn(value: unknown): boolean {
+  if (value == null || (typeof value === "string" && !value.trim())) return true;
+  if (Array.isArray(value)) return value.every(emptyColumn);
+  const object = record(value);
+  return object !== undefined && Object.values(object).every(emptyColumn);
+}
+
+function displayColumnValue(value: unknown): string {
+  if (Array.isArray(value)) return value.map(displayColumnValue).join(", ");
+  const object = record(value);
+  if (object) {
+    return Object.entries(object).map(([key, entry]) => {
+      const label = key.replace(/([a-z])([A-Z])/g, "$1 $2").replaceAll("_", " ");
+      return `${label}: ${displayColumnValue(entry)}`;
+    }).join("; ");
+  }
+  if (value === null) return "Empty";
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  return String(value);
+}
+
+function displayDate(date: unknown) {
+  if (typeof date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return undefined;
+  const parsed = new Date(date + "T00:00:00Z");
+  if (!Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date) return undefined;
+  return new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeZone: "UTC" }).format(parsed);
+}
+
+const peopleEntry = z.object({
+  id: z.union([id(), z.string().regex(/^\d+$/).transform(Number).pipe(id())]),
+  kind: z.enum(["person", "team"]),
+}).strict();
+
+async function prepareColumn(
+  column: Record<string, unknown>,
+  value: unknown,
+  assignees: (kind: "person" | "team") => Promise<Record<string, unknown>[]>,
+): Promise<{ value: unknown; display: string }> {
+  const title = String(column.title);
+  const data = record(value);
+  if (column.type === "status" || column.type === "color") {
+    const labels = columnLabels(column);
+    const label = typeof value === "string" ? value : data?.label;
+    const match = labels.find(entry => typeof label === "string"
+      ? entry.label === label : typeof data?.index === "number" && entry.id === String(data.index));
+    if (!match?.label) {
+      const options = labels.map(entry => entry.label).filter(Boolean).join(", ");
+      throw new Error(`Choose an exact status label for "${title}".${options ? ` Available labels: ${options}.` : ""}`);
+    }
+    const encoded = /^\d+$/.test(match.label) ? { index: Number(match.id) } : { label: match.label };
+    if ("index" in encoded && !Number.isSafeInteger(encoded.index))
+      throw new Error(`Could not verify the status label ID for "${title}".`);
+    return { value: encoded, display: match.label };
+  }
+  if (column.type === "dropdown") {
+    const labels = columnLabels(column);
+    const byId = data?.labels === undefined && data?.ids !== undefined;
+    const requested = typeof value === "string" ? [value] : data?.labels ?? data?.ids;
+    const matches = Array.isArray(requested) ? requested.map(option => labels.find(label =>
+      byId ? label.id === String(option) : label.label === option)) : [];
+    if (!matches.length || matches.some(match => !match?.label))
+      throw new Error(`Choose existing dropdown labels for "${title}". Available labels: ${labels.map(entry => entry.label).join(", ")}.`);
+    const names = matches.map(match => match!.label);
+    return { value: { labels: names }, display: names.join(", ") };
+  }
+  if (column.type === "date" || column.type === "timeline") {
+    const isTimeline = column.type === "timeline";
+    const date = isTimeline ? data?.from : typeof value === "string" ? value : data?.date;
+    const from = displayDate(date);
+    const to = isTimeline ? displayDate(data?.to) : undefined;
+    const time = data?.time;
+    if (!from || (isTimeline && (!to || String(date) > String(data?.to))) ||
+      (time !== undefined && (typeof time !== "string" || !/^([01]\d|2[0-3]):[0-5]\d:[0-5]\d$/.test(time)))) {
+      throw new Error(`Resolve the date for "${title}" before preparing the item.`);
+    }
+    return isTimeline
+      ? { value: { from: date, to: data?.to }, display: `${from} – ${to}` }
+      : { value: { date, ...(time !== undefined ? { time } : {}) }, display: time ? `${from}, ${time}` : from };
+  }
+  if (column.type === "people") {
+    const names = z.array(nonempty()).min(1).safeParse(typeof value === "string" ? [value] : data?.names);
+    const entries = z.array(peopleEntry).min(1).safeParse(data?.personsAndTeams);
+    if (!names.success && !entries.success)
+      throw new Error(`Provide a Monday.com name or ID for "${title}".`);
+    const requested = names.success ? names.data : entries.data!;
+    const resolved = await Promise.all(requested.map(async entry => {
+      if (typeof entry === "string") {
+        const users = await assignees("person");
+        const exact = users.filter(user => [user.name, user.email].some(value => String(value).toLowerCase() === entry.toLowerCase()));
+        const matches = exact.length ? exact : users.filter(user => String(user.name).toLowerCase().includes(entry.toLowerCase()));
+        const person = matches.length === 1 ? matches[0] : undefined;
+        const id = Number(person?.id);
+        const name = displayText(person?.name);
+        if (!name || !Number.isSafeInteger(id) || id < 1)
+          throw new Error(`Which Monday.com user did you mean by "${entry}" for "${title}"?`);
+        return { target: { id, kind: "person" }, name };
+      }
+      const person = (await assignees(entry.kind)).find(candidate => String(candidate.id) === String(entry.id));
+      const name = displayText(person?.name);
+      if (!name) throw new Error(`Could not verify the assignee for "${title}".`);
+      return { target: entry, name };
+    }));
+    return { value: { personsAndTeams: resolved.map(entry => entry.target) }, display: resolved.map(entry => entry.name).join(", ") };
+  }
+  if (column.type === "name") throw new Error("Set the item's name in item_name.");
+  return { value, display: displayColumnValue(value) };
+}
+
+async function prepareCreateItem(input: CreateItemInput): Promise<PrepareCreateItemOutput | ReadOutput> {
+  const requestedColumns = input.column_values === undefined ? undefined
+    : Object.entries(normalizeColumns(input.column_values, true)).filter(([, value]) => !emptyColumn(value));
+  const accountId = (await load()).accountId;
+  if (!accountId) throw new Error("Monday.com is not connected. Run Connect Monday.com.");
+  const now = Date.now();
+  for (const [key, draft] of createItemDrafts) if (draft.expires <= now) createItemDrafts.delete(key);
+  let priorId = input.replaces_draft_id;
+  if (!priorId && input.revises_item_name) {
+    const matches = [...createItemDrafts].filter(([, draft]) =>
+      draft.accountId === accountId && draft.itemName.toLowerCase() === input.revises_item_name?.toLowerCase());
+    if (matches.length !== 1)
+      throw new Error("Could not identify one pending item by that name. Ask which item to prepare and confirm again.");
+    priorId = matches[0][0];
+  }
+  const prior = priorId ? createItemDrafts.get(priorId) : undefined;
+  if (priorId && (!prior || prior.accountId !== accountId))
+    throw new Error("The pending item expired or belongs to another account. Prepare it again.");
+  if (prior) prior.retired = true;
+  const draft_id = randomUUID();
+  function replaceDraft(draft: CreateItemDraft) {
+    if (priorId && createItemDrafts.get(priorId) !== prior)
+      throw new Error("The item already has a newer draft. Review that draft before creating the item.");
+    createItemDrafts.set(draft_id, draft);
+    if (priorId) createItemDrafts.delete(priorId);
+  }
+  const name = input.item_name ?? prior?.itemName;
+  const lookup = (action: Action, args: Record<string, unknown>) => executeAction(action, args, accountId);
+  const limit = 100;
+  const boards = new Map<string, Record<string, unknown>>();
+  for (let page = 1; ; page++) {
+    const found = records((await lookup("MONDAY_BOARDS", { state: "active", page, limit })).boards);
+    const count = boards.size;
+    for (const entry of found) boards.set(String(entry.id), entry);
+    if (found.length < limit) break;
+    if (boards.size === count) throw new Error("Could not finish checking the Monday.com boards.");
+  }
+  const available = [...boards.values()].filter(entry => id().safeParse(Number(entry.id)).success && displayText(entry.name));
+  const query = input.board_name?.toLowerCase();
+  const exact = query ? available.filter(entry => displayText(entry.name)?.toLowerCase() === query) : [];
+  const matches = exact.length || !query
+    ? exact
+    : available.filter(entry => displayText(entry.name)?.toLowerCase().includes(query));
+  const board = input.board_id === undefined
+    ? matches.length === 1 ? matches[0] : undefined
+    : available.find(entry => String(entry.id) === String(input.board_id));
+  if (input.board_id !== undefined && (!board || (query && displayText(board.name)?.toLowerCase() !== query)))
+    throw new Error("Could not verify the destination Monday.com board. Ask the user to choose it by name.");
+
+  const boardChanged = String(board?.id) !== prior?.args?.board_id;
+  const carriedByTitle = !requestedColumns && Boolean(prior?.carriedByTitle || (boardChanged && prior?.columnTitles));
+  const carriedGroupByTitle = input.group_id === undefined && Boolean(prior?.carriedGroupByTitle || (boardChanged && prior?.args));
+  const carriedColumns = Object.entries(prior?.columns ?? {}).map(([key, value]) => ({
+    key: carriedByTitle ? prior?.columnTitles?.[key] ?? key : key,
+    value,
+    type: prior?.columnTypes?.[key],
+  }));
+  const columnValues = requestedColumns?.map(([key, value]) => ({ key, value, type: undefined })) ?? carriedColumns;
+  if (new Set(columnValues.map(({ key }) => key)).size !== columnValues.length)
+    throw new Error("Multiple requested columns share a title. Ask which destination columns to use.");
+  const groupInput = input.group_id ?? prior?.groupTitle;
+  const draftDetails = { accountId, expires: now + 30 * 60_000 };
+  if (!board) {
+    const offered = matches.length ? matches : available;
+    const question = name ? `Which Monday board should “${name}” go on?` : "Which Monday board should I use?";
+    if (name && offered.length) {
+      replaceDraft({
+        ...draftDetails, itemName: name, groupTitle: groupInput, carriedByTitle, carriedGroupByTitle,
+        columns: Object.fromEntries(columnValues.map(({ key, value }) => [key, value])),
+        columnTypes: Object.fromEntries(columnValues.map(({ key, type }) => [key, type])),
+      });
+    }
+    return {
+      resultType: "board_choices",
+      itemName: name,
+      status: "Board selection required",
+      message: offered.length ? question : `${question} No active boards were returned.`,
+      records: offered,
+      pagination: {},
+      ...(name && offered.length ? { pending_item: { draft_id, item_name: name } } : {}),
+    };
+  }
+  const boardName = displayText(board?.name);
+  if (!boardName)
+    throw new Error("Could not verify the destination Monday.com board.");
+  const boardId = String(board.id);
+  const [groups, columns] = await Promise.all([
+    Array.isArray(board.groups) ? metadataRows(board.groups) : lookup("MONDAY_LIST_GROUPS", { board_id: boardId })
+      .then(data => boardMetadata(data, boardId, "groups")),
+    !name || columnValues.length ? lookup("MONDAY_COLUMNS", { board_ids: [boardId] })
+      .then(data => boardMetadata(data, boardId, "columns"))
+      : [],
+  ]);
+  const activeGroups = groups.filter(group => !group.archived && !group.deleted);
+  if (!name) {
+    return {
+      status: "Board details", message: `Found groups and columns for "${boardName}".`,
+      board: { name: boardName, groups: activeGroups, columns },
+    };
+  }
+  const topGroup = record(board.top_group);
+  const positionsKnown = activeGroups.every(group => typeof group.position === "string" &&
+    group.position.trim() && Number.isFinite(Number(group.position)));
+  if (positionsKnown) activeGroups.sort((a, b) => Number(a.position) - Number(b.position));
+  const groupMatches = activeGroups.filter(group => group.title === groupInput);
+  const group = groupInput === undefined
+    ? (topGroup?.id && !topGroup.archived && !topGroup.deleted ? topGroup : activeGroups[0])
+    : (carriedGroupByTitle ? undefined : activeGroups.find(group => group.id === groupInput))
+      ?? (groupMatches.length === 1 ? groupMatches[0] : undefined);
+  const groupName = displayText(group?.title);
+  if (!groupName || typeof group?.id !== "string")
+    throw new Error(`Choose a group on "${boardName}". Available groups: ${activeGroups.map(group => group.title).join(", ")}.`);
+  const groupChoices = new Map<string, string>();
+  for (const activeGroup of activeGroups) {
+    const label = displayText(activeGroup.title);
+    if (typeof activeGroup.id === "string" && activeGroup.id && label) groupChoices.set(activeGroup.id, label);
+  }
+  groupChoices.set(group.id, groupName);
+
+  let users: Promise<Record<string, unknown>[]> | undefined;
+  let teams: Promise<Record<string, unknown>[]> | undefined;
+  async function listUsers() {
+    const usersById = new Map<string, Record<string, unknown>>();
+    for (let page = 1; ; page++) {
+      const users = records((await lookup("MONDAY_LIST_USERS", { page, limit: 100 })).users);
+      if (users.length === 0) break;
+      const count = usersById.size;
+      for (const user of users) usersById.set(String(user.id), user);
+      if (usersById.size === count) throw new Error("Could not finish verifying the Monday.com users.");
+    }
+    return [...usersById.values()].filter(user => user.enabled !== false && user.is_pending !== true);
+  }
+  const rows = await Promise.all(columnValues.map(async ({ key, value, type }) => {
+    const matches = columns.filter(column => column.title === key);
+    const column = (carriedByTitle ? undefined : columns.find(column => column.id === key))
+      ?? (matches.length === 1 ? matches[0] : undefined);
+    if (typeof column?.id !== "string" || !displayText(column.title) || column.archived)
+      throw new Error(`Could not match column "${key}" on "${boardName}". Ask which column or value to use before proposing the item.`);
+    const canonicalType = (value: unknown) => value === "color" ? "status" : value;
+    if (type !== undefined && canonicalType(type) !== canonicalType(column.type))
+      throw new Error(`Column "${key}" has a different type on "${boardName}". Ask which column or value to use before proposing the item.`);
+    const resolved = await prepareColumn(column, value, kind => kind === "person"
+      ? (users ??= listUsers())
+      : (teams ??= lookup("MONDAY_GET_TEAMS", {}).then(data => records(data.teams))));
+    return { id: column.id, label: String(column.title), type: column.type, ...resolved };
+  }));
+  if (new Set(rows.map(row => row.id)).size !== rows.length)
+    throw new Error("Specify each column only once.");
+  const preview = {
+    board: boardName,
+    groups: Array.from(groupChoices, ([id, label]) => ({ id, label })),
+    columns: rows.map(({ label, display }) => ({ label, value: display })),
+  };
+  const columnsToWrite = Object.fromEntries(rows.map(row => [row.id, row.value]));
+  replaceDraft({
+    ...draftDetails, preview, itemName: name, groupTitle: groupInput === undefined ? undefined : groupName,
+    columns: columnsToWrite, columnTitles: Object.fromEntries(rows.map(row => [row.id, row.label])),
+    columnTypes: Object.fromEntries(rows.map(row => [row.id, row.type])),
+    args: {
+      board_id: boardId,
+      ...(rows.length ? { column_values: JSON.stringify(columnsToWrite) } : {}),
+    },
   });
+  return {
+    status: "Ready for confirmation", message: "Use create_item_arguments to show the confirmation card.",
+    create_item_arguments: { draft_id, item_name: name, group_id: group.id, preview },
+  };
+}
+
+function getReviewedDraft(draftId: string) {
+  const draft = createItemDrafts.get(draftId);
+  if (!draft || draft.retired || draft.expires <= Date.now())
+    throw new Error("The item preview changed, expired, or was already used. Prepare it again before creating the item.");
+  return draft;
+}
+
+async function createItem(input: z.infer<typeof createItemSchema>): Promise<WriteOutput> {
+  const draft = getReviewedDraft(input.draft_id);
+  if (!draft.args || !isDeepStrictEqual(draft.preview, input.preview))
+    throw new Error("The item preview changed. Prepare it again before creating the item.");
+  if (!draft.preview?.groups.some(group => group.id === input.group_id))
+    throw new Error("Choose an available group from the selected board.");
+  createItemDrafts.delete(input.draft_id);
+  const data = await executeAction("MONDAY_CREATE_ITEM", {
+    ...draft.args, item_name: input.item_name, group_id: input.group_id,
+  }, draft.accountId);
   return writeResult(data, ["create_item"], `Created item "${input.item_name}".`);
 }
 async function updateItemValues(input: z.infer<typeof updateItemValuesSchema>): Promise<WriteOutput> {
@@ -691,11 +1076,12 @@ async function progress(extra: ProgressContext, message: string, done = false) {
 async function feedback(
   title: string,
   extra: ProgressContext,
-  run: () => Promise<Output | ReadOutput | WriteOutput>,
+  run: () => Promise<Output | ReadOutput | WriteOutput | PrepareCreateItemOutput>,
   notifyResult = false,
+  errorTitle?: string,
 ) {
   await progress(extra, `${title}…`);
-  let data: Output | ReadOutput | WriteOutput | { error: string };
+  let data: Output | ReadOutput | WriteOutput | PrepareCreateItemOutput | { error: string };
   let isError = false;
   try {
     data = await run();
@@ -712,6 +1098,9 @@ async function feedback(
     };
   }
   await progress(extra, `${title}: ${isError ? "failed" : "finished"}`, true);
+  if ("create_item_arguments" in data || "board" in data) {
+    return { content: [{ type: "text" as const, text: JSON.stringify(data) }] };
+  }
   let notificationQueued = false;
   if (notifyResult) {
     if (
@@ -722,6 +1111,8 @@ async function feedback(
       notificationQueued = true;
     }
   }
+  const resultTitle = "error" in data ? errorTitle ?? "Monday.com" : "Monday.com";
+  const resultMessage = "error" in data ? (errorTitle ? data.error.slice(0, 64) : data.error) : data.message;
   return {
     isError,
     content: [
@@ -734,12 +1125,12 @@ async function feedback(
             blocks: "records" in data ? readGlance(data) : [
               {
                 type: "header",
-                title: "Monday.com",
+                title: resultTitle,
                 trailing: "error" in data ? "Error" : data.status,
               },
               {
                 type: "keyValue",
-                pairs: [["Status", "error" in data ? data.error : data.message]],
+                pairs: [["Status", resultMessage]],
               },
             ],
           },
@@ -867,7 +1258,7 @@ server.registerTool(
   {
     title: "Get Monday.com items",
     description:
-      "Retrieve Monday.com tasks/items using exactly one of ids, board_id, or cursor. For a named board, first resolve its ID with get_boards: prefer an exact match, otherwise use a unique clear partial match; ask if ambiguous. Pass the exact resolved board_name for display and name that board in the final task answer. Never present get_boards results as tasks; wait for this call to succeed before listing tasks, or report its error. Item-ID reads support page, newest_first, and exclude_nonactive; pagination.nextPage is a possible next page. Board reads include column values and optionally group_id. For an explicit next-page request, use pagination.nextCursor with the previous limit and optional board_name display context. For a general list request, use the short message and let the glance card show the names. Offer to show the next page when there is a cursor, or offer to narrow by group when appropriate. Use the full records from the current page to answer item-specific follow-ups, including items outside the preview. Counts describe the returned page. Keep IDs internal unless explicitly requested, and use only confirmed IDs and names. Read only; does not start OAuth or send notifications.",
+      "List Monday.com items when the user asks to view or retrieve them. A bare board name in answer to a pending create-item board question selects the destination for prepare_create_item. Use exactly one of ids, board_id, or cursor. For a named board, first resolve its ID with get_boards: prefer an exact match, otherwise use a unique clear partial match; ask if ambiguous. Pass the exact resolved board_name for display and name that board in the final task answer. Never present get_boards results as tasks; wait for this call to succeed before listing tasks, or report its error. Item-ID reads support page, newest_first, and exclude_nonactive; pagination.nextPage is a possible next page. Board reads include column values and optionally group_id. For an explicit next-page request, use pagination.nextCursor with the previous limit and optional board_name display context. For a general list request, use the short message and let the glance card show the names. Offer to show the next page when there is a cursor, or offer to narrow by group when appropriate. Use the full records from the current page to answer item-specific follow-ups, including items outside the preview. Counts describe the returned page. Keep IDs internal unless explicitly requested, and use only confirmed IDs and names. Read only; does not start OAuth or send notifications.",
     inputSchema: getItemsSchema,
     annotations: {
       readOnlyHint: true,
@@ -879,8 +1270,13 @@ server.registerTool(
     feedback("Get items", extra, () => getItems(input), false),
 );
 
+server.registerTool("prepare_create_item", {
+  title: "Prepare Monday.com item", description: prepareCreateItemDescription, inputSchema: prepareCreateItemSchema,
+  annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+}, async (input, extra) => feedback("Prepare Monday.com item", extra, () => prepareCreateItem(input), false, "Couldn’t prepare Monday item"));
+
 server.registerTool("create_item", {
-  title: "Create Monday.com item", description: "Create an item on a specific Monday.com board, optionally in a group with JSON column values. Use actual board and column IDs. Do not retry automatically; check Monday.com after an uncertain outcome.", inputSchema: createItemSchema,
+  title: "Create Monday.com item", description: createItemDescription, inputSchema: createItemSchema,
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
 }, async (input, extra) => feedback("Create Monday.com item", extra, () => createItem(input)));
 
