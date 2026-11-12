@@ -5420,7 +5420,7 @@ var TIKTOK_TOOLKIT_VERSION = "20261101_00";
 var COMPOSIO_BASE = "https://backend.composio.dev/api/v3.1";
 var MEDIA_RELAY_BASE = "";
 var ACCENT = "#fe2c55";
-var TIKTOK_IMAGE_HOSTS = Object.freeze(["*.tiktokcdn-us.com", "*.tiktokcdn.com", "*.tiktokcdn-eu.com"]);
+var TIKTOK_IMAGE_HOSTS = Object.freeze(["*.tiktokcdn-us.com", "*.tiktokcdn.com", "*.tiktokcdn-eu.com", "*.tiktokv.us", "*.tiktokv.com", "*.tiktokv.eu"]);
 var LOOPBACK = /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?(\/|$)/;
 function resolveBaseUrl(override) {
   return override && LOOPBACK.test(override) ? override.replace(/\/+$/, "") : COMPOSIO_BASE;
@@ -13911,7 +13911,7 @@ var EMPTY_COMPLETION_RESULT = {
 };
 
 // src/mcpServer.ts
-import { join as join8 } from "path";
+import { join as join9 } from "path";
 
 // widgetKit.ts
 var WIDGET_KIT_LIMITS = {
@@ -17306,9 +17306,11 @@ class RemoteImages {
     const controller = new AbortController;
     const timer = setTimeout(() => controller.abort(new DOMException("Image request timed out", "TimeoutError")), this.fetchTimeoutMs);
     try {
-      const res = await this.fetchImpl(u.href, { method: "GET", redirect: "manual", signal: controller.signal, headers: { accept: ACCEPT } });
+      const at = u;
+      const res = await this.fetchImpl(at.href, { method: "GET", redirect: "manual", signal: controller.signal, headers: { accept: ACCEPT } });
       if (res.status !== 200) {
         await res.body?.cancel().catch(() => {});
+        log(`image http ${res.status} ${loggable(at.hostname)}`);
         throw new Skip("http");
       }
       const type = (res.headers.get("content-type") ?? "").toLowerCase();
@@ -22071,6 +22073,7 @@ var PACKAGE_NAMES = new Set(["photo booth library"]);
 var PARTIAL_SUFFIXES = [".part", ".crdownload"];
 var FRESH_MS2 = 5000;
 var MAX_SUBDIRS_PER_ROOT = 2000;
+var SUBFOLDER_DEPTH = 2;
 var MAX_ENTRIES_PER_ROOT = 50000;
 var JXA_CANDIDATES = 1000;
 var BATCH_GAP_MS = 120000;
@@ -22122,7 +22125,7 @@ async function resolveRoots(all, home, folders, runner) {
     if (seen.has(key))
       continue;
     seen.add(key);
-    roots.push({ path, label: displayFolder(home, path), depth: key === homeKey ? 0 : 1 });
+    roots.push({ path, label: displayFolder(home, path), depth: key === homeKey ? 0 : SUBFOLDER_DEPTH });
   }
   return roots;
 }
@@ -22144,15 +22147,20 @@ function scan(roots, supported, other, now) {
     }
     out.searched.push(root.label);
     const budget = { entries: MAX_ENTRIES_PER_ROOT };
-    const subdirs = visit(root.path, root.label, entries, root.depth > 0, budget);
-    for (const [dir, label] of subdirs.slice(0, MAX_SUBDIRS_PER_ROOT)) {
-      if (budget.entries <= 0)
-        break;
-      try {
-        visit(dir, label, readdirSync3(dir, { withFileTypes: true }), false, budget);
-      } catch {
-        skippedDirs++;
+    let frontier = visit(root.path, root.label, entries, root.depth > 0, budget);
+    let dirsLeft = MAX_SUBDIRS_PER_ROOT;
+    for (let level = 1;level <= root.depth && frontier.length && budget.entries > 0; level++) {
+      const next = [];
+      for (const [dir, label] of frontier) {
+        if (budget.entries <= 0 || dirsLeft-- <= 0)
+          break;
+        try {
+          next.push(...visit(dir, label, readdirSync3(dir, { withFileTypes: true }), level < root.depth, budget));
+        } catch {
+          skippedDirs++;
+        }
       }
+      frontier = next;
     }
   }
   if (skippedDirs)
@@ -22882,7 +22890,7 @@ async function findRecentImages(o) {
 
 // src/ledger.ts
 import { createHash as createHash2, randomBytes as randomBytes2 } from "crypto";
-import { basename as basename8, dirname as dirname4 } from "path";
+import { basename as basename8, dirname as dirname4, join as join8 } from "path";
 
 // src/state.ts
 import { chmodSync, closeSync as closeSync3, fchmodSync, fsyncSync, mkdirSync as mkdirSync3, openSync as openSync3, readFileSync as readFileSync4, renameSync, statSync as statSync5, unlinkSync, writeSync } from "fs";
@@ -22972,6 +22980,10 @@ var LEDGER_MAX_AGE_MS = 30 * 86400000;
 var LEDGER_TEXT_MAX = 150;
 var LEDGER_FILE = "ledger.json";
 var PICTURES_KEPT = 20;
+var PICTURES_SAVED = 8;
+var PICTURE_CHARS_SAVED = 64000;
+var PICTURES_FILE = "ledger-pictures.json";
+var STILL_RE = /^data:image\/(jpeg|png|webp|avif);base64,[A-Za-z0-9+/=]+$/;
 var NAMES_MAX = 35;
 var NAME_MAX = 120;
 var SAVED_KEYS = new Set(["stage", "publish_id", "last_status", "fail_reason", "error_code", "caption_copied"]);
@@ -22985,6 +22997,7 @@ class Ledger {
   clock;
   entries = [];
   file;
+  picFile;
   max;
   loaded = false;
   seen = "";
@@ -22995,6 +23008,7 @@ class Ledger {
     this.clock = clock2;
     const o = typeof opts === "number" ? { max: opts } : opts;
     this.file = o.file;
+    this.picFile = o.file ? join8(dirname4(o.file), PICTURES_FILE) : undefined;
     this.max = o.max ?? LEDGER_SIZE;
     this.account = o.account?.trim() ? accountTag(o.account) : undefined;
   }
@@ -23015,6 +23029,8 @@ class Ledger {
     this.entries.push(full);
     this.prune();
     this.save();
+    if (full.poster || full.thumbs?.length)
+      this.savePictures();
     return copy(full);
   }
   update(taskId, patch) {
@@ -23042,6 +23058,8 @@ class Ledger {
       this.revs.set(e.task_id, (this.revs.get(e.task_id) ?? 0) + 1);
       this.save();
     }
+    if (rest2.poster !== undefined)
+      this.savePictures();
     return copy(e);
   }
   get(taskId) {
@@ -23091,6 +23109,61 @@ class Ledger {
     }
     if (n)
       log(`ledger: loaded ${n} entr${n === 1 ? "y" : "ies"}`);
+    this.loadPictures();
+  }
+  loadPictures() {
+    if (!this.picFile)
+      return;
+    const raw = readJson(this.picFile, undefined);
+    const saved = raw && typeof raw === "object" && raw.pictures && typeof raw.pictures === "object" ? raw.pictures : undefined;
+    if (!saved)
+      return;
+    let n = 0;
+    for (const e of this.entries) {
+      const p = saved[e.task_id];
+      if (!p || e.poster || e.thumbs?.length)
+        continue;
+      if (typeof p.poster === "string" && STILL_RE.test(p.poster))
+        e.poster = p.poster;
+      if (Array.isArray(p.thumbs)) {
+        const thumbs = p.thumbs.filter((s2) => typeof s2 === "string" && STILL_RE.test(s2));
+        if (thumbs.length)
+          e.thumbs = thumbs;
+      }
+      if (e.poster || e.thumbs)
+        n++;
+    }
+    if (n)
+      log(`ledger: ${n} saved picture${n === 1 ? "" : "s"} restored`);
+  }
+  savePictures() {
+    if (!this.picFile)
+      return;
+    try {
+      const pictures = {};
+      for (const e of this.entries.filter((x) => x.poster || x.thumbs?.length).slice(-PICTURES_SAVED)) {
+        let room = PICTURE_CHARS_SAVED;
+        const keep = {};
+        if (e.poster && STILL_RE.test(e.poster) && e.poster.length <= room) {
+          keep.poster = e.poster;
+          room -= e.poster.length;
+        }
+        for (const s2 of e.thumbs ?? []) {
+          if (!STILL_RE.test(s2) || s2.length > room)
+            break;
+          (keep.thumbs ??= []).push(s2);
+          room -= s2.length;
+        }
+        if (keep.poster || keep.thumbs)
+          pictures[e.task_id] = keep;
+      }
+      writeJsonAtomic(this.picFile, { version: 1, pictures });
+    } catch (error2) {
+      const code = errCode(error2);
+      if (!this.warned.has(`pic:${code}`))
+        log(`ledger: couldn't save ${PICTURES_FILE} (${code})`);
+      this.warned.add(`pic:${code}`);
+    }
   }
   merge() {
     const file = this.file;
@@ -26586,10 +26659,10 @@ function createDeps(cfg, overrides = {}) {
     runner,
     client: overrides.client ?? new ComposioClient(cfg, { clock: clock2 }),
     tokens: overrides.tokens ?? new TokenStore(clock2),
-    spent: overrides.spent ?? new SpentReceipts(join8(cfg.stateDir, "spent-receipts.json"), clock2),
+    spent: overrides.spent ?? new SpentReceipts(join9(cfg.stateDir, "spent-receipts.json"), clock2),
     relay: overrides.relay ?? new RelayClient(cfg.relayBase, cfg.relayToken, { clock: clock2 }),
     limits: overrides.limits ?? createLimits(clock2),
-    ledger: overrides.ledger ?? new Ledger(clock2, { file: join8(cfg.stateDir, LEDGER_FILE), account: cfg.connectedAccountId }),
+    ledger: overrides.ledger ?? new Ledger(clock2, { file: join9(cfg.stateDir, LEDGER_FILE), account: cfg.connectedAccountId }),
     queue: overrides.queue ?? new WriteQueue,
     images: overrides.images ?? new RemoteImages({ runner, clock: clock2, offline: cfg.baseUrl !== COMPOSIO_BASE }),
     preview: overrides.preview ?? ((path, info2, opts) => videoPreview(path, info2, runner, opts)),

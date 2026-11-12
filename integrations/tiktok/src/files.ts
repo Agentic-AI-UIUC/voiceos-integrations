@@ -178,6 +178,8 @@ const PACKAGE_NAMES = new Set(["photo booth library"]);
 const PARTIAL_SUFFIXES = [".part", ".crdownload"];
 const FRESH_MS = 5_000;
 const MAX_SUBDIRS_PER_ROOT = 2_000;
+/** How deep below Downloads, Desktop, Movies (and the image folders) the finder looks. */
+const SUBFOLDER_DEPTH = 2;
 const MAX_ENTRIES_PER_ROOT = 50_000;
 /** How many candidates get an exact date added (≈ 0.35 ms each); the rest keep birthtime/mtime. */
 const JXA_CANDIDATES = 1_000;
@@ -186,7 +188,7 @@ const BATCH_GAP_MS = 120_000;
 interface Root {
   path: string;
   label: string;
-  /** Subfolder levels to descend: 1 normally, 0 if the folder is home itself. */
+  /** Subfolder levels to descend: 2 normally ("Movies/My Show/Season 2"), 0 if the folder is home itself. */
   depth: number;
 }
 
@@ -261,7 +263,7 @@ async function resolveRoots(all: string[], home: string, folders: string[] | und
     const key = canon(path);
     if (seen.has(key)) continue; // e.g. the screenshot folder is ~/Downloads or ~/Desktop
     seen.add(key);
-    roots.push({ path, label: displayFolder(home, path), depth: key === homeKey ? 0 : 1 });
+    roots.push({ path, label: displayFolder(home, path), depth: key === homeKey ? 0 : SUBFOLDER_DEPTH });
   }
   return roots;
 }
@@ -282,14 +284,20 @@ function scan(roots: Root[], supported: Set<string>, other: Set<string>, now: nu
     }
     out.searched.push(root.label);
     const budget = { entries: MAX_ENTRIES_PER_ROOT };
-    const subdirs = visit(root.path, root.label, entries, root.depth > 0, budget);
-    for (const [dir, label] of subdirs.slice(0, MAX_SUBDIRS_PER_ROOT)) {
-      if (budget.entries <= 0) break;
-      try {
-        visit(dir, label, readdirSync(dir, { withFileTypes: true }), false, budget);
-      } catch {
-        skippedDirs++; // an unreadable subfolder isn't worth a permission prompt
+    // Breadth first, level by level, so shallow folders are always read before the budget runs out.
+    let frontier = visit(root.path, root.label, entries, root.depth > 0, budget);
+    let dirsLeft = MAX_SUBDIRS_PER_ROOT;
+    for (let level = 1; level <= root.depth && frontier.length && budget.entries > 0; level++) {
+      const next: Array<[string, string]> = [];
+      for (const [dir, label] of frontier) {
+        if (budget.entries <= 0 || dirsLeft-- <= 0) break;
+        try {
+          next.push(...visit(dir, label, readdirSync(dir, { withFileTypes: true }), level < root.depth, budget));
+        } catch {
+          skippedDirs++; // an unreadable subfolder isn't worth a permission prompt
+        }
       }
+      frontier = next;
     }
   }
   if (skippedDirs) log(`scan: ${skippedDirs} unreadable subfolders skipped`);

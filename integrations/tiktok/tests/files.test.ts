@@ -187,7 +187,7 @@ describe("findRecentVideos (fixture home, fake runner)", () => {
     add("Downloads/notes.txt", "hi", NOW - H, fresh);
     add("Downloads/clip.webm", "webm", NOW - H, fresh);
     add("Movies/writing.mp4", mp4(), NOW - 2 * S, NOW - 1 * S); // still being written
-    add("Movies/Exports/deeper/too-deep.mp4", mp4(), NOW - H, fresh);
+    add("Movies/Exports/deeper/deepest/too-deep.mp4", mp4(), NOW - H, fresh); // three levels down
     add("Movies/Project.fcpbundle/inner.mp4", mp4(), NOW - H, fresh);
     add("Movies/iMovie Library.imovielibrary/x.mov", mp4(), NOW - H, fresh);
     add("Movies/.cache/x.mp4", mp4(), NOW - H, fresh);
@@ -196,7 +196,7 @@ describe("findRecentVideos (fixture home, fake runner)", () => {
   });
   const opts = (o: Partial<Parameters<typeof findRecentVideos>[0]> = {}) => ({ home, limit: 6, runner: fakeRunner({ added }), clock, ...o });
 
-  test("newest by date added (arrival beats mtime); top level + one level deep; skips partial, hidden, fresh, packages, symlinks", async () => {
+  test("newest by date added (arrival beats mtime); top level + two levels deep; skips partial, hidden, fresh, packages, symlinks", async () => {
     const runner = fakeRunner({ added });
     const r = await findRecentVideos(opts({ runner }));
     expect(r.videos.map((v) => v.name)).toEqual([
@@ -303,6 +303,21 @@ describe("findRecentVideos (fixture home, fake runner)", () => {
     } finally {
       for (const d of ["Downloads", "Desktop", "Movies"]) chmodSync(join(home, d), 0o755);
     }
+  });
+});
+
+describe("findRecentVideos: two folder levels deep", () => {
+  test("a season subfolder (Movies/Show/Season 2) is found by name; a third level is not", async () => {
+    const home = tempDir("tiktok-home-deep-");
+    const added: Record<string, number> = {};
+    const add = (rel: string, addedMs: number) => (added[put(home, rel, mp4({ seconds: 28, width: 1080, height: 1920 }), addedMs)] = addedMs);
+    add("Movies/My Show/Season 2/Secret Heir of the Hotel.mp4", NOW - 40 * MIN);
+    add("Movies/My Show/Season 2/old/Secret Heir of the Hotel (cut).mp4", NOW - 30 * MIN);
+    add("Downloads/screen recording.mov", NOW - 5 * MIN);
+    const r = await findRecentVideos({ home, limit: 6, runner: fakeRunner({ added }), clock, query: "hotel heir" });
+    expect(r.videos[0]?.name).toBe("Secret Heir of the Hotel.mp4");
+    expect(r.videos[0]?.folder).toBe("Movies/My Show/Season 2");
+    expect(r.videos.map((v) => v.name)).not.toContain("Secret Heir of the Hotel (cut).mp4");
   });
 });
 

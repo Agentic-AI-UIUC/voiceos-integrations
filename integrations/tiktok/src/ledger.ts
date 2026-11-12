@@ -20,14 +20,17 @@
  * times, privacy and AI label, file and folder names (basenames, never paths)
  * and the caption, title or description the user approved, clipped to 150
  * characters. Pictures (poster, loop, photo thumbnails) stay in memory, for the
- * newest entries only. A missing or corrupt file starts an empty ledger, logged
+ * newest entries only; the stills (poster, thumbnails: small JPEGs of the user's own
+ * upload, no loops) of the newest PICTURES_SAVED sends also go to ledger-pictures.json
+ * beside it (mode 600), so a restart or Reload doesn't blank the recent-sends cards.
+ * A missing or corrupt file starts an empty ledger, logged
  * by file name and count only; a failed save is logged and never fails a write.
  *
  * matchAbout() finds the send the user means from their own words ("the voice
  * clone carousel", "the enigma one", "my last photo post", "today's posts").
  */
 import { createHash, randomBytes } from "node:crypto";
-import { basename, dirname } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { log } from "./proc.ts";
 import { ensureDir, errCode, fileVersion, readJson, writeJsonAtomic } from "./state.ts";
 import type { Clock, LedgerEntry, LedgerStage, MediaKind, PublishStatus, WriteMode, WriteTool } from "./types.ts";
@@ -41,6 +44,11 @@ export const LEDGER_TEXT_MAX = 150;
 export const LEDGER_FILE = "ledger.json";
 /** The newest entries keep their pictures in memory; older ones drop them (a loop can be ~100 KB). */
 const PICTURES_KEPT = 20;
+/** Sends whose stills survive a restart (ledger-pictures.json), and the most one send may keep there. */
+export const PICTURES_SAVED = 8;
+const PICTURE_CHARS_SAVED = 64_000;
+export const PICTURES_FILE = "ledger-pictures.json";
+const STILL_RE = /^data:image\/(jpeg|png|webp|avif);base64,[A-Za-z0-9+/=]+$/;
 const NAMES_MAX = 35;
 const NAME_MAX = 120;
 
@@ -88,6 +96,7 @@ const copy = <T>(v: T): T => structuredClone(v);
 export class Ledger {
   private entries: LedgerEntry[] = [];
   private readonly file?: string;
+  private readonly picFile?: string;
   private readonly max: number;
   private loaded = false;
   /** Version of the file last read or written (state.ts fileVersion). */
@@ -104,6 +113,7 @@ export class Ledger {
   ) {
     const o = typeof opts === "number" ? { max: opts } : opts;
     this.file = o.file;
+    this.picFile = o.file ? join(dirname(o.file), PICTURES_FILE) : undefined;
     this.max = o.max ?? LEDGER_SIZE;
     this.account = o.account?.trim() ? accountTag(o.account) : undefined;
   }
@@ -128,6 +138,7 @@ export class Ledger {
     this.entries.push(full);
     this.prune();
     this.save();
+    if (full.poster || full.thumbs?.length) this.savePictures();
     return copy(full);
   }
 
@@ -153,6 +164,7 @@ export class Ledger {
       this.revs.set(e.task_id, (this.revs.get(e.task_id) ?? 0) + 1);
       this.save();
     }
+    if (rest.poster !== undefined) this.savePictures();
     return copy(e);
   }
 
@@ -212,6 +224,54 @@ export class Ledger {
       else if (e.stage === "uploading") Object.assign(e, { stage: "unknown", error_code: "OUTCOME_UNKNOWN" });
     }
     if (n) log(`ledger: loaded ${n} entr${n === 1 ? "y" : "ies"}`);
+    this.loadPictures();
+  }
+
+  /** Stills saved by an earlier server, put back on entries that lost them. Never throws. */
+  private loadPictures(): void {
+    if (!this.picFile) return;
+    const raw = readJson<unknown>(this.picFile, undefined) as { pictures?: Record<string, { poster?: unknown; thumbs?: unknown }> } | undefined;
+    const saved = raw && typeof raw === "object" && raw.pictures && typeof raw.pictures === "object" ? raw.pictures : undefined;
+    if (!saved) return;
+    let n = 0;
+    for (const e of this.entries) {
+      const p = saved[e.task_id];
+      if (!p || e.poster || e.thumbs?.length) continue;
+      if (typeof p.poster === "string" && STILL_RE.test(p.poster)) e.poster = p.poster;
+      if (Array.isArray(p.thumbs)) {
+        const thumbs = p.thumbs.filter((s): s is string => typeof s === "string" && STILL_RE.test(s));
+        if (thumbs.length) e.thumbs = thumbs;
+      }
+      if (e.poster || e.thumbs) n++;
+    }
+    if (n) log(`ledger: ${n} saved picture${n === 1 ? "" : "s"} restored`);
+  }
+
+  /** The newest sends' stills to ledger-pictures.json (never loops, at most PICTURE_CHARS_SAVED each). Never throws. */
+  private savePictures(): void {
+    if (!this.picFile) return;
+    try {
+      const pictures: Record<string, { poster?: string; thumbs?: string[] }> = {};
+      for (const e of this.entries.filter((x) => x.poster || x.thumbs?.length).slice(-PICTURES_SAVED)) {
+        let room = PICTURE_CHARS_SAVED;
+        const keep: { poster?: string; thumbs?: string[] } = {};
+        if (e.poster && STILL_RE.test(e.poster) && e.poster.length <= room) {
+          keep.poster = e.poster;
+          room -= e.poster.length;
+        }
+        for (const s of e.thumbs ?? []) {
+          if (!STILL_RE.test(s) || s.length > room) break;
+          (keep.thumbs ??= []).push(s);
+          room -= s.length;
+        }
+        if (keep.poster || keep.thumbs) pictures[e.task_id] = keep;
+      }
+      writeJsonAtomic(this.picFile, { version: 1, pictures });
+    } catch (error) {
+      const code = errCode(error);
+      if (!this.warned.has(`pic:${code}`)) log(`ledger: couldn't save ${PICTURES_FILE} (${code})`);
+      this.warned.add(`pic:${code}`);
+    }
   }
 
   /** Merge the file into memory if it changed since we last saw it. Returns how many entries it held. */

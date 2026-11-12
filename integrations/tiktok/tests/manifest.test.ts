@@ -120,7 +120,7 @@ describe("permissions", () => {
       {
         kind: "network",
         domains: [
-          "backend.composio.dev", COMPOSIO_UPLOAD_HOST, "*.tiktokcdn-us.com", "*.tiktokcdn.com", "*.tiktokcdn-eu.com",
+          "backend.composio.dev", COMPOSIO_UPLOAD_HOST, "*.tiktokcdn-us.com", "*.tiktokcdn.com", "*.tiktokcdn-eu.com", "*.tiktokv.us", "*.tiktokv.com", "*.tiktokv.eu",
           ...(MEDIA_RELAY_BASE ? [new URL(MEDIA_RELAY_BASE).hostname] : []),
         ],
       },
@@ -132,9 +132,9 @@ describe("permissions", () => {
       { kind: "transcript", scope: "agent" },
     ]);
     if (MEDIA_RELAY_BASE) expect(new URL(MEDIA_RELAY_BASE).protocol).toBe("https:");
-    // TikTok's CDN families only, one label deep (src/covers.ts hostMatches): VoiceOS takes wildcard domains (its
+    // TikTok's CDN families only (tiktokcdn and tiktokv), one label deep (src/covers.ts hostMatches): VoiceOS takes wildcard domains (its
     // bundled grokbot integration declares "*.cursorvm.com"), and src/covers.ts fetches only what these match.
-    for (const h of TIKTOK_IMAGE_HOSTS) expect(h).toMatch(/^\*\.tiktokcdn(-us|-eu)?\.com$/);
+    for (const h of TIKTOK_IMAGE_HOSTS) expect(h).toMatch(/^\*\.(tiktokcdn(-us|-eu)?\.com|tiktokv\.(us|com|eu))$/);
     // Every other domain is an exact host.
     for (const d of manifest.permissions[0].domains.filter((x: string) => !TIKTOK_IMAGE_HOSTS.includes(x))) expect(d).not.toContain("*");
   });

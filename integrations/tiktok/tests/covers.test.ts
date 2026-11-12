@@ -129,11 +129,11 @@ const gated = () => {
 
 describe("allowedImageUrl", () => {
   test("the config lists TikTok's three CDN families as one-label wildcards (the manifest gets the same)", () => {
-    expect([...TIKTOK_IMAGE_HOSTS]).toEqual(["*.tiktokcdn-us.com", "*.tiktokcdn.com", "*.tiktokcdn-eu.com"]);
+    expect([...TIKTOK_IMAGE_HOSTS]).toEqual(["*.tiktokcdn-us.com", "*.tiktokcdn.com", "*.tiktokcdn-eu.com", "*.tiktokv.us", "*.tiktokv.com", "*.tiktokv.eu"]);
   });
 
-  test("any one-label host on tiktokcdn-us.com, tiktokcdn.com or tiktokcdn-eu.com, over https on 443", () => {
-    for (const host of [HOST, "p19-common-sign.tiktokcdn-us.com", "p16-sign.tiktokcdn-us.com", "sf16-va.tiktokcdn.com", "p16-sign-va.tiktokcdn.com", "p16-sign.tiktokcdn-eu.com", "p77-pu-sign-useast8.tiktokcdn-us.com"]) {
+  test("any one-label host on TikTok's tiktokcdn and tiktokv domains, over https on 443", () => {
+    for (const host of [HOST, "image.tiktokv.us", "p0-pu-private-useast8.tiktokv.us", "p19-common-sign.tiktokcdn-us.com", "p16-sign.tiktokcdn-us.com", "sf16-va.tiktokcdn.com", "p16-sign-va.tiktokcdn.com", "p16-sign.tiktokcdn-eu.com", "p77-pu-sign-useast8.tiktokcdn-us.com"]) {
       expect(allowedImageUrl(`https://${host}/obj/x.jpeg?x-expires=1&x-signature=s`)?.hostname).toBe(host);
     }
     expect(allowedImageUrl(`https://${HOST.toUpperCase()}/x.jpeg`)?.hostname).toBe(HOST);

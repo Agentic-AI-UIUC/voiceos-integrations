@@ -37,12 +37,13 @@ export const COMPOSIO_UPLOAD_HOST = "temp.4d4f16c61d89ec64e760039c4ec50717.r2.cl
 /**
  * TikTok's image CDN, for the profile picture and post covers on the result cards (src/covers.ts), as host
  * patterns: "*.<domain>" is exactly one DNS label under the domain (p16-sign.tiktokcdn-us.com, sf16-va.tiktokcdn.com),
- * never the bare domain, a deeper name or a lookalike. TikTok rotates the hosts it hands out, so a list of exact hosts
+ * never the bare domain, a deeper name or a lookalike. TikTok rotates the hosts it hands out, and serves some covers
+ * (photo posts among them) from its tiktokv domains, so a list of exact hosts
  * left pictures missing. The one source for both: src/covers.ts fetches only what these match, and the build writes
  * them into the manifest's network permission as they are (VoiceOS accepts wildcard domains; its own bundled
  * integrations declare them). A refused host is logged by name ("image refused domain …").
  */
-export const TIKTOK_IMAGE_HOSTS: readonly string[] = Object.freeze(["*.tiktokcdn-us.com", "*.tiktokcdn.com", "*.tiktokcdn-eu.com"]);
+export const TIKTOK_IMAGE_HOSTS: readonly string[] = Object.freeze(["*.tiktokcdn-us.com", "*.tiktokcdn.com", "*.tiktokcdn-eu.com", "*.tiktokv.us", "*.tiktokv.com", "*.tiktokv.eu"]);
 
 export interface Config {
   /** COMPOSIO_API_KEY (password preference). Undefined when unset. */

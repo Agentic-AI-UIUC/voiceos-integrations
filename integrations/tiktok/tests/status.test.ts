@@ -111,7 +111,7 @@ const noLog = () => {
 // ---------------------------------------------------------------------------
 
 describe("the ledger on disk", () => {
-  test("round-trips through a restart: names, folder, settings and clipped text; no pictures, paths or tokens", () => {
+  test("round-trips through a restart: names, folder, settings and clipped text; no pictures, paths or tokens in ledger.json (stills come back from ledger-pictures.json)", () => {
     const file = stateFile();
     const c = clockAt();
     const a = new Ledger(c, { file });
@@ -139,9 +139,9 @@ describe("the ledger on disk", () => {
     expect(v2.details).toMatchObject({ privacy_level: "SELF_ONLY", is_aigc: true, caption_copied: true });
     expect(v2.details.caption!.length).toBe(150);
     expect(v2.details.caption!.endsWith("…")).toBe(true);
-    expect(v2.poster).toBeUndefined();
+    expect(v2.poster).toBe("data:image/jpeg;base64,/9j/POSTER");
     expect(b.get(p.task_id)!.media).toMatchObject({ folder: "voice clone safety slides", count: 11, cover_index: 0 });
-    expect(b.get(p.task_id)!.thumbs).toBeUndefined();
+    expect(b.get(p.task_id)!.thumbs).toEqual(a.get(p.task_id)!.thumbs);
     expect(b.byPublishId(p.publish_id!)!.task_id).toBe(p.task_id);
     expect(b.list().map((e) => e.task_id)).toEqual([p.task_id, v.task_id]);
   });

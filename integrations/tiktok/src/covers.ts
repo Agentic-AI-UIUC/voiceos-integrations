@@ -395,9 +395,11 @@ export class RemoteImages {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(new DOMException("Image request timed out", "TimeoutError")), this.fetchTimeoutMs);
     try {
-      const res = await this.fetchImpl(u.href, { method: "GET", redirect: "manual", signal: controller.signal, headers: { accept: ACCEPT } });
+      const at = u;
+      const res = await this.fetchImpl(at.href, { method: "GET", redirect: "manual", signal: controller.signal, headers: { accept: ACCEPT } });
       if (res.status !== 200) {
         await res.body?.cancel().catch(() => {});
+        log(`image http ${res.status} ${loggable(at.hostname)}`);
         throw new Skip("http");
       }
       const type = (res.headers.get("content-type") ?? "").toLowerCase();
