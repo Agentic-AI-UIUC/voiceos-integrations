@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "com.voiceos.generated.composio-todoist",
-  "version": "1.0.14",
+  "version": "1.0.15",
   "name": "Todoist",
   "summary": "Manage Todoist tasks, projects, sections, and labels through Composio OAuth.",
   "description": "Todoist account controls, task/project/section/label actions, and productivity statistics. Actions show consistent confirmation cards; lookups run without confirmation.",
