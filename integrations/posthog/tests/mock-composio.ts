@@ -16,6 +16,8 @@ globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
       return success({ projects: [{ id: 1, name: "Test", api_token: "phc_faketoken12345", secret_api_token: "phs_fakesecret12345" }] });
     case "POSTHOG_LIST_AND_MANAGE_PROJECT_FEATURE_FLAGS":
       return success({ count: 8, results: rows(Math.min(8, args.limit ?? 8), (i) => ({ id: i, key: `flag-${i}`, active: false, filters: { groups: [] } })) });
+    case "POSTHOG_GET_FEATURE_FLAG_DETAILS":
+      return success({ id: args.id, key: `flag-${args.id}`, active: false, filters: { groups: [{ properties: [], rollout_percentage: 25 }] } });
     case "POSTHOG_RETRIEVE_PROJECT_INSIGHTS_WITH_PAGINATION":
       return success({ count: 8, results: rows(Math.min(8, args.limit ?? 8), (i) => ({ id: i, short_id: `s${i}`, name: `Insight ${i}` })) });
     case "POSTHOG_LIST_PROJECT_DASHBOARDS":
