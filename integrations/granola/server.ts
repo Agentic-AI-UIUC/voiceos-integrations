@@ -6,11 +6,12 @@ import { z } from "zod";
 import { Composio } from "@composio/core";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { readFile, rename, writeFile } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 import { renderCustom, renderWidget, vHeader, vList, vNote, vEmpty, markHtml, clip, type Block, type RowItem } from "./widgetKit.ts";
 
-const server = new McpServer({ name: "granola", version: "1.0.2" });
+const server = new McpServer({ name: "granola", version: "1.0.4" });
 const ACCENT = "#b2c248"; // Granola green, sampled from icon.png
 const TOOLKIT = "granola_mcp";
 
@@ -150,8 +151,10 @@ function readSetup(): { apiKey: string; authConfigId: string } {
 }
 
 // Each install gets its own Composio user ID, saved beside the server, so setup doesn't ask for one.
-// GRANOLA_USER_FILE exists only so tests can keep that file out of the folder.
-const USER_FILE = process.env.GRANOLA_USER_FILE || fileURLToPath(new URL("./.composio-user.json", import.meta.url));
+// It lives in the user's home folder, not the integration folder: Publish zips the integration
+// folder, so a file there would ship one person's ID to everyone who installs it.
+// GRANOLA_USER_FILE exists only so tests can use a temp file.
+const USER_FILE = process.env.GRANOLA_USER_FILE || join(homedir(), ".voiceos", "granola-composio-user.json");
 let userIdLoad: Promise<string> | undefined;
 
 function installUserId(): Promise<string> {
@@ -178,6 +181,7 @@ async function loadOrCreateUserId(): Promise<string> {
   }
   const userId = `voiceos-${randomUUID()}`;
   const temp = `${USER_FILE}.${randomUUID()}.tmp`;
+  await mkdir(dirname(USER_FILE), { recursive: true, mode: 0o700 });
   await writeFile(temp, JSON.stringify({ userId }, null, 2), { mode: 0o600 });
   await rename(temp, USER_FILE);
   return userId;

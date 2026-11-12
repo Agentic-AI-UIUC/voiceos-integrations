@@ -104,12 +104,18 @@ describe("manifest", () => {
     expect(callable).toEqual(ACCOUNT_TOOLS);
   });
 
-  test("only connect and disconnect confirm, each with exactly one confirm and one cancel", () => {
+  // Widget cards, like Teams' send and reply cards. VoiceOS showed its generic "{}" box for the
+  // declarative card type.
+  test("only connect and disconnect confirm, each with a widget card and a confirm label", () => {
+    const labels: Record<string, string> = { connect_account: "Continue", disconnect_account: "Disconnect" };
     for (const tool of manifest.tools) {
       expect(Boolean(tool.confirmation)).toBe(CONFIRMED_TOOLS.includes(tool.name));
       if (!tool.confirmation) continue;
-      const roles = tool.confirmation.root.footer.flatMap((block: any) => block.items.map((item: any) => item.role));
-      expect(roles.sort()).toEqual(["cancel", "confirm"]);
+      const root = tool.confirmation.root;
+      expect(root.type).toBe("widget");
+      expect(root.confirmLabel).toBe(labels[tool.name]);
+      expect(root.html).toContain(tool.title);
+      expect(root.html).toContain("k-confirm");
     }
   });
 
@@ -338,6 +344,21 @@ describe("no connected account", () => {
     expect(r.block.type).toBe("widget");
     expect(linkRequests(server)[0].body).toEqual({ toolkit: "granola_mcp" });
     expect(executed(server)).toHaveLength(0);
+  });
+});
+
+describe("install user ID", () => {
+  test("is saved in the home folder, never in the integration folder that Publish zips", async () => {
+    const server = await startServer({ ...SETUP_ENV, GRANOLA_USER_FILE: "" });
+    try {
+      await run(server, "list_recent_meetings", {});
+      const home = server.userFile.slice(0, server.userFile.lastIndexOf("/"));
+      const saved = JSON.parse(readFileSync(join(home, ".voiceos", "granola-composio-user.json"), "utf8"));
+      expect(saved.userId).toMatch(/^voiceos-[0-9a-f-]{36}$/);
+      expect(existsSync(join(ROOT, ".composio-user.json"))).toBe(false);
+    } finally {
+      await server.client.close();
+    }
   });
 });
 

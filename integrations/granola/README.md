@@ -45,7 +45,7 @@ These follow the merged Teams integration, because Integration Studio has no nat
 
 Say "connect Granola", or say "show my Granola connection" and use the Connect button. If you skip this, the first Granola tool you use opens the sign-in as a fallback. Sign in, then ask again.
 
-There is no user ID field. On first use the server creates a Composio user ID for the install (`voiceos-` plus a random UUID) and saves it in `.composio-user.json` next to `server.ts`. That file is git-ignored.
+There is no user ID field. On first use the server creates a Composio user ID for the user (`voiceos-` plus a random UUID) and saves it in `~/.voiceos/granola-composio-user.json`, outside the integration folder, so Publish never ships it and an update that replaces the folder keeps the connection.
 
 The integration supports Mac and Windows. VoiceOS starts it with `run.sh` on Mac and `run.cmd` on Windows. The only platform-specific code opens the sign-in link: `open` on Mac, and `rundll32 url.dll,FileProtocolHandler` on Windows, as Teams does.
 
@@ -71,13 +71,14 @@ Composio publishes no response format for these tools, so the parsing is based o
 
 ## Testing
 
-`bun install && bun test` runs 46 offline tests. They start the real server over MCP with `tests/mock-composio.ts` preloaded. That file replaces `fetch` with a fake Composio that returns the formats above with made-up meetings, so no keys or network are needed. The tests cover:
+`bun install && bun test` runs 47 offline tests. They start the real server over MCP with `tests/mock-composio.ts` preloaded. That file replaces `fetch` with a fake Composio that returns the formats above with made-up meetings, so no keys or network are needed. The tests cover:
 
 - **The manifest:** exactly the four tools plus the account tools, Mac and Windows support, confirmations only on connect and disconnect, declared setup fields, the network allowlist, and matching descriptions and inputs between the server and the manifest.
 - **Opening the sign-in:** `open` on Mac and `rundll32` on Windows, using fake commands on PATH.
 - **Every tool's arguments and results:** escaped titles, the instructions left out, cited sources, long transcripts cut short, and unknown or invalid meeting IDs.
 - **The loading message** each tool sends.
 - **The Composio session:** limited to the four tools, with one user ID per install and no calls to other hosts.
+- **The install's user ID:** saved in the home folder, never in the integration folder.
 - **Sign-in paths:** not connected, expired, a token rejected mid-call, a meeting ID containing `401`, and missing setup.
 - **Connecting and disconnecting:** finished, unfinished and failed sign-in, duplicate connections, a key without write access, and Composio not confirming the disconnect.
 
@@ -101,7 +102,7 @@ Tested live in VoiceOS on Nov 10, 2026:
 
 Connecting only needs read access to Connected accounts. Disconnecting needs write access, because it deletes the connection.
 
-Windows support (version 1.0.2) hasn't run on a Windows machine yet. The offline tests check that Windows is declared and that the sign-in opens with `rundll32` instead of `open`.
+Windows support (since version 1.0.2) hasn't run on a Windows machine yet. The offline tests check that Windows is declared and that the sign-in opens with `rundll32` instead of `open`.
 
 ## Known limitations
 
@@ -110,8 +111,8 @@ Windows support (version 1.0.2) hasn't run on a Windows machine yet. The offline
 - **Search takes about 10 seconds.** That's Granola's own answer time.
 - **The parsing depends on Granola's text format.** If Granola changes the XML-style layout, the parsing needs updating. The fake Composio's fixtures mirror the current format.
 - **Disconnect may leave Granola's token alive for up to 6 hours.** If Composio can't revoke at Granola, the connection is still deleted from Composio, and the message says Granola's access ends when the token expires.
-- **Card buttons get VoiceOS's generic confirmation.** When Connect or Disconnect is clicked on the account card, VoiceOS asks for approval in its own "Confirm action" dialog showing the raw arguments (`{}`), not the tool's confirmation card. Asking by voice should show the tool's own card, but that hasn't been checked live.
-- **A replaced folder means signing in again.** The per-install user ID lives in `.composio-user.json`, so if VoiceOS ever replaces the folder, the user signs in again.
+- **Connect and disconnect get VoiceOS's generic confirmation.** VoiceOS asks for approval in its own "Confirm action" box showing the raw arguments (`{}`), not the tool's confirmation card, both from the account card's buttons and by voice. Switching the cards from the declarative type to widget cards in 1.0.3 didn't change it, so it comes from how VoiceOS handles these tools, not from the cards.
+- **The user ID is per computer account.** It lives in the home folder, so deleting that file means signing in again.
 - **Don't use the Studio's refine or Edit on this folder.** Refine regenerates `server.ts`, and Edit opens a draft from the Studio's stored copy, which is still the original scaffold.
 
 ## Releasing an update in VoiceOS
@@ -122,4 +123,4 @@ As of VoiceOS 0.1.40, VoiceOS re-reads an integration's manifest only after its 
 2. Copy the folder into VoiceOS's install folder, without `.env` or `node_modules`, and run `bun install` there.
 3. Rename `server.ts` to `server.ts.real` and add a stub `server.ts` that renames it back and exits with an error.
 4. Turn Granola off and on in VoiceOS, then click **Try again**. Don't save Granola's settings in between: that restarts it without re-reading the manifest.
-5. Move `.composio-user.json` out of the install folder, click **Publish**, then move it back. Publish zips the folder, and that file holds your own Composio user ID.
+5. Click **Publish**. The user ID lives in your home folder, so it isn't in the published package.
