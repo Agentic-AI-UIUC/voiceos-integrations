@@ -4,10 +4,29 @@ import { ComposioError, describeError } from "../server.ts";
 const linkStatus = (status: string) => async () => status;
 const notConnected = new ComposioError("No connected account", "composio", 404, "ActionExecute_ConnectedAccountNotFound");
 
-test("a missing link says so and where to connect it", async () => {
-  const { error, reconnect } = await describeError(notConnected, linkStatus("NONE"), "default");
-  expect(error).toBe(`Asana isn't connected yet. Connect Asana for Composio user "default" in platform.composio.dev → Connected accounts.`);
-  expect(reconnect).toBe(true);
+test("a missing link says so and hands the user a sign-in link (issue #28: no dashboard, no curl)", async () => {
+  const out = await describeError(notConnected, linkStatus("NONE"), "voiceos-1", async () => "https://connect.example/abc");
+  expect(out).toEqual({
+    error: "Asana isn't connected yet. Open Connect Asana on this card to sign in.",
+    reconnect: true,
+    connect_url: "https://connect.example/abc",
+  });
+});
+
+test("without a link, the message points to a Composio menu that exists (Auth Configs), not 'Connected accounts'", async () => {
+  const out = await describeError(notConnected, linkStatus("NONE"), "voiceos-1", async () => { throw new Error("no auth config"); });
+  expect(out.error).toBe(
+    'Asana isn\'t connected yet. Ask whoever set up this integration to add an Asana auth config in platform.composio.dev → Auth Configs (OAuth2, Composio managed). Composio user: "voiceos-1".',
+  );
+  expect(out.error).not.toContain("Connected accounts");
+  expect(out).not.toHaveProperty("connect_url");
+});
+
+test("errors that reconnecting won't fix never ask Composio for a link", async () => {
+  let asked = false;
+  const badInput = new ComposioError("projects: Not a Long", "tool", 400);
+  await describeError(badInput, linkStatus("ACTIVE"), "u", async () => ((asked = true), "x"));
+  expect(asked).toBe(false);
 });
 
 test("an expired link and a revoked token are told apart", async () => {

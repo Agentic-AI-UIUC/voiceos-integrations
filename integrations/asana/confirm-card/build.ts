@@ -8,6 +8,10 @@
  *   build.ts   the markup (this file), plus a tiny script for the simple cards;
  *              widgetKit wraps markup, CSS and script into one page
  *
+ * delete_project, add_comment and complete_task are declarative "card" confirmations instead
+ * (see `declarative` below): VoiceOS gives widget confirmations only a floating
+ * Confirm and no Cancel (issue #34), while a card's footer has a real Cancel.
+ *
  * Run `bun confirm-card/build.ts` after editing any of them. VoiceOS caches the
  * manifest at install time, so the integration must be refreshed afterwards.
  */
@@ -60,22 +64,6 @@ const menuRow = (key: string, label: string, none: string) => `
 
 const page = (rows: string) => `<div class="as">\n${rows}\n</div>`;
 
-/**
- * For the simple cards: shows the task or project the action targets (read-only —
- * the server re-checks it) and, on complete_task, whether it completes or reopens.
- * Runs before the kit's bridge, which then fills the editable [data-voiceos-key] fields.
- */
-const SIMPLE_SCRIPT = `(function(){
-  addEventListener('message', function (e) {
-    if (e.source !== parent || !e.data || e.data.type !== 'voiceos:init') return;
-    var a = e.data.args || {};
-    document.querySelectorAll('[data-arg]').forEach(function (el) { el.textContent = a[el.getAttribute('data-arg')] || ''; });
-    if (a.completed === false) document.querySelectorAll('[data-reopen]').forEach(function (el) { el.textContent = el.getAttribute('data-reopen'); });
-  });
-})();`;
-
-const ringIcon = `<span class="as-target-ring" aria-hidden="true"></span>`;
-
 const cards: Record<string, { markup: string; height: number; script?: string }> = {
   create_task: {
     markup: page(`${header("New task")}
@@ -110,36 +98,103 @@ ${menuRow("owner", "Owner", "Me")}
 ${menuRow("time_period", "Period", "No time period")}`),
     height: 260,
   },
-  // Irreversible: the card says what goes with the project; the server re-checks name and count.
+};
+
+/** Footer with VoiceOS's own Cancel and Confirm buttons. */
+const actions = (confirm: string, color = "accent") => [
+  {
+    type: "actions",
+    items: [
+      { label: "Cancel", role: "cancel" },
+      { label: confirm, role: "confirm", color },
+    ],
+  },
+];
+
+/** Declarative confirmations; `{{arg}}` shows or binds a tool argument. The server re-checks names and counts. */
+const declarative: Record<string, object> = {
+  // Irreversible: the card says what goes with the project.
   delete_project: {
-    markup: page(`<div class="as-head">${markHtml()}<span class="as-chip as-chip-danger">Delete project</span></div>
-<div class="as-target"><span class="as-target-name" data-arg="project_name"></span></div>
-<div class="as-warn" role="alert">
-<div class="as-warn-title"><span data-arg="tasks_deleted"></span> will be deleted with it</div>
-<div>Subtasks are deleted with their parent task.</div>
-<div>Tasks with an assignee or in another project are kept.</div>
-<div>This can't be undone.</div>
-</div>`),
-    height: 213,
-    script: SIMPLE_SCRIPT,
+    type: "card",
+    title: "Delete project",
+    children: [
+      {
+        type: "stack",
+        direction: "vertical",
+        gap: "md",
+        children: [
+          { type: "text", text: "{{project_name}}", variant: "title", color: "danger" },
+          { type: "divider" },
+          {
+            type: "stack",
+            direction: "vertical",
+            gap: "xs",
+            children: [
+              {
+                type: "text",
+                text: "⚠️ {{tasks_deleted}} will be deleted with it",
+                variant: "subtitle",
+                color: "danger",
+              },
+              { type: "text", text: "Subtasks are deleted with their parent task." },
+              { type: "text", text: "Tasks with an assignee or in another project are kept." },
+              { type: "text", text: "This can't be undone", color: "danger" },
+            ],
+          },
+        ],
+      },
+    ],
+    footer: actions("Delete project", "danger"),
   },
   add_comment: {
-    markup: page(`<div class="as-head">${markHtml()}<span class="as-chip">Add comment</span></div>
-<div class="as-target"><span class="as-lbl">On</span><span class="as-target-name" data-arg="task_name"></span></div>
-<textarea class="as-comment" data-voiceos-key="text" rows="3" placeholder="Write a comment" spellcheck="true"></textarea>`),
-    height: 190,
-    script: SIMPLE_SCRIPT,
+    type: "card",
+    title: "Add comment",
+    children: [
+      {
+        type: "stack",
+        direction: "vertical",
+        gap: "md",
+        children: [
+          // "On <task>" left-aligned on one line, the task name large, as on the old widget card.
+          // Both texts use VoiceOS's default line height ("body" sets 1.55), so aligning their boxes'
+          // bottom edges puts them on one baseline; centring them would not.
+          {
+            type: "stack",
+            direction: "horizontal",
+            gap: "sm",
+            align: "end",
+            children: [
+              { type: "text", text: "On", variant: "caption" },
+              { type: "text", text: "{{task_name}}", variant: "title", maxLines: 1 },
+            ],
+          },
+          {
+            type: "textField",
+            bind: "{{text}}",
+            placeholder: "Write a comment",
+            multiline: true,
+            required: true,
+          },
+        ],
+      },
+    ],
+    footer: actions("Add comment"),
   },
   complete_task: {
-    markup: page(`<div class="as-head">${markHtml()}<span class="as-chip" data-reopen="Reopen task">Complete task</span></div>
-<div class="as-target">${ringIcon}<span class="as-target-name" data-arg="task_name"></span></div>
-<div class="as-note" data-reopen="It will be marked incomplete again in Asana.">It will be marked complete in Asana.</div>`),
-    height: 150,
-    script: SIMPLE_SCRIPT,
+    type: "card",
+    title: "Complete task",
+    children: [{ type: "text", text: "{{task_name}}", variant: "title" }],
+    footer: actions("Confirm"),
   },
 };
 
 const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+for (const [name, root] of Object.entries(declarative)) {
+  const tool = manifest.tools.find((t: any) => t.name === name);
+  if (!tool?.confirmation) throw new Error(`${name} has no confirmation card in the manifest`);
+  tool.confirmation = { schemaVersion: 1, root };
+  console.log(`${name} confirmation card: declarative card`);
+}
 for (const [name, { markup, height, script }] of Object.entries(cards)) {
   // The card script must run before widgetKit's bridge script, which renderCustom appends after the body.
   const card = renderCustom({

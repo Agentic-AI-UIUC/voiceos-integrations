@@ -26,7 +26,10 @@ test("handles Windows line endings", () => {
 test("a filled Setup field (env var) wins; a blank one (\"\") falls back to .env", async () => {
   const { loadEnvFile } = await import("../server.ts");
   const { mkdtempSync, writeFileSync } = await import("node:fs");
-  const file = `${mkdtempSync("/tmp/env-test-")}/.env`;
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  // os.tmpdir(), not a hard-coded /tmp, so this also runs on Windows.
+  const file = join(mkdtempSync(join(tmpdir(), "env-test-")), ".env");
   writeFileSync(file, "FROM_SETUP=from-dotenv\nBLANK_SETUP=from-dotenv\n");
   process.env.FROM_SETUP = "from-setup";
   process.env.BLANK_SETUP = "";
