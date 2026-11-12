@@ -405,6 +405,14 @@ function scopeFromMessage(message: string): string | undefined {
   return m?.[1];
 }
 
+/**
+ * TikTok's error codes are snake_case words ("spam_risk_too_many_posts"); Composio's are numbers or PascalCase slugs.
+ * An object with such a code and TikTok's message or log_id is TikTok's own error, listed in TIKTOK_CODE_MAP or not.
+ */
+const TIKTOK_CODE_SHAPE = /^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$/;
+const isTikTokErrorObject = (o: Record<string, unknown>) =>
+  typeof o.code === "string" && (Boolean(TIKTOK_CODE_MAP[o.code]) || (TIKTOK_CODE_SHAPE.test(o.code) && ("log_id" in o || "message" in o)));
+
 /** Codes found inside free text, longest first so `spam_risk_too_many_posts` wins over shorter keys. */
 const SCANNABLE = Object.keys(TIKTOK_CODE_MAP).sort((a, b) => b.length - a.length);
 
@@ -417,12 +425,14 @@ function scanText(text: string): TikTokError | undefined {
   return undefined;
 }
 
+/** Composio's own refusals (connection, key, rate limit), by its slug. `source: "composio"`: Composio answered them itself. */
 function fromComposioSlug(slug: string, message: string): TikTokError | undefined {
-  if (/ConnectedAccountNotFound|NoConnectedAccount|ConnectedAccount_NotFound/i.test(slug)) return new TikTokError("NOT_CONNECTED", { message });
-  if (/Expired/i.test(slug)) return new TikTokError("AUTH_EXPIRED", { message });
-  if (/Inactive|Disabled|Revoked/i.test(slug)) return new TikTokError("AUTH_REVOKED", { message });
-  if (/Unauthori[sz]ed|InvalidApiKey|ApiKey|Forbidden/i.test(slug)) return new TikTokError("NOT_CONFIGURED", { reason: "key_rejected" });
-  if (/RateLimit|TooManyRequests/i.test(slug)) return new TikTokError("RATE_LIMITED", { message });
+  const source = "composio";
+  if (/ConnectedAccountNotFound|NoConnectedAccount|ConnectedAccount_NotFound/i.test(slug)) return new TikTokError("NOT_CONNECTED", { message, source });
+  if (/Expired/i.test(slug)) return new TikTokError("AUTH_EXPIRED", { message, source });
+  if (/Inactive|Disabled|Revoked/i.test(slug)) return new TikTokError("AUTH_REVOKED", { message, source });
+  if (/Unauthori[sz]ed|InvalidApiKey|ApiKey|Forbidden/i.test(slug)) return new TikTokError("NOT_CONFIGURED", { reason: "key_rejected", source });
+  if (/RateLimit|TooManyRequests/i.test(slug)) return new TikTokError("RATE_LIMITED", { message, source });
   return undefined;
 }
 
@@ -462,10 +472,10 @@ export function normalizeError(raw: unknown, ctx: NormalizeContext = {}, depth =
     const o = raw as Record<string, unknown>;
     const status = typeof o.composioStatus === "number" ? o.composioStatus : typeof o.status === "number" ? o.status : ctx.status;
     const next = { ...ctx, status };
-    if (typeof o.code === "string" && TIKTOK_CODE_MAP[o.code]) return tiktokErrorFrom(o as never);
+    if (isTikTokErrorObject(o)) return tiktokErrorFrom(o as never);
     if (o.error && typeof o.error === "object") {
       const inner = normalizeError(o.error, next, depth + 1);
-      if (inner.code !== "UNKNOWN") return inner;
+      if (inner.code !== "UNKNOWN" || inner.detail.tiktok_code !== undefined) return inner;
     }
     const message = s(o.message ?? (typeof o.error === "string" ? o.error : ""));
     if (typeof o.slug === "string") {

@@ -56,10 +56,11 @@ const writeOutcomeLost = (status: number) => status >= 500;
  * A write's app failure (HTTP 200 + successful:false) without TikTok's own error code has an unknown outcome.
  * Composio ran the tool, and its words alone can't say whether TikTok already has the post: its backend may have lost
  * TikTok's answer (a timeout, a dropped connection, a 5xx), or failed at a step after TikTok accepted the init. A
- * failure reported as "failed" gets sent again, and a second send is a duplicate post (QA, PR 47); with TikTok's
- * code, TikTok itself refused, and the code keeps its meaning.
+ * failure reported as "failed" gets sent again, and a second send is a duplicate post (QA, PR 47). Two kinds keep
+ * their meaning: TikTok's own error (any code, listed or not: TikTok refused it), and Composio's own refusal by its
+ * slug (connection, key or rate limit: answered before the tool reached TikTok, and worth its own advice).
  */
-const writeAppFailureUnknown = (err: TikTokError) => err.detail.tiktok_code === undefined;
+const writeAppFailureUnknown = (err: TikTokError) => err.detail.tiktok_code === undefined && err.detail.source !== "composio";
 /** What a fresh account check can conclude; anything else means the check itself couldn't run. */
 const ACCOUNT_CODES = new Set<TikTokErrorCode>(["NOT_CONFIGURED", "NOT_CONNECTED", "AUTH_EXPIRED", "AUTH_REVOKED"]);
 const ENVELOPE_KEYS = new Set(["data", "error", "successful", "log_id"]);
@@ -149,7 +150,9 @@ function appFailure(json: Record<string, any>, slug: string): TikTokError {
   const has = (v: unknown) => v !== undefined && v !== null && v !== "";
   const fromError = has(json.error) ? normalizeError(json.error, { slug }) : undefined;
   const fromData = has(json.data) ? normalizeError(json.data, { slug }) : undefined;
-  if (fromData && fromData.code !== "UNKNOWN" && (!fromError || fromError.code === "UNKNOWN" || fromError.code === fromData.code)) return fromData;
+  // TikTok's structured error, even one our map doesn't list, says more than Composio's generic text.
+  const tiktokSaid = (e: TikTokError) => e.code !== "UNKNOWN" || e.detail.tiktok_code !== undefined;
+  if (fromData && tiktokSaid(fromData) && (!fromError || fromError.code === "UNKNOWN" || fromError.code === fromData.code)) return fromData;
   return fromError ?? fromData ?? new TikTokError("UNKNOWN", { slug });
 }
 

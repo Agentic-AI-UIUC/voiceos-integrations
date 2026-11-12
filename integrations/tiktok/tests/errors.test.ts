@@ -97,6 +97,21 @@ describe("normalizeError", () => {
   test("a code inside a longer identifier isn't matched", () => {
     expect(normalizeError("xinvalid_param_name is fine").code).toBe("UNKNOWN");
   });
+  test("a TikTok error object our map doesn't list keeps TikTok's code and message (a write then reads as refused, not unknown)", () => {
+    const e = normalizeError({ data: {}, error: { code: "video_too_long_for_inbox", message: "Too long for the inbox.", log_id: "202611120000AA" } });
+    expect(e.code).toBe("UNKNOWN");
+    expect(e.detail).toMatchObject({ tiktok_code: "video_too_long_for_inbox", message: "Too long for the inbox.", log_id: "202611120000AA" });
+    // Not TikTok's shape: Composio's numeric codes, one-word codes, and objects without a message or log_id.
+    for (const raw of [{ code: 812, message: "x" }, { code: "error", message: "x" }, { code: "Some_Code", message: "x" }, { code: "video_too_long" }]) {
+      expect(normalizeError(raw).detail.tiktok_code).toBeUndefined();
+    }
+  });
+  test("Composio's own refusals by slug say Composio answered them", () => {
+    for (const slug of ["ActionExecute_ConnectedAccountNotFound", "ConnectedAccountExpired", "ConnectedAccountInactive", "InvalidApiKey", "RateLimit_Exceeded"]) {
+      expect(normalizeError({ error: { message: "x", slug } }).detail.source).toBe("composio");
+    }
+    expect(normalizeError({ composioStatus: 429 }).detail.source).toBeUndefined();
+  });
   test("Composio slugs and statuses", () => {
     expect(normalizeError({ error: { message: "no account", slug: "ActionExecute_ConnectedAccountNotFound", status: 404 } }).code).toBe("NOT_CONNECTED");
     expect(normalizeError({ composioStatus: 401, message: "bad key" }, { composioOwn: true }).code).toBe("NOT_CONFIGURED");

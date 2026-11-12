@@ -593,6 +593,31 @@ describe("writes: never retried; a lost answer is OUTCOME_UNKNOWN", () => {
     });
   }
 
+  // Review of the QA fix: two kinds of app failure aren't unknown. TikTok's own error refused the write, listed in our
+  // map or not, and Composio's own refusal by slug came before the tool reached TikTok (and has its own advice).
+  test("TikTok's own error code on a write keeps its meaning even when our map doesn't list it", async () => {
+    const unlisted = { code: "video_too_long_for_inbox", message: "The video is too long for the inbox." };
+    mock.once("TIKTOK_UPLOAD_VIDEO", () => ({ json: { successful: false, error: "Request failed", data: tiktokBody({}, unlisted) } }));
+    mock.once("TIKTOK_UPLOAD_VIDEO", () => ({ json: { successful: false, error: { ...unlisted, log_id: "202611120000AA" }, data: null } }));
+    const { client, soon } = setup();
+    for (let i = 0; i < 2; i++) {
+      const e = await failure(client.exec("TIKTOK_UPLOAD_VIDEO", videoDraftArgs(staged), { deadline: soon(), write: true }));
+      expect(e.code).toBe("UNKNOWN");
+      expect(e.detail.tiktok_code).toBe("video_too_long_for_inbox");
+      expect(e.card).toContain("The video is too long for the inbox.");
+    }
+    expect(mock.executes().length).toBe(2);
+  });
+
+  test("Composio's own refusal by slug inside an HTTP 200 keeps its advice (reconnect), not OUTCOME_UNKNOWN", async () => {
+    mock.on("TIKTOK_UPLOAD_VIDEO", () => ({ json: { successful: false, error: { message: "Connected account expired", slug: "ConnectedAccountExpired" }, data: null } }));
+    const { client, soon } = setup();
+    const e = await failure(client.exec("TIKTOK_UPLOAD_VIDEO", videoDraftArgs(staged), { deadline: soon(), write: true }));
+    expect(e.code).toBe("AUTH_EXPIRED");
+    expect(e.detail.source).toBe("composio");
+    expect(mock.executes().length).toBe(1);
+  });
+
   test("the same app failure on a read is an ordinary failure, not OUTCOME_UNKNOWN", async () => {
     mock.on("TIKTOK_GET_USER_STATS", () => ({ json: { successful: false, error: "Something went wrong while processing the request", data: null } }));
     const { client, soon } = setup();

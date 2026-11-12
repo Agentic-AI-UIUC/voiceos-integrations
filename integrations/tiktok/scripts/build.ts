@@ -176,7 +176,7 @@ const description =
   // The transcript permission (src/conversation.ts), said plainly on the detail page.
   " To keep track of the video you're working on across turns (\"make it a post\", \"the other one\"), it reads what you say to the VoiceOS agent as you say it and adds a short note about that video; the words it reads aren't kept, and the note goes only to the VoiceOS agent." +
   // What stays on the computer (src/ledger.ts), so "did it go up?" works after a restart (QA, PR 47).
-  " On this computer it keeps a record of your recent sends for 30 days, with file names and the captions, titles and descriptions you approved.";
+  " On this computer it keeps a record of your recent sends for 30 days, with file names and the captions, titles and descriptions you approved, and small stills of the latest ones.";
 
 // Shown right above the Configure fields, where setup happens (Studio brief "Manifest" → setupGuide).
 const setupGuide = {

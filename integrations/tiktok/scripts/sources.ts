@@ -15,9 +15,13 @@ export const BUILD_BUN_VERSION = "1.3.14";
 /** Where VoiceOS keeps that Bun on a Mac. */
 export const VOICEOS_BUN = "/Applications/VoiceOS.app/Contents/Resources/bun-runtime/bun";
 
-/** Everything the bundle is made from: src/ (with widgetKit.ts, which src/cards.ts inlines), the cards, the build and the pinned dependencies. */
-const INPUTS = ["src", "confirm-card", "widgetKit.ts", "scripts/build.ts", "scripts/sources.ts", "package.json", "bun.lock"];
-const SOURCE_FILE = /\.(ts|js|css|json|lock)$/;
+/**
+ * Everything the bundle is made from: src/ (with widgetKit.ts, which src/cards.ts inlines), the cards, the build and
+ * package.json's exact dependency pins. Not bun.lock: the club CI runs a plain `bun install`, which may rewrite it.
+ * Files are read from the folder, as the bundler reads them, so a source file left out of the commit fails CI too.
+ */
+const INPUTS = ["src", "confirm-card", "widgetKit.ts", "scripts/build.ts", "scripts/sources.ts", "package.json"];
+const SOURCE_FILE = /\.(ts|js|css|json)$/;
 
 function filesUnder(root: string, rel: string): string[] {
   if (!statSync(join(root, rel)).isDirectory()) return [rel];
