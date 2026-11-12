@@ -176,7 +176,7 @@
         "properties": {
           "local_path": {
             "type": "string",
-            "description": "Local file to upload, e.g. '~/Downloads/Report.pdf' or '~/Desktop/photo.jpg'. Leave empty when creating a text file from content"
+            "description": "Local file to upload, e.g. '~/Downloads/Report.pdf' or '~/Desktop/photo.jpg'. Must be in the user's Desktop, Documents, Downloads, Pictures, Movies, Videos or Music folder. Leave empty when creating a text file from content"
           },
           "file_name": {
             "type": "string",

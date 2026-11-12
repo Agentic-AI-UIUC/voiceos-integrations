@@ -556,26 +556,57 @@ export function mimeTypeOf(name: string): string {
   return MIME_TYPES[path.extname(name).slice(1).toLowerCase()] || "application/octet-stream";
 }
 
+/** The only folders under home that upload_file reads from. */
+export const UPLOAD_FOLDERS = ["Desktop", "Documents", "Downloads", "Pictures", "Movies", "Videos", "Music"];
+const UPLOAD_FOLDER_SET = new Set(UPLOAD_FOLDERS.map((f) => f.toLowerCase()));
+/** Windows "known folder move" puts Desktop/Documents/Pictures under ~/OneDrive or ~/OneDrive - Org. */
+const ONEDRIVE_ROOT = /^onedrive( - .+)?$/i;
+
+type UploadEnv = { home?: string; platform?: NodeJS.Platform };
+
+/**
+ * Throws unless `file` (absolute) is inside one of UPLOAD_FOLDERS under home.
+ * An allowlist, not a blocklist: ~/Library, AppData, /etc and the like are
+ * never sent, even when a document's text asks the model to upload them.
+ */
+export function assertUploadFolder(file: string, raw: string, { home = os.homedir(), platform = process.platform }: UploadEnv = {}): void {
+  const p = platform === "win32" ? path.win32 : path.posix;
+  // macOS and Windows file systems ignore case; win32.relative already does.
+  const fold = (s: string) => (platform === "darwin" ? s.toLowerCase() : s);
+  const rel = p.relative(fold(home), fold(file));
+  const parts = rel.split(p.sep);
+  if (platform === "win32" && parts.length > 1 && ONEDRIVE_ROOT.test(parts[0])) parts.shift();
+  const inside = rel !== "" && parts[0] !== ".." && !p.isAbsolute(rel) && UPLOAD_FOLDER_SET.has(parts[0].toLowerCase());
+  if (!inside) {
+    throw new Error(
+      `upload_file only sends files from your ${UPLOAD_FOLDERS.slice(0, -1).join(", ")} or ${UPLOAD_FOLDERS.at(-1)} folders, and "${raw}" is outside them. Move the file into one of those folders, then ask again.`,
+    );
+  }
+}
+
 /**
  * The local file the user named, as an absolute path: "~/Downloads/a.pdf",
  * "Downloads/a.pdf" (relative to home) or "/Users/…". Refuses hidden files and
- * folders (~/.ssh, ~/.aws, …) so a stray instruction can't ship credentials.
+ * folders (~/.ssh, ~/Documents/.env, …) and anything outside UPLOAD_FOLDERS.
  */
-export function localUploadPath(raw: string): string {
-  let p = String(raw || "").trim().replace(/^file:\/\//i, "");
-  if (!p) throw new Error("No local file was given to upload.");
-  if (p === "~" || /^~[\/\\]/.test(p)) p = path.join(os.homedir(), p.slice(1));
-  else if (!path.isAbsolute(p)) p = path.join(os.homedir(), p);
-  p = path.normalize(p);
-  if (p.split(path.sep).some((part) => part.startsWith("."))) {
+export function localUploadPath(raw: string, env: UploadEnv = {}): string {
+  const home = env.home ?? os.homedir();
+  const p = (env.platform ?? process.platform) === "win32" ? path.win32 : path.posix;
+  let file = String(raw || "").trim().replace(/^file:\/\//i, "");
+  if (!file) throw new Error("No local file was given to upload.");
+  if (file === "~" || /^~[\/\\]/.test(file)) file = p.join(home, file.slice(1));
+  else if (!p.isAbsolute(file)) file = p.join(home, file);
+  file = p.normalize(file);
+  if (file.split(p.sep).some((part) => part.startsWith("."))) {
     throw new Error(`"${raw}" is in a hidden file or folder, which upload_file won't send to OneDrive.`);
   }
-  return p;
+  assertUploadFolder(file, raw, { ...env, home });
+  return file;
 }
 
 /** Reads the file to upload, with errors that tell the user what to say instead. */
-export async function readLocalUpload(raw: string): Promise<{ file: string; bytes: Buffer }> {
-  const requested = localUploadPath(raw);
+export async function readLocalUpload(raw: string, env: UploadEnv = {}): Promise<{ file: string; bytes: Buffer }> {
+  const requested = localUploadPath(raw, env);
   let file: string;
   try {
     file = await fs.promises.realpath(requested);
@@ -588,7 +619,11 @@ export async function readLocalUpload(raw: string): Promise<{ file: string; byte
     );
     throw new Error(`There's no file at ${requested}.${near.length ? ` Files with a similar name in ${dir}: ${near.join(", ")}.` : ""}`);
   }
-  localUploadPath(file); // a link must not lead into a hidden folder either
+  // A link must not lead into a hidden folder or out of the allowed ones.
+  // Compare against the resolved home too, in case home itself is a link.
+  const home = env.home ?? os.homedir();
+  const realHome = await fs.promises.realpath(home).catch(() => home);
+  localUploadPath(file, { ...env, home: realHome });
   const stat = await fs.promises.stat(file);
   if (stat.isDirectory()) throw new Error(`${file} is a folder; upload_file sends one file at a time.`);
   if (stat.size === 0) throw new Error(`${file} is empty, and OneDrive's upload can't take a 0-byte file.`);
@@ -1259,7 +1294,7 @@ registerTool(
     title: "Upload file",
     description: "Upload a file from the user's computer to Microsoft OneDrive (any type: PDF, Word, Excel, images, …, up to 20 MB), or create a new text file (e.g. .txt or .md) from text the user dictates or that you compose. Use when the user asks to upload, send, back up, or copy a file from their computer to OneDrive (pass local_path, e.g. '~/Downloads/Report.pdf'), or to create, write, or save a note or text file in OneDrive (pass file_name and content). Never overwrites: if the name is taken OneDrive picks a new one, which the result reports.",
     inputSchema: {
-      local_path: z.string().optional().describe("Local file to upload, e.g. '~/Downloads/Report.pdf' or '~/Desktop/photo.jpg'. Leave empty when creating a text file from content"),
+      local_path: z.string().optional().describe("Local file to upload, e.g. '~/Downloads/Report.pdf' or '~/Desktop/photo.jpg'. Must be in the user's Desktop, Documents, Downloads, Pictures, Movies, Videos or Music folder. Leave empty when creating a text file from content"),
       file_name: z.string().optional().describe("Name for the file in OneDrive, including extension (e.g. 'Notes.md'). Required for a text file; for a local file, defaults to its current name"),
       content: z.string().optional().describe("Text content of a new text file. Leave empty when uploading a local file"),
       folder_path: z.string().optional().describe("Destination OneDrive folder path relative to the root (default: 'Documents'; '/' for the root)"),
