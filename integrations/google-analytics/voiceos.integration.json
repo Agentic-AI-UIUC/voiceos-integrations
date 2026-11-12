@@ -1,0 +1,239 @@
+{
+  "schemaVersion": 1,
+  "id": "com.voiceos.generated.google-analytics",
+  "version": "1.0.0",
+  "name": "Google Analytics",
+  "summary": "Ask about your Google Analytics 4 traffic: reports, live visitors and metrics.",
+  "description": "Ask VoiceOS about your website or app traffic in Google Analytics 4: visitors, page views, top pages, sources and countries for any date range, compared with an earlier period, and who is on your site right now. Read-only. Connects to your Google account through Composio (OAuth2).",
+  "supportedPlatforms": [
+    "darwin",
+    "win32"
+  ],
+  "publisher": {
+    "id": "lothronx",
+    "name": "Yue Wu"
+  },
+  "runtime": {
+    "kind": "local-mcp",
+    "command": "/bin/zsh",
+    "args": [
+      "run.sh"
+    ]
+  },
+  "permissions": [
+    {
+      "kind": "network",
+      "domains": [
+        "backend.composio.dev"
+      ]
+    }
+  ],
+  "preferences": [
+    {
+      "name": "COMPOSIO_API_KEY",
+      "title": "Composio API key (temporary, for testing)",
+      "description": "Temporary field for testing; it will be removed before release. Leave blank to use COMPOSIO_API_KEY from the integration's .env.",
+      "type": "password",
+      "required": false
+    },
+    {
+      "name": "GA4_PROPERTY_ID",
+      "title": "Default GA4 property ID",
+      "description": "Digits only, e.g. 123456789.",
+      "type": "text",
+      "required": false,
+      "placeholder": "123456789"
+    }
+  ],
+  "setupGuide": {
+    "title": "Setup",
+    "collapsedByDefault": false,
+    "blocks": [
+      {
+        "type": "heading",
+        "text": "Find your property ID"
+      },
+      {
+        "type": "text",
+        "text": "Google Analytics → Admin → Property → Property details → PROPERTY ID. (Digits only. Not the G-… Measurement ID.)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "run_report",
+      "title": "Run report",
+      "description": "Visitors, page views, top pages and sources for any date range.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "property_id": {
+            "type": "string",
+            "description": "GA4 property ID (digits, e.g. 123456789). Omit to use the default from Setup."
+          },
+          "metrics": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "maxItems": 10,
+            "description": "Metric API names to count, 1 to 10, e.g. [\"activeUsers\"]"
+          },
+          "dimensions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 9,
+            "description": "Dimension API names to group by, up to 9, e.g. [\"pagePath\"]. Omit for totals only."
+          },
+          "start_date": {
+            "type": "string",
+            "description": "YYYY-MM-DD, \"today\", \"yesterday\" or \"NdaysAgo\". Default \"7daysAgo\"."
+          },
+          "end_date": {
+            "type": "string",
+            "description": "YYYY-MM-DD, \"today\", \"yesterday\" or \"NdaysAgo\". Default \"today\"."
+          },
+          "compare_start_date": {
+            "type": "string",
+            "description": "Start of an earlier period to compare with, same formats. Set together with compare_end_date."
+          },
+          "compare_end_date": {
+            "type": "string",
+            "description": "End of the earlier period to compare with."
+          },
+          "filter": {
+            "type": "object",
+            "properties": {
+              "dimension": {
+                "type": "string",
+                "description": "Dimension API name, e.g. \"country\" or \"eventName\". It need not be in dimensions."
+              },
+              "value": {
+                "type": "string",
+                "description": "Exact value to keep, e.g. \"United States\" or \"sign_up_click\"."
+              }
+            },
+            "required": [
+              "dimension",
+              "value"
+            ],
+            "additionalProperties": false,
+            "description": "Keep only rows where this dimension equals this value."
+          },
+          "order_by": {
+            "type": "string",
+            "description": "A metric or dimension from this request to sort by. Default: the first metric."
+          },
+          "descending": {
+            "type": "boolean",
+            "description": "Sort high to low (default true). Use false for dates in time order."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Maximum rows (default 10). totals and row_count always cover every matching row."
+          }
+        },
+        "required": [
+          "metrics"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "run_realtime_report",
+      "title": "Run realtime report",
+      "description": "See who's on your site right now and which pages they're on.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "property_id": {
+            "type": "string",
+            "description": "GA4 property ID (digits, e.g. 123456789). Omit to use the default from Setup."
+          },
+          "metrics": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 10,
+            "description": "Metric API names, up to 10. Default [\"activeUsers\"]."
+          },
+          "dimensions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 9,
+            "description": "Dimension API names to group by, up to 9, e.g. [\"unifiedScreenName\"]. Omit for totals only."
+          },
+          "filter": {
+            "type": "object",
+            "properties": {
+              "dimension": {
+                "type": "string",
+                "description": "Dimension API name, e.g. \"country\" or \"eventName\". It need not be in dimensions."
+              },
+              "value": {
+                "type": "string",
+                "description": "Exact value to keep, e.g. \"United States\" or \"sign_up_click\"."
+              }
+            },
+            "required": [
+              "dimension",
+              "value"
+            ],
+            "additionalProperties": false,
+            "description": "Keep only rows where this dimension equals this value."
+          },
+          "order_by": {
+            "type": "string",
+            "description": "A metric or dimension from this request to sort by. Default: the first metric."
+          },
+          "descending": {
+            "type": "boolean",
+            "description": "Sort high to low (default true). Use false for dates in time order."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Maximum rows (default 10). totals and row_count always cover every matching row."
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "get_metadata",
+      "title": "Get metadata",
+      "description": "List the metrics and dimensions you can ask about.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "property_id": {
+            "type": "string",
+            "description": "GA4 property ID (digits, e.g. 123456789). Omit to use the default from Setup."
+          },
+          "category": {
+            "type": "string",
+            "description": "Only this category, e.g. \"Page / Screen\", \"User\", \"Session\", \"Geography\", \"Traffic Source\", \"Event\"."
+          },
+          "search": {
+            "type": "string",
+            "description": "Only fields whose API or display name contains these words, e.g. \"view\"."
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    }
+  ],
+  "icon": "icon.png"
+}

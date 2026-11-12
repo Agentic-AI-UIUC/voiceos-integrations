@@ -1,0 +1,297 @@
+{
+  "originalPrompt": "## Context & Goal\n\nIntegrate the Google Analytics toolkit into VoiceOS via Composio using OAuth2. This enables the VoiceOS agent to run analytics reports and retrieve metadata on behalf of authenticated users.\n\n## Implementation Requirements\n\n- Use **Composio** as the MCP provider for all Google Analytics tool calls\n- Auth method: **OAuth2** — implement the Composio OAuth2 connection flow for Google Analytics\n- Expose only the following **approved tools** (no others):\n    - `Run report`\n    - `Run realtime report`\n    - `Get metadata`\n- UX/UI requirements:\n    - OAuth2 connect/disconnect UI for Google Analytics account linking\n    - Loading states during report queries\n    - Success/error toast notifications for failed queries\n    - Clear error messaging if OAuth token expires or is revoked\n\n## Relevant Files / Code Paths\n\n- Composio SDK integration layer\n- OAuth2 connection flow component\n- Tool execution handler\n\n## Acceptance Criteria\n\n- [ ]  Google Analytics OAuth2 connection flow works end-to-end via Composio\n- [ ]  All 3 approved tools are callable by the VoiceOS agent\n- [ ]  No unapproved tools are exposed\n- [ ]  Loading states render correctly during report queries\n- [ ]  OAuth token refresh is handled gracefully\n\naction descriptions in the Actions panel get cut off after two lines with no way to expand. Keep them short and user-facing (agent instructions don't need to be shown there)",
+  "preview": {
+    "utterances": [
+      "How many people are on my site right now, and which pages?",
+      "How did my page views this week compare to last week?",
+      "What page metrics can I query?"
+    ],
+    "toolPreviews": [
+      {
+        "tool": "run_report",
+        "sampleArgs": {
+          "metrics": [
+            "sessions"
+          ],
+          "dimensions": [
+            "pagePath"
+          ],
+          "start_date": "7daysAgo",
+          "end_date": "today",
+          "limit": 4
+        },
+        "stressCases": [
+          {
+            "state": "empty",
+            "sampleArgs": {
+              "metrics": [
+                "keyEvents"
+              ],
+              "start_date": "today",
+              "end_date": "today"
+            },
+            "sampleData": {
+              "dimensionHeaders": [],
+              "metricHeaders": [
+                {
+                  "name": "keyEvents",
+                  "type": "TYPE_INTEGER"
+                }
+              ],
+              "rows": [],
+              "rowCount": 0,
+              "totals": [
+                {}
+              ]
+            },
+            "expected": "Empty state: 'No data for this period' with the hint that a new property can take a day."
+          },
+          {
+            "state": "single",
+            "sampleArgs": {
+              "metrics": [
+                "sessions"
+              ],
+              "dimensions": [
+                "pagePath"
+              ],
+              "limit": 1
+            },
+            "sampleData": {
+              "dimensionHeaders": [
+                {
+                  "name": "pagePath"
+                }
+              ],
+              "metricHeaders": [
+                {
+                  "name": "sessions",
+                  "type": "TYPE_INTEGER"
+                }
+              ],
+              "rows": [
+                {
+                  "dimensionValues": [
+                    {
+                      "value": "/home"
+                    }
+                  ],
+                  "metricValues": [
+                    {
+                      "value": "2450"
+                    }
+                  ]
+                }
+              ],
+              "rowCount": 1,
+              "totals": [
+                {
+                  "dimensionValues": [
+                    {
+                      "value": "RESERVED_TOTAL"
+                    }
+                  ],
+                  "metricValues": [
+                    {
+                      "value": "2450"
+                    }
+                  ]
+                }
+              ]
+            },
+            "expected": "Sessions total 2.5k as a stat, and one row: /home 2.5k."
+          },
+          {
+            "state": "long-text",
+            "sampleArgs": {
+              "metrics": [
+                "sessions"
+              ],
+              "dimensions": [
+                "pagePath"
+              ]
+            },
+            "sampleData": {
+              "dimensionHeaders": [
+                {
+                  "name": "pagePath"
+                }
+              ],
+              "metricHeaders": [
+                {
+                  "name": "sessions",
+                  "type": "TYPE_INTEGER"
+                }
+              ],
+              "rows": [
+                {
+                  "dimensionValues": [
+                    {
+                      "value": "/enterprise-solutions/cloud-infrastructure/data-analytics-and-machine-learning-platform/customer-case-studies/2024-global-financial-services-transformation-overview"
+                    }
+                  ],
+                  "metricValues": [
+                    {
+                      "value": "18400"
+                    }
+                  ]
+                }
+              ]
+            },
+            "expected": "The long path stays on one line, cut with an ellipsis."
+          },
+          {
+            "state": "error",
+            "sampleArgs": {
+              "metrics": [
+                "sessions"
+              ],
+              "property_id": "123456789"
+            },
+            "sampleData": {
+              "error": "User does not have sufficient permissions for GA4 property",
+              "code": 403
+            },
+            "expected": "Error card: the connected Google account can't access this property. No reconnect row."
+          }
+        ]
+      },
+      {
+        "tool": "run_realtime_report",
+        "sampleArgs": {
+          "dimensions": [
+            "unifiedScreenName"
+          ],
+          "limit": 4
+        },
+        "stressCases": [
+          {
+            "state": "empty",
+            "sampleArgs": {},
+            "sampleData": {
+              "dimensionHeaders": [],
+              "metricHeaders": [
+                {
+                  "name": "activeUsers",
+                  "type": "TYPE_INTEGER"
+                }
+              ],
+              "rows": [],
+              "rowCount": 0,
+              "totals": [
+                {
+                  "metricValues": [
+                    {
+                      "value": "0"
+                    }
+                  ]
+                }
+              ]
+            },
+            "expected": "Empty state: 'No one on the site right now'."
+          },
+          {
+            "state": "single",
+            "sampleArgs": {
+              "dimensions": [
+                "unifiedScreenName"
+              ]
+            },
+            "sampleData": {
+              "dimensionHeaders": [
+                {
+                  "name": "unifiedScreenName"
+                }
+              ],
+              "metricHeaders": [
+                {
+                  "name": "activeUsers",
+                  "type": "TYPE_INTEGER"
+                }
+              ],
+              "rows": [
+                {
+                  "dimensionValues": [
+                    {
+                      "value": "/pricing"
+                    }
+                  ],
+                  "metricValues": [
+                    {
+                      "value": "14"
+                    }
+                  ]
+                }
+              ],
+              "totals": [
+                {
+                  "metricValues": [
+                    {
+                      "value": "14"
+                    }
+                  ]
+                }
+              ]
+            },
+            "expected": "14 active users as a stat, and one row: /pricing 14."
+          },
+          {
+            "state": "error",
+            "sampleArgs": {},
+            "sampleData": {
+              "error": "OAuth connection expired or revoked",
+              "status": "FAILED"
+            },
+            "expected": "Error card with 'Reconnect needed' and a 'Reconnect Google Analytics' row that opens the sign-in link."
+          }
+        ]
+      },
+      {
+        "tool": "get_metadata",
+        "sampleArgs": {},
+        "stressCases": [
+          {
+            "state": "empty",
+            "sampleArgs": {},
+            "sampleData": {
+              "dimensions": [],
+              "metrics": []
+            },
+            "expected": "Empty state: 'No matching fields'."
+          },
+          {
+            "state": "single",
+            "sampleArgs": {},
+            "sampleData": {
+              "dimensions": [
+                {
+                  "apiName": "country",
+                  "uiName": "Country"
+                }
+              ],
+              "metrics": [
+                {
+                  "apiName": "activeUsers",
+                  "uiName": "Active users"
+                }
+              ]
+            },
+            "expected": "Stats: 1 metric, 1 dimension; list: activeUsers (Metric), country (Dimension)."
+          },
+          {
+            "state": "error",
+            "sampleArgs": {
+              "property_id": "999999999"
+            },
+            "sampleData": {
+              "error": "Property not found or invalid credentials",
+              "code": 404
+            },
+            "expected": "Error card: the connected Google account can't access this property."
+          }
+        ]
+      }
+    ]
+  },
+  "updatedAt": "2026-11-10T20:04:25.650Z"
+}
