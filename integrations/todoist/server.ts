@@ -900,19 +900,17 @@ async function progress(extra: any, message: string, done = false) {
   } catch { /* A progress display failure must never change an operation's outcome. */ }
 }
 
-async function notifyWrite(message: string) {
+async function notifyAuthorizationStatus(message: string) {
   try {
     await server.server.request({
       method: "voiceos/reminders/trigger", params: { message: message.slice(0, 1900), speak: false },
     } as any, z.object({ notificationId: z.string() }), { timeout: 4000 });
-    return true;
   } catch {
-    console.error("VoiceOS could not queue the Todoist result notification; the tool result is still available.");
-    return false;
+    console.error("VoiceOS could not queue the Todoist authorization notification.");
   }
 }
 
-async function withFeedback(title: string, write: boolean, extra: any, run: () => Promise<any>) {
+async function withFeedback(title: string, extra: any, run: () => Promise<any>) {
   await progress(extra, `${title}…`);
   let output: any;
   try { output = await run(); } catch (error) { output = failure(error); }
@@ -973,12 +971,12 @@ function startBackgroundConnectWatcher(connectionId: string) {
             delete state.pending;
             delete state.needsReauthorization;
             await save(state);
-            await notifyWrite("Todoist — Connected successfully. Your account is ready to use.");
+            await notifyAuthorizationStatus("Todoist — Connected successfully. Your account is ready to use.");
           }
           break;
         }
         if (["FAILED", "EXPIRED", "REVOKED"].includes(account?.status)) {
-          await notifyWrite(`Todoist — Authorization ${account?.status?.toLowerCase() || "failed"}. Say "connect me to Todoist" to try again.`);
+          await notifyAuthorizationStatus(`Todoist — Authorization ${account.status.toLowerCase()}. Say "connect me to Todoist" to try again.`);
           break;
         }
       } catch {
@@ -986,6 +984,76 @@ function startBackgroundConnectWatcher(connectionId: string) {
       }
     }
   })().catch(() => {});
+}
+
+function pendingAccountCard(message: string) {
+  const initialMessage = JSON.stringify(message).replace(/</g, "\\u003c");
+  const html = `<!doctype html><html><meta charset="utf-8">
+  <style>
+    :root{color-scheme:dark;--ink:#fff;--muted:#bbb}
+    :root[data-theme=light]{color-scheme:light;--ink:#161616;--muted:#515151}
+    *{box-sizing:border-box}
+    body{margin:0;padding:14px;color:var(--ink);font:14px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+    header{display:flex;justify-content:space-between;gap:12px;font-weight:600}
+    p{margin:8px 0;color:var(--muted)}
+  </style>
+  <header><span>Todoist</span><span id="status">Authorization pending</span></header>
+  <p id="message" role="status" aria-live="polite"></p>
+  <script>(() => {
+    const status = document.getElementById("status");
+    const message = document.getElementById("message");
+    const deadline = Date.now() + 180000;
+    let canInvoke = false;
+    let requestId;
+    let timer;
+    let finished = false;
+    message.textContent = ${initialMessage};
+
+    function checkStatus() {
+      clearTimeout(timer);
+      if (!canInvoke || finished || document.hidden || requestId) return;
+      if (Date.now() >= deadline) {
+        message.textContent = "Ask VoiceOS to check your Todoist connection.";
+        return;
+      }
+      requestId = Array.from(crypto.getRandomValues(new Uint32Array(4))).join("_");
+      parent.postMessage({ type: "voiceos:invokeTool", name: "connection_status", args: {}, requestId }, "*");
+    }
+
+    document.addEventListener("visibilitychange", checkStatus);
+
+    addEventListener("message", ({ source, data }) => {
+      if (source !== parent || !data) return;
+      if (data.type === "voiceos:init") {
+        canInvoke = !!data.capabilities?.invokeTool;
+        document.documentElement.dataset.theme = data.theme?.mode ?? "dark";
+        if (canInvoke) checkStatus();
+        else if (!finished) message.textContent = "After approving in your browser, ask VoiceOS to check your Todoist connection.";
+        return;
+      }
+      if (!requestId || data.type !== "voiceos:toolResult" || data.requestId !== requestId ||
+          !["completed", "failed", "cancelled", "unknown"].includes(data.status)) return;
+      requestId = undefined;
+      const block = data.result?.content?.find(item => item.type === "text");
+      let result;
+      try { if (block) result = JSON.parse(block.text); } catch {}
+      if (typeof result?.connected === "boolean" && typeof result.status === "string") {
+        finished = !["INITIATED", "INITIALIZING", "PENDING"].includes(result.status);
+        if (finished) {
+          status.textContent = result.status;
+          message.textContent = result.message;
+        }
+      }
+      if (!finished) timer = setTimeout(checkStatus, 5000);
+    });
+
+    new ResizeObserver(() => {
+      if (!document.hidden && document.documentElement.offsetWidth) {
+        parent.postMessage({ type: "voiceos:resize", height: Math.ceil(document.documentElement.getBoundingClientRect().height) }, "*");
+      }
+    }).observe(document.documentElement);
+  })()</script></html>`;
+  return { type: "widget", html, height: 100, label: "Todoist connection status" };
 }
 
 function accountResult(connected: boolean, status: string, message: string, extraData: object = {}) {
@@ -996,7 +1064,7 @@ function accountResult(connected: boolean, status: string, message: string, extr
       text: JSON.stringify({
         ...data,
         _voiceos_glance: {
-          blocks: [
+          blocks: status === "Authorization pending" ? [pendingAccountCard(message)] : [
             { type: "header", title: "Todoist", trailing: connected ? "Connected" : status },
             { type: "keyValue", pairs: [["Status", message]] },
           ],
@@ -1097,7 +1165,7 @@ async function connect() {
   return accountResult(
     false,
     "Authorization pending",
-    "Todoist authorization opened in your browser. Finish approval there, then check connection status to verify.",
+    "Finish authorizing Todoist in your browser. This card checks for approval while open.",
     { authorizationUrl: state.pending.url },
   );
 }
@@ -1106,7 +1174,7 @@ server.registerTool("connect_account", {
   title: "Connect Todoist",
   description: "Connect Todoist using Composio OAuth. Use when asked to connect or authorize Todoist. Verify a saved active connection; otherwise open browser authorization and immediately return pending with its link. To check or verify connection status without opening another tab, use connection_status.",
   inputSchema: {}, annotations: { readOnlyHint: false, destructiveHint: false },
-}, async (_input, extra) => withFeedback("Connect Todoist", true, extra, async () => {
+}, async (_input, extra) => withFeedback("Connect Todoist", extra, async () => {
     if (disconnecting) throw new Error("A Todoist disconnect is still running. Wait for it to finish before connecting.");
     if (!connecting) connecting = connect().finally(() => { connecting = undefined; });
     return await connecting;
@@ -1115,7 +1183,7 @@ server.registerTool("connect_account", {
 server.registerTool("connection_status", {
   title: "Todoist account", description: "Show Todoist connection status with an account status card. Use for account settings, connection status, or expired authorization. Does not start OAuth.",
   inputSchema: {}, annotations: { readOnlyHint: true, destructiveHint: false },
-}, async (_input, extra) => withFeedback("Check connection", false, extra, async () => {
+}, async (_input, extra) => withFeedback("Check connection", extra, async () => {
   const state = await load();
   const account = await savedAccount(state);
   const connected = account?.status === "ACTIVE" && !account.isDisabled && !state.needsReauthorization;
@@ -1165,7 +1233,7 @@ async function disconnect() {
 server.registerTool("disconnect_account", {
   title: "Disconnect Todoist", description: "Disconnect this installation's Todoist connection. Use only when explicitly asked to disconnect or unlink Todoist. Revokes authorization where supported; otherwise disables the Composio connection. Never deletes Todoist data.",
   inputSchema: {}, annotations: { readOnlyHint: false, destructiveHint: false },
-}, async (_input, extra) => withFeedback("Disconnect Todoist", true, extra, async () => {
+}, async (_input, extra) => withFeedback("Disconnect Todoist", extra, async () => {
   if (!disconnecting) disconnecting = disconnect().finally(() => { disconnecting = undefined; });
   return await disconnecting;
 }));
@@ -1346,8 +1414,7 @@ for (const tool of catalog.tools) {
   server.registerTool(tool.name, {
     title: tool.title, description: tool.description, inputSchema: z.object(inputShape(tool.inputSchema)).strict(),
     annotations: { readOnlyHint: tool.readOnly, destructiveHint: ["delete_project", "delete_section", "delete_label"].includes(tool.name), openWorldHint: true },
-  }, async (input: Record<string, any>, extra) => withFeedback(tool.title,
-    !tool.readOnly, extra, async () => {
+  }, async (input: Record<string, any>, extra) => withFeedback(tool.title, extra, async () => {
       const { target_name, current_labels, ...args } = input;
       normalizeConfirmationEdits(tool.name, args);
       validateArguments(tool.name, args);

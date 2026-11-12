@@ -22,7 +22,7 @@ supply it automatically.
 The integration exposes **18 tools: 15 business tools and 3 account/setup helpers**:
 
 ### Account & Setup
-- **Connect Todoist** (`connect_account`): opens browser authorization and immediately returns its pending state and link, or verifies a saved active connection.
+- **Connect Todoist** (`connect_account`): opens browser authorization and immediately returns its pending state and link, or verifies a saved active connection. The pending card checks for approval while it is open.
 - **Todoist account** (`connection_status`): Displays the current connection status (active, pending, disconnected, or expired) with an account status card in the notch.
 - **Disconnect Todoist** (`disconnect_account`): Unlinks the active Todoist account, revokes access, and clears cached state (requires confirmation).
 

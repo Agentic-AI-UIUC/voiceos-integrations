@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "n
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { runInNewContext } from "node:vm";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
@@ -600,6 +601,66 @@ describe("account state and explicit OAuth setup", () => {
     expect(savedState().pending).toEqual({ id: "ca_pending", url: redirectUrl });
   });
 
+  test("the pending card updates automatically after browser approval", async () => {
+    setState({ userId: ACTIVE_STATE.userId });
+    setScenario({ accountStatus: "INITIATED" });
+    const started = await invoke("connect_account");
+    const [card] = started.body._voiceos_glance.blocks;
+    expect(card.type).toBe("widget");
+    expect(card.html).not.toMatch(/<button\b/);
+    expect(manifest.tools.find((tool: JsonObject) => tool.name === "connection_status").uiCallable).toBe(true);
+
+    const status = { textContent: "Authorization pending" };
+    const message = { textContent: "" };
+    let visibilityChanged!: () => void;
+    let receive!: (event: JsonObject) => void;
+    let nextCheck: (() => void) | undefined;
+    const requests: JsonObject[] = [];
+    const parent = { postMessage: (request: JsonObject) => requests.push(request) };
+    const document = {
+      hidden: false,
+      getElementById: (id: "status" | "message") => ({ status, message })[id],
+      documentElement: { dataset: {} },
+      addEventListener(_type: string, handler: () => void) { visibilityChanged = handler; },
+    };
+    runInNewContext(card.html.match(/<script>([\s\S]+)<\/script>/)[1], {
+      parent, document, crypto,
+      setTimeout(handler: () => void) { nextCheck = handler; },
+      clearTimeout() { nextCheck = undefined; },
+      ResizeObserver: class { observe() {} },
+      addEventListener(_type: string, handler: typeof receive) { receive = handler; },
+    });
+    receive({ source: parent, data: { type: "voiceos:init", capabilities: { invokeTool: true } } });
+    async function deliverStatus() {
+      visibilityChanged();
+      const [request] = requests.splice(0);
+      expect(requests).toEqual([]);
+      expect(request).toMatchObject({ type: "voiceos:invokeTool", name: "connection_status", args: {} });
+      const response = await invoke(request.name, request.args);
+      receive({ source: parent, data: {
+        type: "voiceos:toolResult", requestId: request.requestId, status: "completed",
+        result: { content: [{ type: "text", text: response.text }] },
+      } });
+    }
+
+    await deliverStatus();
+    expect(status.textContent).toBe("Authorization pending");
+    expect(nextCheck).toBeDefined();
+    setScenario({ accountStatus: "ACTIVE" });
+    document.hidden = true;
+    nextCheck!();
+    expect(requests).toEqual([]);
+    document.hidden = false;
+    visibilityChanged();
+    await deliverStatus();
+    expect(status.textContent).toBe("Connected");
+    expect(message.textContent).toBe("Todoist is connected and ready to use.");
+    expect(nextCheck).toBeUndefined();
+    visibilityChanged();
+    expect(requests).toEqual([]);
+    expect(browserEvents()).toHaveLength(1);
+  });
+
   test("verifies browser approval on the next Connect without reopening authorization", async () => {
     setState({ userId: ACTIVE_STATE.userId });
     setScenario({ accountStatus: "INITIATED", activateAfterBrowser: true });
@@ -658,7 +719,7 @@ describe("account state and explicit OAuth setup", () => {
       status: "Authorization pending",
       authorizationUrl: "https://example.invalid/authorize",
     });
-    expect(result.body.message).toContain("check connection status");
+    expect(result.body.message).toContain("checks for approval");
     expect(savedState().pending.id).toBe("ca_pending");
     expect(events().filter(event => /\/connected_accounts\//.test(event.path ?? ""))).toEqual([]);
     expect(manifest.tools.find((tool: JsonObject) => tool.name === "connect_account").execution.mode).toBe("sync");
