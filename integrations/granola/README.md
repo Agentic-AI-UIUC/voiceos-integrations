@@ -111,7 +111,6 @@ Windows support (since version 1.0.2) hasn't run on a Windows machine yet. The o
 - **Search takes about 10 seconds.** That's Granola's own answer time.
 - **The parsing depends on Granola's text format.** If Granola changes the XML-style layout, the parsing needs updating. The fake Composio's fixtures mirror the current format.
 - **Disconnect may leave Granola's token alive for up to 6 hours.** If Composio can't revoke at Granola, the connection is still deleted from Composio, and the message says Granola's access ends when the token expires.
-- **Connect and disconnect get VoiceOS's generic confirmation.** VoiceOS asks for approval in its own "Confirm action" box showing the raw arguments (`{}`), not the tool's confirmation card, both from the account card's buttons and by voice. Switching the cards from the declarative type to widget cards in 1.0.3 didn't change it, so it comes from how VoiceOS handles these tools, not from the cards.
 - **The user ID is per computer account.** It lives in the home folder, so deleting that file means signing in again.
 - **Don't use the Studio's refine or Edit on this folder.** Refine regenerates `server.ts`, and Edit opens a draft from the Studio's stored copy, which is still the original scaffold.
 
