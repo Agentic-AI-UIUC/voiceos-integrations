@@ -10,9 +10,16 @@ import {
   itemKind,
   itemPathOf,
   listOf,
+  localUploadPath,
+  MAX_LOCAL_UPLOAD_BYTES,
+  mimeTypeOf,
+  nameMatchesTerms,
+  readLocalUpload,
+  searchTerms,
   looksLikeItemId,
   normPath,
   safeLocalName,
+  clipboardCommand,
   spokenName,
   summarizeItem,
   themePin,
@@ -113,6 +120,33 @@ describe("safeLocalName", () => {
     expect(safeLocalName("report", "Q3.pdf")).toBe("report.pdf");
     expect(safeLocalName(undefined, "Q3.pdf")).toBe("Q3.pdf");
   });
+  test("replaces characters Windows doesn't allow in file names", () => {
+    const name = safeLocalName('Q3: plan <draft> "v2" | what? *final*', "x.docx");
+    expect(name).not.toMatch(/[<>:"\/\\|?*]/);
+    expect(name).toBe("Q3_ plan _draft_ _v2_ _ what_ _final_.docx");
+  });
+  test("drops trailing dots and spaces, which Windows strips silently", () => {
+    expect(safeLocalName("notes. . ", "a.txt")).toBe("notes.txt");
+  });
+  test("avoids Windows device names", () => {
+    for (const reserved of ["CON", "nul.txt", "com1", "LPT9.pdf", "aux"]) {
+      expect(safeLocalName(reserved, "a.txt").startsWith("_")).toBe(true);
+    }
+    expect(safeLocalName("console", "a.txt")).toBe("console.txt");
+  });
+  test("caps very long names and keeps the extension", () => {
+    const name = safeLocalName("a".repeat(400), "b.pdf");
+    expect(name.length).toBeLessThanOrEqual(200);
+    expect(name.endsWith(".pdf")).toBe(true);
+  });
+});
+
+describe("clipboardCommand", () => {
+  test("uses pbcopy on macOS and clip on Windows", () => {
+    expect(clipboardCommand("darwin")).toBe("pbcopy");
+    expect(clipboardCommand("win32")).toBe("clip");
+    expect(clipboardCommand("linux")).toBeNull();
+  });
 });
 
 describe("writeUnique", () => {
@@ -174,5 +208,101 @@ describe("spokenName", () => {
     ["notes", "notes"],
   ])("%p → %p", (input, expected) => {
     expect(spokenName(input)).toBe(expected);
+  });
+});
+
+describe("search terms", () => {
+  test.each([
+    ["find a book", ["book"]],
+    ["look for the cedar budget", ["cedar", "budget"]],
+    ["Book 1.xlsx", ["book", "1"]],
+    ["the budget PDF", ["budget"]],
+    ["my file", ["my"]],
+  ])("%p → %p", (q, terms) => expect(searchTerms(q)).toEqual(terms));
+
+  test("a name matches only when it holds every term", () => {
+    expect(nameMatchesTerms("Book 1.xlsx", ["book", "1"])).toBe(true);
+    expect(nameMatchesTerms("book_club-notes.md", ["book"])).toBe(true);
+    expect(nameMatchesTerms("Report.pdf", ["pdf"])).toBe(true);
+    expect(nameMatchesTerms("Budget.xlsx", ["book"])).toBe(false);
+    expect(nameMatchesTerms("Budget.xlsx", [])).toBe(false);
+  });
+});
+
+describe("local uploads", () => {
+  const home = os.homedir();
+  test("resolves ~, home-relative and absolute paths", () => {
+    expect(localUploadPath("~/Downloads/a.pdf")).toBe(path.join(home, "Downloads/a.pdf"));
+    expect(localUploadPath("Desktop/b.png")).toBe(path.join(home, "Desktop/b.png"));
+    expect(localUploadPath(`file://${home}/Pictures/c.jpg`)).toBe(path.join(home, "Pictures/c.jpg"));
+    expect(localUploadPath("~/Documents/Work/Plan.docx")).toBe(path.join(home, "Documents/Work/Plan.docx"));
+  });
+
+  test("refuses hidden files and folders", () => {
+    expect(() => localUploadPath("~/.ssh/id_ed25519")).toThrow(/hidden/);
+    expect(() => localUploadPath("~/Documents/.env")).toThrow(/hidden/);
+    expect(() => localUploadPath("~/Downloads/../.aws/credentials")).toThrow(/hidden/);
+  });
+
+  test("refuses anything outside the user's own folders", () => {
+    const mac = { home: "/Users/pat", platform: "darwin" as const };
+    expect(() => localUploadPath("~/Library/Keychains/login.keychain-db", mac)).toThrow(/only sends files from your Desktop, Documents/);
+    expect(() => localUploadPath("~/Library/Application Support/Google/Chrome/Default/Cookies", mac)).toThrow(/outside them/);
+    expect(() => localUploadPath("/etc/passwd", mac)).toThrow(/outside them/);
+    expect(() => localUploadPath("/Users/other/Documents/a.pdf", mac)).toThrow(/outside them/);
+    expect(() => localUploadPath("~/Downloads/../Library/x", mac)).toThrow(/outside them/);
+    expect(() => localUploadPath("~/Documents-old/a.pdf", mac)).toThrow(/outside them/);
+    expect(() => localUploadPath("~/notes.txt", mac)).toThrow(/outside them/);
+    expect(localUploadPath("~/documents/a.pdf", mac)).toBe("/Users/pat/documents/a.pdf"); // case-insensitive volume
+    expect(localUploadPath("~/Movies/clip.mov", mac)).toBe("/Users/pat/Movies/clip.mov");
+  });
+
+  test("on Windows, refuses AppData and other drives, allows OneDrive known folders", () => {
+    const win = { home: "C:\\Users\\Pat", platform: "win32" as const };
+    expect(() => localUploadPath("C:\\Users\\Pat\\AppData\\Roaming\\Microsoft\\Credentials\\x", win)).toThrow(/outside them/);
+    expect(() => localUploadPath("~\\AppData\\Local\\Google\\Chrome\\User Data\\Default\\Cookies", win)).toThrow(/outside them/);
+    expect(() => localUploadPath("C:\\Windows\\System32\\config\\SAM", win)).toThrow(/outside them/);
+    expect(() => localUploadPath("D:\\Documents\\a.pdf", win)).toThrow(/outside them/);
+    expect(() => localUploadPath("C:\\Users\\Pat\\OneDrive\\AppData\\x", win)).toThrow(/outside them/);
+    expect(localUploadPath("~\\Downloads\\Report.pdf", win)).toBe("C:\\Users\\Pat\\Downloads\\Report.pdf");
+    expect(localUploadPath("c:\\users\\pat\\videos\\a.mp4", win)).toBe("c:\\users\\pat\\videos\\a.mp4");
+    expect(localUploadPath("C:\\Users\\Pat\\OneDrive - UIUC\\Documents\\a.docx", win)).toBe("C:\\Users\\Pat\\OneDrive - UIUC\\Documents\\a.docx");
+  });
+
+  test("refuses a link from an allowed folder into ~/Library", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "od-home-"));
+    fs.mkdirSync(path.join(home, "Downloads"));
+    fs.mkdirSync(path.join(home, "Library/Keychains"), { recursive: true });
+    fs.writeFileSync(path.join(home, "Library/Keychains/login.keychain-db"), "secret");
+    fs.symlinkSync(path.join(home, "Library/Keychains/login.keychain-db"), path.join(home, "Downloads/report.pdf"));
+    fs.symlinkSync(path.join(home, "Library"), path.join(home, "Downloads/lib"));
+    await expect(readLocalUpload("~/Downloads/report.pdf", { home })).rejects.toThrow(/outside them/);
+    await expect(readLocalUpload("~/Downloads/lib/Keychains/login.keychain-db", { home })).rejects.toThrow(/outside them/);
+    // A missing file outside the allowed folders doesn't list that folder's contents either.
+    await expect(readLocalUpload("~/Library/Keychains/login", { home })).rejects.toThrow(/outside them/);
+    fs.rmSync(home, { recursive: true, force: true });
+  });
+
+  test("names the type OneDrive should store", () => {
+    expect(mimeTypeOf("Report.PDF")).toBe("application/pdf");
+    expect(mimeTypeOf("Book 1.xlsx")).toBe("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    expect(mimeTypeOf("blob.weird")).toBe("application/octet-stream");
+  });
+
+  test("reads a file, and explains a missing, empty, folder or oversized one", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "od-up-"));
+    const dir = path.join(home, "Downloads");
+    const env = { home };
+    fs.mkdirSync(path.join(dir, "Sub"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "Quarterly Report.pdf"), "pdf bytes");
+    fs.writeFileSync(path.join(dir, "empty.txt"), "");
+    fs.writeFileSync(path.join(dir, "big.bin"), Buffer.alloc(MAX_LOCAL_UPLOAD_BYTES + 1));
+    const ok = await readLocalUpload(path.join(dir, "Quarterly Report.pdf"), env);
+    expect(ok.bytes.toString()).toBe("pdf bytes");
+    await expect(readLocalUpload(path.join(dir, "quarterly.pdf"), env)).rejects.toThrow(/no file at .*Quarterly Report.pdf/);
+    await expect(readLocalUpload(path.join(dir, "empty.txt"), env)).rejects.toThrow(/empty/);
+    await expect(readLocalUpload(path.join(dir, "Sub"), env)).rejects.toThrow(/is a folder/);
+    await expect(readLocalUpload(path.join(dir, "big.bin"), env)).rejects.toThrow(/limited to/);
+    fs.rmSync(home, { recursive: true, force: true });
   });
 });

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import "./no-connect.ts";
-import { COMPOSIO_TOOLKIT_VERSION, composio, downloadBytes, linkScope, resetAccountCache, resolveItem, runWithBudget } from "../server.ts";
+import { COMPOSIO_TOOLKIT_VERSION, composio, downloadBytes, findItems, linkScope, resetAccountCache, resolveItem, runWithBudget, stageForComposio } from "../server.ts";
 
 type Call = { url: string; body: any };
 let calls: Call[] = [];
@@ -365,5 +365,94 @@ describe("time budget", () => {
   test("refuses to start a request once the budget is spent", async () => {
     hangingComposio();
     await expect(runWithBudget(500, () => composio("ONE_DRIVE_GET_ROOT", {}))).rejects.toThrow(/taking too long/);
+  });
+});
+
+describe("findItems() when OneDrive's search index comes back empty", () => {
+  const ROOT = { id: "R", name: "root", root: {}, folder: {}, parentReference: { driveId: "d1" } };
+  const node = (id: string, name: string, parent: string, extra: Record<string, unknown> = {}) => ({ id, name, parentReference: { id: parent }, ...extra });
+  const scanRoutes = (pages: any[][], search: any[] = []) => {
+    let page = 0;
+    return {
+      ONE_DRIVE_SEARCH_ITEMS: () => ({ json: { successful: true, data: { value: search } } }),
+      ONE_DRIVE_GET_ROOT: () => ({ json: { successful: true, data: ROOT } }),
+      ONE_DRIVE_LIST_ALL_DRIVE_ITEMS: (a: any) => {
+        if (!a.page_token) page = 0;
+        const i = page++;
+        expect(a.drive_id).toBe("d1");
+        if (i > 0) expect(a.page_token).toBe(`t${i}`);
+        const last = i === pages.length - 1;
+        return { json: { successful: true, data: { items: pages[i], sync_complete: last, ...(last ? {} : { next_page_token: `t${i + 1}` }) } } };
+      },
+    };
+  };
+
+  test("returns search hits without scanning when the index has them", async () => {
+    mockComposio(scanRoutes([], [{ id: "x", name: "Book 1.xlsx" }]));
+    const r = await findItems("Book 1.xlsx", 10);
+    expect(r).toMatchObject({ via: "search", items: [{ id: "x" }] });
+    expect(executed()).toEqual(["ONE_DRIVE_SEARCH_ITEMS"]);
+  });
+
+  test("retries with the meaningful words, then scans every page by name with paths", async () => {
+    mockComposio(scanRoutes([
+      [ROOT, node("F", "Reading", "R", { folder: {} }), node("1", "Book 1.xlsx", "R")],
+      [node("2", "book-club notes.md", "F"), node("3", "Budget.xlsx", "R"), node("4", "Book old.xlsx", "R", { deleted: {} })],
+    ]));
+    const r = await findItems("find a book", 10);
+    expect(r.via).toBe("name_scan");
+    expect(r.items.map((i: any) => i.id)).toEqual(["1", "2"]);
+    expect(r.items[1].parentReference.path).toBe("/drive/root:/Reading");
+    expect(executed()).toEqual(["ONE_DRIVE_SEARCH_ITEMS", "ONE_DRIVE_SEARCH_ITEMS", "ONE_DRIVE_GET_ROOT", "ONE_DRIVE_LIST_ALL_DRIVE_ITEMS", "ONE_DRIVE_LIST_ALL_DRIVE_ITEMS"]);
+    const retry = calls.filter((c) => c.url.endsWith("ONE_DRIVE_SEARCH_ITEMS"))[1];
+    expect(retry.body.arguments.q).toBe("book");
+  });
+
+  test("falls back to the names holding the most words", async () => {
+    mockComposio(scanRoutes([[ROOT, node("1", "groceries.txt", "R"), node("2", "todo list.md", "R"), node("3", "Groceries list 2025.txt", "R")]]));
+    expect((await findItems("groceries list", 10)).items.map((i: any) => i.id)).toEqual(["3"]);
+    mockComposio(scanRoutes([[ROOT, node("1", "groceries.txt", "R"), node("2", "todo.md", "R")]]));
+    expect((await findItems("find a groceries list", 10)).items.map((i: any) => i.id)).toEqual(["1"]);
+  });
+
+  test("resolveItem finds an exact name the index can't", async () => {
+    mockComposio({ ONE_DRIVE_GET_ITEM_BY_PATH: () => ({ json: { successful: false, error: "itemNotFound: The resource could not be found." } }), ...scanRoutes([[ROOT, node("F", "School", "R", { folder: {} }), node("1", "Book 1.xlsx", "F"), node("2", "Book 10.xlsx", "F")]]) });
+    expect((await resolveItem("Book 1.xlsx", true)).id).toBe("1");
+    expect((await resolveItem("School/Book 1.xlsx", true)).id).toBe("1");
+  });
+
+  test("says both lookups failed when the scan errors", async () => {
+    mockComposio({ ...scanRoutes([]), ONE_DRIVE_LIST_ALL_DRIVE_ITEMS: () => ({ json: { successful: false, error: "Forbidden drive" } }) });
+    await expect(findItems("budget", 10)).rejects.toThrow(/search found nothing for "budget", and scanning the drive by name failed too: Forbidden drive/);
+  });
+});
+
+describe("stageForComposio()", () => {
+  test("requests a slot with the file's MD5, then PUTs the bytes", async () => {
+    const seen: any[] = [];
+    globalThis.fetch = (async (input: any, init?: any) => {
+      seen.push({ url: String(input), method: init?.method, body: init?.body });
+      if (String(input).endsWith("/files/upload/request")) return Response.json({ key: "k/1.pdf", new_presigned_url: "https://store.example/put", type: "new" });
+      return new Response("", { status: 200 });
+    }) as typeof fetch;
+    expect(await stageForComposio("a.pdf", "application/pdf", Buffer.from("hello"))).toBe("k/1.pdf");
+    expect(JSON.parse(seen[0].body)).toMatchObject({ toolkit_slug: "one_drive", tool_slug: "ONE_DRIVE_ONEDRIVE_UPLOAD_FILE", filename: "a.pdf", md5: "5d41402abc4b2a76b9719d911017c592" });
+    expect(seen[1]).toMatchObject({ url: "https://store.example/put", method: "PUT" });
+  });
+
+  test("skips the PUT when Composio already has the bytes", async () => {
+    let puts = 0;
+    globalThis.fetch = (async (input: any, init?: any) => {
+      if (init?.method === "PUT") puts++;
+      return Response.json({ key: "k/1.pdf", new_presigned_url: "https://store.example/put", type: "existing" });
+    }) as typeof fetch;
+    expect(await stageForComposio("a.pdf", "application/pdf", Buffer.from("hello"))).toBe("k/1.pdf");
+    expect(puts).toBe(0);
+  });
+
+  test("fails loudly when the storage PUT is refused", async () => {
+    globalThis.fetch = (async (input: any, init?: any) =>
+      init?.method === "PUT" ? new Response("no", { status: 403 }) : Response.json({ key: "k", new_presigned_url: "https://store.example/put", type: "new" })) as typeof fetch;
+    await expect(stageForComposio("a.pdf", "application/pdf", Buffer.from("x"))).rejects.toThrow(/Couldn't send "a.pdf" to Composio's storage \(store.example\): HTTP 403/);
   });
 });
