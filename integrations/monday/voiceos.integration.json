@@ -319,7 +319,7 @@
       "name": "prepare_update_item",
       "visibility": "agent",
       "title": "Prepare Monday.com item update",
-      "description": "Start here when the user wants to edit an existing Monday item. Find the exact item first with get_boards and get_items, paging as needed and asking if multiple boards or items match. Keep IDs internal. Pass the verified item_id and board_id if known. With no column_values this returns the item's editable columns and labels. Pass only requested changes keyed by actual column ID or exact title. Use name for the item name, existing labels for status/dropdown, ISO dates and UTC times, strings for text, numbers for numbers, and booleans for checkboxes. For People, use a name or {names: [...]}, or {operation: 'add' or 'remove', names: [...]} to preserve other assignees. Use null only for an explicit clear. Ask about any unresolved item, column, value, or person before opening a card. For a voice revision of an open Update item card, pass replaces_draft_id and the complete revised set of desired changes, including earlier changes the user still wants. Omit item_id and board_id for revisions. Call update_item_values with update_item_arguments verbatim to show one confirmation. This tool only reads Monday.",
+      "description": "Start here when the user wants to edit an existing Monday item or move it to another group on its current board. For a request naming the board and item, call this directly with board_name and item_name. For example, for move task 1 in the testing board to group 2, pass board_name Testing, item_name Task 1, and destination_group Group 2. Do not call get_boards or get_items first when names are supplied. For an item already verified in this conversation, pass item_id and optional verified board_id. Keep IDs internal. If the result includes question, ask it and wait for the answer before preparing again. For a group move, pass destination_group as the group title or a verified group ID on the item’s current board. Include all requested column edits in the same call. With neither column_values nor destination_group this returns the item's editable columns and labels. Pass only requested changes keyed by actual column ID or exact title. Use name for the item name, existing labels for status/dropdown, ISO dates and UTC times, strings for text, numbers for numbers, and booleans for checkboxes. For People, use a name or {names: [...]}, or {operation: 'add' or 'remove', names: [...]} to preserve other assignees. Use null only for an explicit clear. Ask about any unresolved item, column, value, or person before opening a card. For a voice revision of an open Update item card, pass replaces_draft_id and only the parts being revised. If revising column_values, pass the complete desired column set. An omitted destination_group retains the pending move and null removes it. Omit item and board identifiers and names for revisions. Call update_item_values with update_item_arguments verbatim to show one confirmation. This tool only reads Monday.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -333,6 +333,8 @@
             "exclusiveMinimum": 0,
             "maximum": 9007199254740991
           },
+          "board_name": { "type": "string", "minLength": 1 },
+          "item_name": { "type": "string", "minLength": 1 },
           "column_values": {
             "anyOf": [
               {
@@ -342,6 +344,12 @@
                 "type": "object",
                 "additionalProperties": {}
               }
+            ]
+          },
+          "destination_group": {
+            "anyOf": [
+              { "type": "string", "minLength": 1 },
+              { "type": "null" }
             ]
           },
           "replaces_draft_id": {
@@ -360,7 +368,7 @@
     {
       "name": "update_item_values",
       "title": "Update Monday.com item values",
-      "description": "Use update_item_arguments from prepare_update_item verbatim to show one Update item confirmation. Approval submits all reviewed changes to the same item in one Monday request. Use prepare_update_item for a voice revision before approval. Only report success if the result confirms the changes. Check Monday before retrying an unconfirmed save.",
+      "description": "Use update_item_arguments from prepare_update_item verbatim to show one Update item confirmation. Approval saves and verifies column edits first, then attempts the reviewed group move. A move may fail after edits are saved. Report both outcomes from the result. Use prepare_update_item for a voice revision before approval. Only report success if the result confirms the changes. Check Monday before retrying an unconfirmed save.",
       "inputSchema": {
         "type": "object",
         "properties": {

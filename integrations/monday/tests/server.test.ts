@@ -1364,7 +1364,7 @@ describe("reviewed Monday item updates", () => {
     { id: "formula", title: "Total", type: "formula" },
   ];
   const original = {
-    id: "456", name: "Review the draft", state: "active",
+    id: "456", name: "Review the draft", state: "active", group: { id: "topics", title: "To do" },
     board: { id: "123", name: "Test board", state: "active", columns },
     column_values: columns.map(column => column.id === "people_1"
       ? { id: column.id, text: "Maya", value: JSON.stringify({ personsAndTeams: [{ id: 7, kind: "person" }] }) }
@@ -1465,6 +1465,93 @@ describe("reviewed Monday item updates", () => {
     expect(result.isError).toBe(true);
     expect(result.body.update_item_arguments).toBeUndefined();
     expect(writes()).toEqual([]);
+  });
+
+  const moveDestination = {
+    id: "123", name: "Test board", state: "active", groups: [
+      { id: "topics", title: "To do" }, { id: "inbox", title: "Inbox" },
+    ],
+  };
+  const movedItem = { id: "456", state: "active", board: { id: "123" }, group: { id: "inbox" } };
+  const proxyOperations = () => events().filter(e => e.path?.endsWith("/proxy"))
+    .map(e => String((e.body?.body as Record<string, unknown>)?.query).split(/[ (]/).slice(0, 2).join(" "));
+
+  test("prepares a named move in one tool call without intermediate result cards", async () => {
+    const board = { id: "123", name: "Testing" };
+    const item = { ...original, name: "Task 1" };
+    scenario({ proxyItem: item, proxyDestination: { ...moveDestination, name: "Testing" }, toolDataByAction: {
+      MONDAY_BOARDS: { boards: [board] },
+      MONDAY_ITEMS_PAGE: { boards: [{ ...board, items_page: { cursor: null, items: [item] } }] },
+    } });
+    const result = await invoke("prepare_update_item", { board_name: "testing", item_name: "task 1", destination_group: "Inbox" });
+    expect(result.isError).toBe(false);
+    expect(result.body.update_item_arguments.preview.changes).toEqual([{ label: "Group", before: "To do", after: "Inbox" }]);
+    expect(result.body._voiceos_glance).toBeUndefined();
+    expect(proxyOperations().some(op => op.startsWith("mutation"))).toBe(false);
+  });
+
+  test("asks about a missing group without an error card or a confirmation", async () => {
+    scenario({ proxyItem: original, proxyDestination: moveDestination });
+    const result = await invoke("prepare_update_item", { item_id: 456, destination_group: "Unknown" });
+    expect(result.isError).toBe(false);
+    expect(result.body.question).toContain("Inbox");
+    expect(result.body._voiceos_glance).toBeUndefined();
+    expect(result.body.update_item_arguments).toBeUndefined();
+  });
+
+  test.each([true, false])("saves and verifies fields before moving (move succeeds: %s)", async succeeds => {
+    const updated = { ...original, name: "New title" };
+    scenario({
+      proxyItem: original, proxyUpdatedItem: updated, proxyDestination: moveDestination,
+      ...(succeeds ? { proxyMovedItem: movedItem } : {}),
+    });
+    const prepared = await invoke("prepare_update_item", {
+      item_id: 456, destination_group: "Inbox", column_values: { name: updated.name },
+    });
+    expect(prepared.isError).toBe(false);
+    const args = prepared.body.update_item_arguments;
+    expect(args.preview.changes[1]).toEqual({ label: "Group", before: "To do", after: "Inbox" });
+    expect(proxyOperations().some(op => op.startsWith("mutation"))).toBe(false);
+    writeFileSync(eventsPath, "");
+    const result = await invoke("update_item_values", args);
+    expect(proxyOperations()).toEqual([
+      "query ReviewItem", "mutation SaveItem", "query ReviewItem", "query ItemMoveDestination",
+      "query ItemLocation", "mutation MoveItem", "query ItemLocation",
+    ]);
+    expect(result.isError).toBe(!succeeds);
+    if (succeeds) {
+      expect(result.body.id).toBe("456");
+      expect(result.body.message).toContain("Moved");
+    } else {
+      expect(result.body.error).toContain("Saved Name");
+      expect(result.body.error).toContain("Could not verify the move");
+    }
+  });
+
+  test("skips the move when a requested column edit cannot be verified", async () => {
+    scenario({ proxyItem: original, proxyDestination: moveDestination, proxyMutationHttpStatus: 500 });
+    const prepared = await invoke("prepare_update_item", {
+      item_id: 456, destination_group: "inbox", column_values: { Text: "New text" },
+    });
+    const result = await invoke("update_item_values", prepared.body.update_item_arguments);
+    expect(result.body.error).toContain("The group move was skipped");
+    expect(proxyOperations()).not.toContain("mutation MoveItem");
+  });
+
+  test("moves to a verified group ID without a column write", async () => {
+    scenario({ proxyItem: original, proxyDestination: moveDestination, proxyMovedItem: movedItem });
+    const prepared = await invoke("prepare_update_item", { item_id: 456, destination_group: "inbox" });
+    expect(prepared.isError).toBe(false);
+    const result = await invoke("update_item_values", prepared.body.update_item_arguments);
+    expect(result.body.id).toBe("456");
+    expect(proxyOperations().filter(op => op.startsWith("mutation"))).toEqual(["mutation MoveItem"]);
+  });
+
+  test("does not write when the item is already in the requested group", async () => {
+    scenario({ proxyItem: original, proxyDestination: moveDestination });
+    const result = await invoke("prepare_update_item", { item_id: 456, destination_group: "To do" });
+    expect(result.body.status).toBe("No changes");
+    expect(proxyOperations().some(op => op.startsWith("mutation"))).toBe(false);
   });
 
   test("reports what readback could confirm after an uncertain write, with one attempt", async () => {

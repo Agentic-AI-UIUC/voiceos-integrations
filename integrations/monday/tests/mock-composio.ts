@@ -21,6 +21,8 @@ export type Scenario = {
   proxyMutationData?: Record<string, unknown>;
   proxyItem?: Record<string, unknown>;
   proxyUpdatedItem?: Record<string, unknown>;
+  proxyDestination?: Record<string, unknown>;
+  proxyMovedItem?: Record<string, unknown>;
   toolData?: Record<string, unknown>;
   toolDataByAction?: Record<string, Record<string, unknown>>;
   userPages?: Record<number, Record<string, unknown>[]>;
@@ -62,6 +64,15 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
   if (url.origin === "https://backend.composio.dev") {
     if (path === "/api/v3.1/tools/execute/proxy" && request.method === "POST") {
       if (config.proxyHttpStatus) return respond({ message: "Composio proxy rejected" }, config.proxyHttpStatus);
+      const query = body?.body?.query ?? "";
+      if (query.startsWith("query ItemMoveDestination"))
+        return respond({ status: 200, data: { data: { boards: config.proxyDestination ? [config.proxyDestination] : [] } } });
+      if (query.startsWith("mutation MoveItem"))
+        return respond({ status: 200, data: config.proxyMovedItem
+          ? { data: { move_item_to_group: config.proxyMovedItem } }
+          : { errors: [{ message: "Move rejected" }] } });
+      if (query.startsWith("query ItemLocation"))
+        return respond({ status: 200, data: { data: { items: [(readFileSync(eventsPath!, "utf8").includes("mutation MoveItem") ? config.proxyMovedItem : undefined) ?? config.proxyItem].filter(Boolean) } } });
       const isWrite = body?.body?.query?.startsWith("mutation SaveItem");
       if (isWrite && config.proxyMutationHttpStatus) return respond({ message: "Write outcome unknown" }, config.proxyMutationHttpStatus);
       const hasWrite = readFileSync(eventsPath!, "utf8").includes("mutation SaveItem");

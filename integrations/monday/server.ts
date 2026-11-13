@@ -117,8 +117,11 @@ const prepareCreateItemDescription = "Start every Monday item creation here. An 
 const createItemDescription = "Use create_item_arguments from prepare_create_item verbatim. For a spoken or typed item rename, or a name edit while this card is active, call prepare_create_item with the pending item draft ID and new item_name. Keep the destination and other values. The confirmation lets the user edit the item name and choose a group on the selected board. Approval creates the item in the selected group. Never say an item was created unless the result confirms its ID. For a voice revision such as 'change the board to voiceos', call prepare_create_item with the new board_name and replaces_draft_id or the pending item's exact name in revises_item_name. Ask about any previously requested value with no clear match. Board renaming is unavailable. Do not retry a write automatically.";
 const prepareUpdateItemSchema = z.object({
   board_id: id().optional(),
+  board_name: nonempty().optional(),
   item_id: id().optional(),
+  item_name: nonempty().optional(),
   column_values: columnValues().optional(),
+  destination_group: nonempty().nullable().optional(),
   replaces_draft_id: draftId().optional(),
 }).strict();
 const updateItemPreview = z.object({
@@ -130,6 +133,7 @@ const updateItemValuesSchema = z.object({ draft_id: draftId(), preview: updateIt
 type PrepareUpdateItemOutput = {
   status: string;
   message: string;
+  question?: string;
   update_item_arguments?: z.infer<typeof updateItemValuesSchema>;
   update_item_details?: { board: string; item: string; columns: { id: string; title: string; type: string; labels: string[] }[] };
 };
@@ -148,13 +152,16 @@ type UpdateItemDraft = {
   itemId: string;
   preview: z.infer<typeof updateItemPreview>;
   changes: UpdateItemChange[];
+  destination?: ItemMoveDestination;
+  requested: [string, unknown][];
   expires: number;
   revising?: boolean;
 };
+type ItemMoveDestination = { groupId: string; groupName: string; sourceGroupId: string; sourceGroupName: string };
 const updateItemDrafts = new Map<string, UpdateItemDraft>();
 const savingItems = new Set<string>();
-const prepareUpdateItemDescription = "Start here when the user wants to edit an existing Monday item. Find the exact item first with get_boards and get_items, paging as needed and asking if multiple boards or items match. Keep IDs internal. Pass the verified item_id and board_id if known. With no column_values this returns the item's editable columns and labels. Pass only requested changes keyed by actual column ID or exact title. Use name for the item name, existing labels for status/dropdown, ISO dates and UTC times, strings for text, numbers for numbers, and booleans for checkboxes. For People, use a name or {names: [...]}, or {operation: 'add' or 'remove', names: [...]} to preserve other assignees. Use null only for an explicit clear. Ask about any unresolved item, column, value, or person before opening a card. For a voice revision of an open Update item card, pass replaces_draft_id and the complete revised set of desired changes, including earlier changes the user still wants. Omit item_id and board_id for revisions. Call update_item_values with update_item_arguments verbatim to show one confirmation. This tool only reads Monday.";
-const updateItemValuesDescription = "Use update_item_arguments from prepare_update_item verbatim to show one Update item confirmation. Approval submits all reviewed changes to the same item in one Monday request. Use prepare_update_item for a voice revision before approval. Only report success if the result confirms the changes. Check Monday before retrying an unconfirmed save.";
+const prepareUpdateItemDescription = "Start here when the user wants to edit an existing Monday item or move it to another group on its current board. For a request naming the board and item, call this directly with board_name and item_name. For example, for move task 1 in the testing board to group 2, pass board_name Testing, item_name Task 1, and destination_group Group 2. Do not call get_boards or get_items first when names are supplied. For an item already verified in this conversation, pass item_id and optional verified board_id. Keep IDs internal. If the result includes question, ask it and wait for the answer before preparing again. For a group move, pass destination_group as the group title or a verified group ID on the item’s current board. Include all requested column edits in the same call. With neither column_values nor destination_group this returns the item's editable columns and labels. Pass only requested changes keyed by actual column ID or exact title. Use name for the item name, existing labels for status/dropdown, ISO dates and UTC times, strings for text, numbers for numbers, and booleans for checkboxes. For People, use a name or {names: [...]}, or {operation: 'add' or 'remove', names: [...]} to preserve other assignees. Use null only for an explicit clear. Ask about any unresolved item, column, value, or person before opening a card. For a voice revision of an open Update item card, pass replaces_draft_id and only the parts being revised. If revising column_values, pass the complete desired column set. An omitted destination_group retains the pending move and null removes it. Omit item and board identifiers and names for revisions. Call update_item_values with update_item_arguments verbatim to show one confirmation. This tool only reads Monday.";
+const updateItemValuesDescription = "Use update_item_arguments from prepare_update_item verbatim to show one Update item confirmation. Approval saves and verifies column edits first, then attempts the reviewed group move. A move may fail after edits are saved. Report both outcomes from the result. Use prepare_update_item for a voice revision before approval. Only report success if the result confirms the changes. Check Monday before retrying an unconfirmed save.";
 const createUpdateSchema = z.object({ item_id: id(), body: nonempty() }).strict();
 const boardKind = z.enum(["public", "private", "share"]);
 const boardFields = {
@@ -923,7 +930,7 @@ const editableItemTypes = new Set(["name", "status", "color", "dropdown", "peopl
 
 const readItemForUpdateQuery = `query ReviewItem($itemIds: [ID!]!) {
   items(ids: $itemIds) {
-    id name state
+    id name state group { id title }
     board { id name state columns { id title type archived settings capabilities { calculated { function } } } }
     column_values(capabilities: [CALCULATED]) {
       id text value
@@ -936,6 +943,15 @@ const readItemForUpdateQuery = `query ReviewItem($itemIds: [ID!]!) {
 }`;
 const saveItemUpdateMutation = `mutation SaveItem($boardId: ID!, $itemId: ID!, $values: JSON!) {
   change_multiple_column_values(board_id: $boardId, item_id: $itemId, column_values: $values) { id }
+}`;
+const readMoveDestinationQuery = `query ItemMoveDestination($boardIds: [ID!]!) {
+  boards(ids: $boardIds) { id name state groups { id title archived deleted } }
+}`;
+const moveItemMutation = `mutation MoveItem($groupId: String!, $itemId: ID!) {
+  move_item_to_group(group_id: $groupId, item_id: $itemId) { id board { id } group { id } }
+}`;
+const readItemLocationQuery = `query ItemLocation($itemIds: [ID!]!) {
+  items(ids: $itemIds) { id state board { id } group { id } }
 }`;
 
 async function itemUpdateRequest(accountId: string, query: string, variables: Record<string, unknown>) {
@@ -989,7 +1005,49 @@ async function readItemForUpdate(accountId: string, itemId: string, boardId?: st
   const columns = metadataRows(board.columns).filter(column =>
     typeof column.id === "string" && displayText(column.title) && !column.archived);
   if (!columns.some(column => column.id === "name")) columns.unshift({ id: "name", title: "Name", type: "name" });
-  return { itemName, boardName, boardId: String(board.id), columns, values };
+  return { itemName, boardName, boardId: String(board.id), group: record(item.group), columns, values };
+}
+
+async function resolveItemMoveGroup(accountId: string, boardId: string, group: string) {
+  const data = await itemUpdateRequest(accountId, readMoveDestinationQuery, { boardIds: [boardId] });
+  const board = metadataRows(data.boards).find(row => String(row.id) === boardId && row.state === "active");
+  const boardName = displayText(board?.name);
+  if (!boardName) throw new Error("Could not verify the item's active board.");
+  const groups = metadataRows(board?.groups).filter(row => !row.archived && !row.deleted);
+  const titles = groups.filter(row => displayText(row.title)?.toLowerCase() === group.toLowerCase());
+  const selected = groups.find(row => row.id === group) ?? (titles.length === 1 ? titles[0] : undefined);
+  const groupName = displayText(selected?.title);
+  if (!groupName || typeof selected?.id !== "string")
+    throw new ItemUpdateClarification(`Which group on “${boardName}” should I use? Available groups: ${groups.map(row => row.title).join(", ") || "none"}.`);
+  return { groupId: selected.id, groupName };
+}
+
+async function moveReviewedItem(accountId: string, boardId: string, itemId: string, destination: ItemMoveDestination) {
+  const { groupId, groupName } = destination;
+  const current = await resolveItemMoveGroup(accountId, boardId, groupId);
+  if (current.groupName !== groupName) throw new Error("The destination group changed after review. Prepare the move again.");
+  const readLocation = async () => {
+    const data = await itemUpdateRequest(accountId, readItemLocationQuery, { itemIds: [itemId] });
+    const item = metadataRows(data.items).find(row => String(row.id) === itemId);
+    if (item?.state !== "active" || String(record(item.board)?.id) !== boardId)
+      throw new Error("Could not verify the item on its original board.");
+    return record(item.group)?.id;
+  };
+  if (await readLocation() !== destination.sourceGroupId)
+    throw new Error("The item's group changed after review. Prepare the move again.");
+  let moveError: unknown;
+  try {
+    await itemUpdateRequest(accountId, moveItemMutation, { groupId, itemId });
+  } catch (error) {
+    moveError = error;
+  }
+  try {
+    if (await readLocation() === groupId) return;
+  } catch (error) {
+    moveError ??= error;
+  }
+  const detail = moveError instanceof Error ? ` ${moveError.message}` : "";
+  throw new Error(`Could not verify the move to “${groupName}”.${detail} Check Monday.com before retrying.`);
 }
 
 function isEditableItemColumn(column: Record<string, unknown>, cell?: Record<string, unknown>) {
@@ -1108,6 +1166,46 @@ async function prepareItemChange(
     display: type === "date" && value.time ? `${resolved.display} UTC` : resolved.display };
 }
 
+class ItemUpdateClarification extends Error {}
+
+async function findItemForUpdate(accountId: string, boardName: string | undefined, boardId: number | undefined, itemName: string) {
+  const matchesName = (value: unknown, name: string) => displayText(value)?.toLowerCase() === name.toLowerCase();
+  if (boardId === undefined) {
+    if (!boardName) throw new ItemUpdateClarification(`Which Monday board contains “${itemName}”?`);
+    const boards = new Map<string, Record<string, unknown>>();
+    const limit = 100;
+    for (let page = 1; ; page++) {
+      const data = await executeAction("MONDAY_BOARDS", { state: "active", page, limit }, accountId);
+      const batch = records(data.boards);
+      const count = boards.size;
+      for (const board of batch) boards.set(String(board.id), board);
+      if (batch.length < limit) break;
+      if (boards.size === count) throw new Error("Could not finish checking the Monday boards.");
+    }
+    const exact = [...boards.values()].filter(board => matchesName(board.name, boardName));
+    const matches = exact.length ? exact : [...boards.values()].filter(board =>
+      displayText(board.name)?.toLowerCase().includes(boardName.toLowerCase()));
+    if (matches.length !== 1)
+      throw new ItemUpdateClarification(`Which Monday board did you mean by “${boardName}”?`);
+    boardId = id().parse(Number(matches[0].id));
+  }
+  const items = new Map<string, Record<string, unknown>>();
+  const seen = new Set<string>();
+  let cursor: string | undefined;
+  do {
+    const result = await getItems(cursor ? { cursor, limit: 100 } : { board_id: boardId, limit: 100 }, accountId);
+    for (const item of result.records) if (matchesName(item.name, itemName)) items.set(String(item.id), item);
+    cursor = typeof result.pagination.nextCursor === "string" ? result.pagination.nextCursor : undefined;
+    if (cursor && seen.has(cursor)) throw new Error("Could not finish checking the Monday items.");
+    if (cursor) seen.add(cursor);
+  } while (cursor);
+  if (items.size !== 1)
+    throw new ItemUpdateClarification(items.size
+      ? `Which “${itemName}” should I update? More than one item on the board has that name.`
+      : `I couldn't find “${itemName}” on that board. What's the exact item name?`);
+  return { boardId: String(boardId), itemId: items.keys().next().value! };
+}
+
 async function prepareUpdateItem(input: z.infer<typeof prepareUpdateItemSchema>): Promise<PrepareUpdateItemOutput> {
   const accountId = (await load()).accountId;
   if (!accountId) throw new Error("Monday.com is not connected. Run Connect Monday.com.");
@@ -1116,18 +1214,31 @@ async function prepareUpdateItem(input: z.infer<typeof prepareUpdateItemSchema>)
   const prior = input.replaces_draft_id ? updateItemDrafts.get(input.replaces_draft_id) : undefined;
   if (input.replaces_draft_id && (!prior || prior.accountId !== accountId || prior.revising))
     throw new Error("The pending item update is unavailable. Find the item and prepare the changes again.");
-  if (prior && (input.item_id || input.board_id || input.column_values === undefined))
-    throw new Error("Pass the complete revised changes and keep the same item.");
-  const itemId = prior?.itemId ?? (input.item_id === undefined ? undefined : String(input.item_id));
-  if (!itemId) throw new Error("Find the exact Monday item before preparing changes.");
-  const boardId = prior?.boardId ?? (input.board_id === undefined ? undefined : String(input.board_id));
-  const requested = input.column_values === undefined ? undefined : Object.entries(normalizeColumns(input.column_values));
+  if (prior && (input.item_id || input.board_id || input.item_name || input.board_name ||
+      (input.column_values === undefined && input.destination_group === undefined)))
+    throw new Error("Specify a revision to the pending changes or destination and keep the same item.");
+  const requested = input.column_values === undefined ? prior?.requested
+    : Object.entries(normalizeColumns(input.column_values, Boolean(prior || input.destination_group)));
 
   if (prior) prior.revising = true;
   try {
+    const found = !prior && input.item_id === undefined && input.item_name
+      ? await findItemForUpdate(accountId, input.board_name, input.board_id, input.item_name) : undefined;
+    const itemId = prior?.itemId ?? found?.itemId ?? (input.item_id === undefined ? undefined : String(input.item_id));
+    if (!itemId) throw new ItemUpdateClarification("Which Monday item should I update?");
+    const boardId = prior?.boardId ?? found?.boardId ?? (input.board_id === undefined ? undefined : String(input.board_id));
     const current = await readItemForUpdate(accountId, itemId, boardId);
+    const requestedGroup = input.destination_group === undefined ? prior?.destination?.groupId : input.destination_group;
+    let destination: ItemMoveDestination | undefined;
+    if (requestedGroup) {
+      const sourceGroupId = current.group?.id;
+      const sourceGroupName = displayText(current.group?.title);
+      if (typeof sourceGroupId !== "string" || !sourceGroupName) throw new Error("Could not verify the item's current group.");
+      const target = await resolveItemMoveGroup(accountId, current.boardId, requestedGroup);
+      if (target.groupId !== sourceGroupId) destination = { ...target, sourceGroupId, sourceGroupName };
+    }
     const columns = current.columns.filter(column => isEditableItemColumn(column, current.values.get(String(column.id))));
-    if (!requested) {
+    if (!requested && !requestedGroup) {
       return { status: "Item details", message: "Found the editable columns for this item.",
         update_item_details: { board: current.boardName, item: current.itemName, columns: columns.map(column => ({
           id: String(column.id), title: String(column.title), type: String(column.type),
@@ -1135,7 +1246,7 @@ async function prepareUpdateItem(input: z.infer<typeof prepareUpdateItemSchema>)
         })) } };
     }
     const assignees = assigneeLookup((action, args) => executeAction(action, args, accountId));
-    const rows = await Promise.all(requested.map(async ([key, inputValue]) => {
+    const rows = await Promise.all((requested ?? []).map(async ([key, inputValue]) => {
       const exact = columns.find(column => column.id === key);
       const titles = columns.filter(column => String(column.title).toLowerCase() === key.toLowerCase());
       const column = exact ?? (titles.length === 1 ? titles[0] : undefined);
@@ -1151,19 +1262,31 @@ async function prepareUpdateItem(input: z.infer<typeof prepareUpdateItemSchema>)
     }));
     if (new Set(rows.map(row => row.id)).size !== rows.length) throw new Error("Specify each column only once.");
     const changes = rows.filter(row => !isDeepStrictEqual(row.before, row.expected));
-    if (!changes.length) {
+    if (!changes.length && !destination) {
       if (input.replaces_draft_id) updateItemDrafts.delete(input.replaces_draft_id);
-      return { status: "No changes", message: "The item already has the requested values." };
+      return { status: "No changes", message: "The item already matches the request." };
     }
     const preview = { board: current.boardName, item: current.itemName,
-      changes: changes.map(row => ({ label: row.label, before: row.beforeDisplay, after: row.display })) };
+      changes: [
+        ...changes.map(row => ({ label: row.label, before: row.beforeDisplay, after: row.display })),
+        ...(destination ? [{
+          label: "Group",
+          before: destination.sourceGroupName,
+          after: destination.groupName,
+        }] : []),
+      ] };
     const draft_id = randomUUID();
     updateItemDrafts.set(draft_id, {
-      accountId, itemId, boardId: current.boardId, preview, changes, expires: Date.now() + 30 * 60_000,
+      accountId, itemId, boardId: current.boardId, preview, changes, destination,
+      requested: requested ?? [], expires: Date.now() + 30 * 60_000,
     });
     if (input.replaces_draft_id) updateItemDrafts.delete(input.replaces_draft_id);
     return { status: "Ready for confirmation", message: "Use update_item_arguments to show the confirmation card.",
       update_item_arguments: { draft_id, preview } };
+  } catch (error) {
+    if (error instanceof ItemUpdateClarification)
+      return { status: "Clarification needed", message: error.message, question: error.message };
+    throw error;
   } finally {
     if (prior) prior.revising = false;
   }
@@ -1189,6 +1312,8 @@ async function updateItemValues(input: z.infer<typeof updateItemValuesSchema>): 
             (change.type !== "name" && !isDeepStrictEqual(storedItemValue(change.type, cell), change.before));
         })) throw new Error("The item or board changed since the preview. Prepare and review the changes again.");
 
+    if (changes.length === 0) return await finishItemMove(draft, current.itemName);
+
     let writeError: unknown;
     try {
       const values = JSON.stringify(Object.fromEntries(changes.map(change => [change.id, change.value])));
@@ -1203,7 +1328,8 @@ async function updateItemValues(input: z.infer<typeof updateItemValuesSchema>): 
       updated = await readItemForUpdate(accountId, itemId, boardId);
     } catch (error) {
       const detail = writeError instanceof Error ? writeError.message : error instanceof Error ? error.message : "";
-      throw new Error(`Could not verify the item update. ${detail} Check Monday.com before retrying.`);
+      const skipped = draft.destination ? " The group move was skipped." : "";
+      throw new Error(`Could not verify the item update.${skipped} ${detail} Check Monday.com before retrying.`);
     }
     const confirmed = changes.filter(change => {
       try {
@@ -1214,12 +1340,27 @@ async function updateItemValues(input: z.infer<typeof updateItemValuesSchema>): 
     if (confirmed.length !== changes.length) {
       const pending = changes.filter(change => !confirmed.includes(change)).map(change => change.label).join(", ");
       const detail = writeError instanceof Error ? ` ${writeError.message}` : "";
-      throw new Error(`Verified changes: ${confirmed.map(change => change.label).join(", ") || "none"}. Could not verify: ${pending}.${detail} Check Monday.com before retrying.`);
+      const skipped = draft.destination ? " The group move was skipped." : "";
+      throw new Error(`Verified changes: ${confirmed.map(change => change.label).join(", ") || "none"}. Could not verify: ${pending}.${skipped}${detail} Check Monday.com before retrying.`);
     }
+    if (draft.destination) return await finishItemMove(draft, updated.itemName);
     return { status: "Success", message: `Updated ${changes.length} field(s) on “${updated.itemName}”.`,
       id: itemId, completedColumns: changes.map(change => change.id) };
   } finally {
     savingItems.delete(lock);
+  }
+}
+
+async function finishItemMove(draft: UpdateItemDraft, itemName: string): Promise<WriteOutput> {
+  const { accountId, boardId, itemId, destination, changes } = draft;
+  if (!destination) throw new Error("The update has no destination.");
+  const saved = changes.length ? `Saved ${changes.map(change => change.label).join(", ")} on “${itemName}” before the move. ` : "";
+  try {
+    await moveReviewedItem(accountId, boardId, itemId, destination);
+    return { status: "Success", id: itemId, completedColumns: changes.map(change => change.id),
+      message: `${saved}Moved “${itemName}” to group “${destination.groupName}” on “${draft.preview.board}”.` };
+  } catch (error) {
+    throw new Error(`${saved}${error instanceof Error ? error.message : "Could not verify the group move."}`);
   }
 }
 async function createUpdate(input: z.infer<typeof createUpdateSchema>): Promise<WriteOutput> {
@@ -1444,6 +1585,7 @@ async function getBoards(
 
 async function getItems(
   input: z.infer<typeof getItemsSchema>,
+  accountId?: string,
 ): Promise<ReadOutput> {
   if (
     [input.ids, input.board_id, input.cursor].filter(
@@ -1481,7 +1623,7 @@ async function getItems(
       ...args,
       page,
       limit,
-    });
+    }, accountId);
     const items = records(data.items);
     return {
       resultType: "tasks",
@@ -1499,7 +1641,7 @@ async function getItems(
     ...args,
     limit,
     include_column_values: true,
-  });
+  }, accountId);
   // Initial queries nest the page under boards (or groups); cursor queries return next_items_page.
   if (Array.isArray(data.boards) && data.boards.length === 0) {
     return {
@@ -1715,7 +1857,7 @@ async function feedback(
   }
   const isError = "error" in data;
   await progress(extra, `${title}: ${isError ? "failed" : "finished"}`, true);
-  if ("update_item_arguments" in data || "update_item_details" in data || "create_item_arguments" in data || "create_board_arguments" in data || "pending_board" in data ||
+  if ("question" in data || "update_item_arguments" in data || "update_item_details" in data || "create_item_arguments" in data || "create_board_arguments" in data || "pending_board" in data ||
       "board_draft_status" in data || "board" in data) {
     return { content: [{ type: "text" as const, text: JSON.stringify(data) }] };
   }
