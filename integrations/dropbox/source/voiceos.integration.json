@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "com.voiceos.generated.dropbox",
-  "version": "2.0.17",
+  "version": "2.0.18",
   "name": "Dropbox",
   "summary": "Find, read, upload, organize, version and share Dropbox files through Composio OAuth2.",
   "supportedPlatforms": [
@@ -883,7 +883,7 @@
     "blocks": [
       {
         "type": "text",
-        "text": "Save your Composio API key, then ask VoiceOS to connect Dropbox. Approve the confirmation card and authorize Dropbox in your browser. Ask for Dropbox connection status to verify. You can ask VoiceOS to disconnect Dropbox. Fallback: run npm run setup in this integration folder to use the local Connect/Disconnect page, then copy its active connected account ID (normally ca_...) into Setup and Reload. A pg-test-... identifier is not a connected account ID."
+        "text": "Save your Composio project API key, then ask VoiceOS to connect Dropbox. Voice Connect/Disconnect requires Connected accounts Read and write access; creating an OAuth config also requires Auth configs Read and write access. Approve the confirmation card and authorize Dropbox in your browser. Ask for Dropbox connection status to verify. You can ask VoiceOS to disconnect Dropbox. Fallback: run npm run setup in this integration folder to use the local Connect/Disconnect page, then copy its active connected account ID (normally ca_...) into Setup and Reload. A pg-test-... identifier is not a connected account ID."
       }
     ]
   }

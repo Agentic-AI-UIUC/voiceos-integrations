@@ -75,4 +75,11 @@ export async function disconnectAccount(c:any=client(),file:URL=stateUrl){
  state.disconnectedAccountId=id;delete state.account;delete state.pending;await saveState(state,file);
  return accountResult('disconnected','Dropbox was disconnected in Composio. Your files were not deleted.');
 }
-export function accountError(error:unknown){return errorMessage(error,false,false);}
+export function accountError(error:unknown){
+ const e=error as {status?:number;cause?:{status?:number};message?:string};
+ const status=e?.status??e?.cause?.status;
+ const message=String(e?.message||error);
+ if(status===403||/\b403\b|forbidden|permission denied/i.test(message))return 'Composio denied account management (HTTP 403). Use a project API key with Connected accounts Read and write access; connecting also needs Auth configs Read and write access. Update the key in VoiceOS Setup and reload. The Dropbox connection was not changed.';
+ if(status===401||/APIKey_InvalidAPIKey/i.test(message))return 'Composio rejected the project API key. Update it in VoiceOS Setup and reload. The Dropbox connection was not changed.';
+ return errorMessage(error,false,false);
+}

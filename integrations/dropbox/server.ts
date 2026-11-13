@@ -411,8 +411,8 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 // source/catalog.ts
 import { z } from "zod";
 var VERSION = "20261101_00";
-var BUILD = "dropbox-composio-v19-account-timeout-fix";
-var INTEGRATION_VERSION = "2.0.17";
+var BUILD = "dropbox-composio-v20-account-permission-guidance";
+var INTEGRATION_VERSION = "2.0.18";
 var path = z.string().refine((p) => p === "" || p.startsWith("/") && !p.endsWith("/") && !p.includes("//") && !/[\u0000-\u001f]/.test(p) && !p.split("/").some((s) => s === "." || s === ".."), "Use an absolute Dropbox path without control characters, dot segments, or a trailing slash");
 var item = path.refine((p) => p.length > 1, "A file or folder path is required; root is protected");
 var text = z.string().min(1);
@@ -1129,6 +1129,11 @@ async function disconnectAccount(c = client(), file = stateUrl) {
   return accountResult("disconnected", "Dropbox was disconnected in Composio. Your files were not deleted.");
 }
 function accountError(error) {
+  const e = error;
+  const status = e?.status ?? e?.cause?.status;
+  const message = String(e?.message || error);
+  if (status === 403 || /\b403\b|forbidden|permission denied/i.test(message)) return "Composio denied account management (HTTP 403). Use a project API key with Connected accounts Read and write access; connecting also needs Auth configs Read and write access. Update the key in VoiceOS Setup and reload. The Dropbox connection was not changed.";
+  if (status === 401 || /APIKey_InvalidAPIKey/i.test(message)) return "Composio rejected the project API key. Update it in VoiceOS Setup and reload. The Dropbox connection was not changed.";
   return errorMessage(error, false, false);
 }
 

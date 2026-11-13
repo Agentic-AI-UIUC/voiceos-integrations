@@ -4,7 +4,7 @@ import {mkdtemp,rm,readFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
-import {accountRequestOptions,connectAccount,connectionStatus,disconnectAccount,loadState} from './account.ts';
+import {accountError,accountRequestOptions,connectAccount,connectionStatus,disconnectAccount,loadState} from './account.ts';
 import {accountTools,accountConfirmation} from './account-catalog.ts';
 import {approved} from './catalog.ts';
 
@@ -15,6 +15,12 @@ test('account requests get a fresh timeout after the server has been idle',()=>{
  assert.equal(first.signal.aborted,false);
  assert.equal(second.signal.aborted,false);
  assert.equal(first.maxRetries,0);
+});
+
+test('account permission failures identify Composio key scope without claiming Dropbox rejected file access',()=>{
+ assert.match(accountError(Object.assign(new Error('Forbidden'),{status:403})),/Connected accounts Read and write/);
+ assert.match(accountError(Object.assign(new Error('Invalid API key'),{status:401})),/project API key/);
+ assert.doesNotMatch(accountError(Object.assign(new Error('Forbidden'),{status:403})),/Dropbox denied permission/);
 });
 
 test('three account tools are separate from fourteen approved Dropbox actions and only mutations confirm',()=>{
