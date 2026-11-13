@@ -65,3 +65,7 @@ range action's `worksheet_id` parameter, which its catalog rejected.
 
 This reference documents a working baseline, not a guarantee against future
 provider schema changes. Keep the previous version backed up before edits.
+
+## November 13 follow-up: exact issue inputs and SDK drift
+
+Current validation is 192 offline tests plus real 0.28.0 MCP reproductions of omitted/blank default workbook creation/chart calls and quoted Cyrillic B2=123 update/readback. See docs/live-reproduction-2026-11-13/README.md. The tested disposable sheets were cleaned up and original inventory restored. Fresh Studio preview packages were found declaring latest despite the canonical pin; align package.json AND bun.lock, run a frozen install, and verify the resolved dependency rather than trusting a server build marker. A local fix does not change the host generator or remote share archive. Do not automatically retry writes or claim a past provider incident is explained by a passing current run.

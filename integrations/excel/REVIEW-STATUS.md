@@ -1,21 +1,29 @@
 # Excel 1.0.5 review status - November 13, 2026
 
-Share: https://api.voiceos.com/integration-share/09SN91amuePp/page (page reports v1.0.5, updated Nov 13).
+Share: https://api.voiceos.com/integration-share/09SN91amuePp/page (page reports v1.0.5, updated November 13).
 
-Build: excel-qa-v11-compact-confirmations. MCP/package/manifest versions agree. Exactly ten tools and six native Cancel/Confirm cards.
+Build: excel-qa-v11-compact-confirmations. MCP/package/manifest versions agree. Exactly ten tools and six native Cancel/Confirm cards. SDK pin: 0.28.0, toolkit 20261029_00.
 
-## Evidence
+## Current evidence
 
-- 180 offline tests pass, zero failures, 1257 assertions across eight files. Native-component browser audit covers 36 width/content cases; the installed renderer extract is local-only and the test skips when unavailable.
-- [Today's manual screenshots](docs/screenshots/2026-11-13/README.md) show every tool result, all six confirmations, and all six cancellation responses.
-- [Sanitized live log](docs/live-qa-2026-11-13.txt) has successful responses from all ten actions, including six writes and update readback. It installs Composio 0.29.0; repository/active package declarations pin 0.28.0. This dependency mismatch is unresolved; do not label that run a 0.28.0 live test.
-- [Local visual audit](docs/local-ui-audit/README.md) separates component measurements from real host evidence.
+- **192 offline tests pass**, zero failures, 1312 assertions across nine files. This includes ten exact-input MCP issue reproductions, resolved-SDK/pin checks, and 36 native-component layout cases. The installed-renderer audit explicitly skips when its local extract is unavailable.
+- [Manual author screenshots](docs/screenshots/2026-11-13/README.md) show all ten results and all six native confirmations/cancellation responses. The author separately confirmed that Cancel on each write leaves the workbook unchanged. This is author-reported manual verification, not agent observation of the host UI.
+- [Real provider reproduction on SDK 0.28.0](docs/live-reproduction-2026-11-13/README.md) verifies creation/chart calls with workbook_id omitted and blank, Cyrillic B2=123 update and readback, and cleanup of all three disposable sheets. Original worksheet inventory was restored.
+- [SDK package drift investigation](docs/issue-reproduction-2026-11-13.md) found fresh Studio previews and the local shared package declaring latest. Their package/lockfiles were aligned and frozen installs verified. All five local source/install folders now declare and resolve 0.28.0.
+- [Earlier all-ten-tool live log](docs/live-qa-2026-11-13.txt) installed 0.29.0. It remains historical evidence, not a live 0.28.0 run.
+- [Local visual audit](docs/local-ui-audit/README.md) distinguishes component measurements from the full host overlay.
 
-## Remaining acceptance limits
+## Issue disposition
 
-- #25: default fallback has offline coverage; today's live calls explicitly include workbook_id. Original Mac blank-ID behavior needs targeted verification.
-- #26: full workbook IDs and visible native footers are shown in the new screenshots.
-- #27: today's Windows update/readback succeeds. The original timed-out B2 write and provider cause remain unknown; no retry or false-success behavior was introduced.
-- #33: native cancellation is implemented and Cancel responses are shown. Add provider readback or correlated host logs to prove cancelled writes leave data unchanged.
-- SDK 0.28.0 remains pinned with disableVersionCheck:true. Resolve the reported 0.29.0 installed-runtime discrepancy before asserting source/published dependency parity.
-- Maintainer approval and CI on the new commit remain required. Issues are not closed by this evidence update.
+| Issue | Evidence and limits |
+| --- | --- |
+| #25 default workbook ignored | Omitted and blank ID creation/chart calls pass against the real provider. Tests exercise the registered MCP handlers. Original Mac host UI was not independently rerun. |
+| #26 clipped IDs/fields | Full workbook IDs and visible native footers appear in current manual screenshots. Component geometry checks pass at three widths. |
+| #27 Windows range timeout | Exact quoted Cyrillic B2=123 write/readback passes live now. Simulated accepted-write timeout stays unknown with no retry. The original tester's past B2 state and provider cause remain unknown. |
+| #33 missing Cancel | Native Cancel/Confirm on all six writes; screenshots show cancellation responses and author confirms workbook unchanged. |
+
+## Release and reviewer limits
+
+- Fresh Studio generation can overwrite package metadata again. Local repair does not modify VoiceOS's generator or prove the remote archive's dependency pin. A future fresh install must retain the reviewed package.
+- Single-line JSON was chosen at the author's request to keep footers visible. It preserves JSON nesting/types but trades multiline readability for horizontal caret navigation. Series By uses editable text to avoid unreadable native dropdown options. Reviewer acceptance of this compact alternative remains appropriate.
+- These findings do not close the issues automatically or prove the original external incidents impossible. Maintainer approval and CI on the new commit remain required. No additional tools were exposed.
