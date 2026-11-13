@@ -1,34 +1,21 @@
-# Review status: Microsoft Excel 1.0.4
+# Excel 1.0.5 review status - November 13, 2026
 
-Build: excel-review-fixed-v9-footer-layout. SDK 0.28.0, toolkit 20261029_00.
-Published November 6 at 12:33 Chicago on the existing share channel.
+Share: https://api.voiceos.com/integration-share/09SN91amuePp/page (page reports v1.0.5, updated Nov 13).
 
-## Addressed
+Build: excel-qa-v11-compact-confirmations. MCP/package/manifest versions agree. Exactly ten tools and six native Cancel/Confirm cards.
 
-- SDK version checking disabled and regression-tested to protect MCP stdout.
-- Explicit mappings, fail-closed ownership and single-attempt unknown-outcome
-  writes retained; no deprecated API fallback.
-- Append Table Name, chart Worksheet and Series By appear on editable cards.
-- Schema-to-card coverage checks all write properties, exempting only drive_id
-  and Create Worksheet's worksheet_name alias.
-- Matrices retain JSON row breaks and typed round-trip after edits.
-- All six cards reserve a non-scrolling footer; long forms use compact columns.
-  Browser geometry checks cover scroll/focus and conservative button positions.
-- Readable dropdown options, Excel logo and full titles; neutral chart result.
-- All six final confirmation screenshots and results are in the current gallery.
-- Version/package numbers agree and author republished 1.0.4.
-- 160 tests pass locally (607 assertions), including the available Chrome test.
+## Evidence
 
-See [November 6 evidence](docs/live-qa-2026-11-06.md) and
-[the final screenshot gallery](docs/screenshots/README.md).
+- 180 offline tests pass, zero failures, 1257 assertions across eight files. Native-component browser audit covers 36 width/content cases; the installed renderer extract is local-only and the test skips when unavailable.
+- [Today's manual screenshots](docs/screenshots/2026-11-13/README.md) show every tool result, all six confirmations, and all six cancellation responses.
+- [Sanitized live log](docs/live-qa-2026-11-13.txt) has successful responses from all ten actions, including six writes and update readback. It installs Composio 0.29.0; repository/active package declarations pin 0.28.0. This dependency mismatch is unresolved; do not label that run a 0.28.0 live test.
+- [Local visual audit](docs/local-ui-audit/README.md) separates component measurements from real host evidence.
 
-## Remaining release process / separate QA
+## Remaining acceptance limits
 
-CI and maintainer approval remain required. Native managed linking, credential
-lifecycle, cancellation, fresh shared installation, actual scopes and chart
-inspection in Excel are separate follow-ups, not claimed by these success cards.
-No VoiceOS UI was opened or controlled by the agent.
-
-## November 8 follow-up
-
-See [current changes and evidence](docs/review-follow-up-2026-11-08.md). MCP, package, and manifest versions now all report 1.0.4. The latest local confirmation layout uses conditional scrollbars and a 64px opaque button footer. The previous published 1.0.4 evidence remains historical; republishing the latest changes is pending.
+- #25: default fallback has offline coverage; today's live calls explicitly include workbook_id. Original Mac blank-ID behavior needs targeted verification.
+- #26: full workbook IDs and visible native footers are shown in the new screenshots.
+- #27: today's Windows update/readback succeeds. The original timed-out B2 write and provider cause remain unknown; no retry or false-success behavior was introduced.
+- #33: native cancellation is implemented and Cancel responses are shown. Add provider readback or correlated host logs to prove cancelled writes leave data unchanged.
+- SDK 0.28.0 remains pinned with disableVersionCheck:true. Resolve the reported 0.29.0 installed-runtime discrepancy before asserting source/published dependency parity.
+- Maintainer approval and CI on the new commit remain required. Issues are not closed by this evidence update.

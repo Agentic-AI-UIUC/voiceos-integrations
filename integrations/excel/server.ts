@@ -13,10 +13,10 @@ export function renderCustom(options: Parameters<typeof renderBaseCustom>[0]) {
   return card;
 }
 
-const server = new McpServer({ name: "microsoft-excel", version: "1.0.4" });
+const server = new McpServer({ name: "microsoft-excel", version: "1.0.5" });
 const ACCENT = "#107c41"; // Microsoft Excel brand green
 const COMPOSIO_BASE_URL = "https://backend.composio.dev";
-const BUILD_ID = "excel-review-fixed-v9-footer-layout";
+const BUILD_ID = "excel-qa-v11-compact-confirmations";
 
 export const APPROVED_COMPOSIO_ACTIONS = {
   excel_get_workbook: "EXCEL_GET_WORKBOOK",
@@ -111,6 +111,8 @@ const CSS = `
 .xr-cell{min-width:110px;max-width:260px;white-space:normal;overflow-wrap:anywhere}
 .xr-idx{position:sticky;left:0;z-index:1;background:#242424}
 
+.xl-workbook-id{display:flex;flex-direction:column;gap:3px;margin:8px 0;padding:7px;border:1px solid var(--line);border-radius:5px;font-size:11px}.xl-workbook-id>span:first-child{color:var(--ink-3)}.xl-workbook-id>span:last-child{white-space:normal;overflow-wrap:anywhere;user-select:text}
+.xl-stat-v{white-space:normal;overflow-wrap:anywhere}
 `;
 
 
@@ -1081,7 +1083,48 @@ export async function resolveWriteTarget(action: string, input: Record<string, a
     }
   }));
   if (matches.length !== 1 || typeof matches[0].table.id !== "string" || !matches[0].table.id) throw new Error("Table '" + identifier + "' could not be uniquely resolved in this workbook. Available tables: " + (available.join(", ") || "none") + ". Confirm the table exists (not just a named range), the workbook is correct, and Excel has saved. No rows appended.");
+  const approvedName = String(input.table_name || '').trim();
+  if (approvedName && matches[0].table.id !== approvedName && String(matches[0].table.name || '').toLowerCase() !== approvedName.toLowerCase()) throw new Error('Table name and ID identify different targets. Clear or correct one before confirming. No rows appended.');
   return {...input, table_id: matches[0].table.id, worksheet_name: matches[0].sheet.name};
+}
+
+
+/** Resolve Setup defaults at call time; a blank edited field never erases Setup. */
+export function resolveWorkbookId(value?: unknown, env: Record<string,string|undefined> = process.env): string {
+  if (value != null && typeof value !== 'string') throw new Error('workbook_id must be a driveItem ID string.');
+  const id = (typeof value === 'string' ? value.trim() : '') || env.DEFAULT_WORKBOOK_ID?.trim() || '';
+  if (!id) throw new Error('No workbook ID provided. Save DEFAULT_WORKBOOK_ID in VoiceOS Setup and reload the integration, or supply workbook_id explicitly.');
+  return id;
+}
+export function renderWorkbookId(id: string): string {
+  return '<div class="xl-workbook-id"><span>Workbook ID</span><span>'+esc(id)+'</span></div>';
+}
+export class ComposioTimeoutError extends Error {
+  constructor(public action: string, public stage: 'schema'|'execute') {
+    super(stage === 'schema' ? 'Composio schema lookup timed out for '+action+'. No execution attempted; no write was sent.' : timeoutMessage(action));
+    this.name='ComposioTimeoutError';
+  }
+}
+
+export function rangeTimeoutVerification(error: unknown, workbookId: string, range: string, worksheetName?: string) {
+  return error instanceof ComposioTimeoutError && error.stage === 'execute'
+    ? {outcome:'unknown',verification:{tool:'excel_get_range',arguments:{workbook_id:workbookId,range,...(worksheetName?{worksheet_name:worksheetName}:{})}}}
+    : {};
+}
+
+export const COMPOSIO_DEADLINES = {schema:8000,execute:30000} as const;
+export async function requestWithDeadline<T>(action: string, stage: 'schema'|'execute', milliseconds: number, request: (signal: AbortSignal)=>Promise<T>): Promise<T> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const started=Date.now();
+  try {
+    return await Promise.race([Promise.resolve().then(()=>request(controller.signal)),new Promise<never>((_,reject)=>{
+      timer=setTimeout(()=>{reject(new ComposioTimeoutError(action,stage));controller.abort();},milliseconds);
+    })]);
+  } catch(error) {
+    if(error instanceof ComposioTimeoutError) console.error('[microsoft-excel] '+action+' '+stage+' deadline exceeded after '+(Date.now()-started)+'ms; build '+BUILD_ID);
+    throw error;
+  } finally { if(timer)clearTimeout(timer); }
 }
 
 export const WRITE_ACTIONS = new Set(["EXCEL_ADD_WORKSHEET", "EXCEL_UPDATE_WORKSHEET", "EXCEL_DELETE_WORKSHEET", "EXCEL_UPDATE_RANGE", "EXCEL_ADD_TABLE_ROW", "EXCEL_ADD_CHART"]);
@@ -1092,7 +1135,7 @@ export function timeoutMessage(action: string): string {
 }
 
 export function mapPinnedAction(action: string, input: Record<string, any>): Record<string, any> {
-  const item_id = input.workbook_id || input.item_id || process.env.DEFAULT_WORKBOOK_ID?.trim();
+  const item_id = resolveWorkbookId(input.workbook_id || input.item_id);
   let args: Record<string, any> = { item_id };
   switch (action) {
     case "EXCEL_GET_WORKBOOK": case "EXCEL_LIST_WORKSHEETS": break;
@@ -1125,7 +1168,7 @@ export function mapPinnedAction(action: string, input: Record<string, any>): Rec
   return Object.fromEntries(Object.entries(args).filter(([,value]) => value !== undefined));
 }
 
-export async function executeComposioAction(actionName: string, inputArgs: Record<string, any>, clientForTest?: any): Promise<any> {
+export async function executeComposioAction(actionName: string, inputArgs: Record<string, any>, clientForTest?: any, deadlines: {schema:number;execute:number} = COMPOSIO_DEADLINES): Promise<any> {
   if (!APPROVED_SLUG_SET.has(actionName) && actionName !== "EXCEL_LIST_TABLES") {
     throw new Error(`Unapproved action slug '${actionName}'. Only audited, approved Composio slugs may be executed.`);
   }
@@ -1154,10 +1197,10 @@ export async function executeComposioAction(actionName: string, inputArgs: Recor
     ? "20261029_00"
     : configuredVersion;
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 19000);
+
+  let requestStage: "schema"|"execute" = "schema";
   try {
-    const tool = await composio.tools.getRawComposioToolBySlug(actionName, { version }, { signal: controller.signal });
+    const tool = await requestWithDeadline<any>(actionName, "schema", deadlines.schema, signal => composio.tools.getRawComposioToolBySlug(actionName, { version }, { signal, maxRetries: 0 }));
     const properties = tool.inputParameters?.properties;
     if (!properties) throw new Error("Missing pinned tool input schema; no execution attempted.");
     const mappedArgs = mapPinnedAction(actionName, inputArgs);
@@ -1168,9 +1211,10 @@ export async function executeComposioAction(actionName: string, inputArgs: Recor
     }
     const missing = (tool.inputParameters.required || []).filter((key: string) => mappedArgs[key] === undefined || mappedArgs[key] === "");
     if (missing.length) throw new Error(`${actionName} (${version}) requires: ${missing.join(", ")}. No execution attempted.`);
-    const res = await composio.tools.execute(actionName, {
+    requestStage = "execute";
+    const res = await requestWithDeadline<any>(actionName, "execute", deadlines.execute, signal => composio.tools.execute(actionName, {
       userId, connectedAccountId, arguments: mappedArgs, version,
-    }, { signal: controller.signal, maxRetries: 0 });
+    }, { signal, maxRetries: 0 }));
 
     if (
       res &&
@@ -1207,15 +1251,14 @@ export async function executeComposioAction(actionName: string, inputArgs: Recor
     const data = res?.data?.response_data ?? res?.data ?? res?.response_data ?? res;
     return data;
   } catch (err: any) {
-    if (controller.signal.aborted) {
-      throw new Error(timeoutMessage(actionName));
-    }
+    if (err instanceof ComposioTimeoutError) throw err;
     let currentErr = err;
     const seen = new Set();
     while (currentErr?.cause && !seen.has(currentErr.cause)) {
       seen.add(currentErr);
       currentErr = currentErr.cause;
     }
+    if (['AbortError','APIConnectionTimeoutError','TimeoutError'].includes(currentErr?.name) || ['ETIMEDOUT','ECONNRESET'].includes(currentErr?.code)) throw new ComposioTimeoutError(actionName,requestStage);
     const errorData = currentErr?.response?.data || currentErr?.data || currentErr?.error;
     const statusCode = currentErr?.response?.status || currentErr?.status || currentErr?.statusCode;
     const errorCode =
@@ -1234,8 +1277,6 @@ export async function executeComposioAction(actionName: string, inputArgs: Recor
 
     const codePrefix = errorCode ? `[${errorCode}] ` : "";
     throw new Error(`Composio action error (${actionName}): ${codePrefix}${rawMsg}`);
-  } finally {
-    clearTimeout(timeout);
   }
 }
 
@@ -1304,11 +1345,11 @@ server.registerTool(
     description: "Retrieve overview metadata and worksheets for an Excel workbook in OneDrive/SharePoint via Composio. Use when the user asks what sheets are in the workbook, wants to view workbook details, or inspect the default spreadsheet.",
     inputSchema: {
       drive_id: z.string().optional().describe("Drive containing the workbook. Defaults to DEFAULT_DRIVE_ID; specify for SharePoint or another drive."),
-      workbook_id: z.string().optional().describe("OneDrive or SharePoint driveItem ID of the Excel workbook. Defaults to DEFAULT_WORKBOOK_ID in settings."),
+      workbook_id: z.string().optional().describe("OneDrive or SharePoint driveItem ID of the Excel workbook. Blank or omitted uses DEFAULT_WORKBOOK_ID in Setup. Resolve it with Get workbook and include the returned ID when preparing a write confirmation."),
     } as any,
   },
   async (args: any) => {
-    const workbookId = (args?.workbook_id ? String(args.workbook_id).trim() : "") || process.env.DEFAULT_WORKBOOK_ID?.trim() || "";
+    const workbookId = resolveWorkbookId(args?.workbook_id);
     if (!workbookId) {
       throw new Error("No workbook ID provided. Please specify a workbook_id or configure DEFAULT_WORKBOOK_ID in settings.");
     }
@@ -1374,6 +1415,7 @@ server.registerTool(
               <span class="xl-sub">OneDrive · ${esc(clip(resolvedItemId, 22))}</span>
             </div>
           </div>
+          ${renderWorkbookId(resolvedItemId)}
           ${contentSection}
         </div>
       `;
@@ -1423,7 +1465,7 @@ server.registerTool(
     } as any,
   },
   async (args: any) => {
-    const workbookId = (args?.workbook_id ? String(args.workbook_id).trim() : "") || process.env.DEFAULT_WORKBOOK_ID?.trim() || "";
+    const workbookId = resolveWorkbookId(args?.workbook_id);
     const sheetName = String(args?.worksheet_name || "").trim();
     if (!workbookId) throw new Error("No workbook ID provided. Specify workbook_id or configure DEFAULT_WORKBOOK_ID in settings.");
     if (!sheetName) throw new Error("Missing worksheet_name argument.");
@@ -1507,7 +1549,7 @@ server.registerTool(
     } as any,
   },
   async (args: any) => {
-    const workbookId = (args?.workbook_id ? String(args.workbook_id).trim() : "") || process.env.DEFAULT_WORKBOOK_ID?.trim() || "";
+    const workbookId = resolveWorkbookId(args?.workbook_id);
     const rangeParam = (args?.range ? String(args.range).trim() : "A1:C4").trim();
 
     if (!workbookId) {
@@ -1597,12 +1639,12 @@ server.registerTool(
     title: "List worksheets",
     description: "List all worksheet tabs in an Excel workbook with their names, positions, and visibility. Use when the user asks what tabs or sheets exist in the spreadsheet.",
     inputSchema: {
-      workbook_id: z.string().optional().describe("OneDrive or SharePoint driveItem ID of the Excel workbook. Defaults to DEFAULT_WORKBOOK_ID in settings."),
+      workbook_id: z.string().optional().describe("OneDrive or SharePoint driveItem ID of the Excel workbook. Blank or omitted uses DEFAULT_WORKBOOK_ID in Setup. Resolve it with Get workbook and include the returned ID when preparing a write confirmation."),
       drive_id: z.string().optional().describe("Drive containing the workbook."),
     } as any,
   },
   async (args: any) => {
-    const workbookId = (args?.workbook_id ? String(args.workbook_id).trim() : "") || process.env.DEFAULT_WORKBOOK_ID?.trim() || "";
+    const workbookId = resolveWorkbookId(args?.workbook_id);
     if (!workbookId) throw new Error("No workbook ID provided. Specify workbook_id or configure DEFAULT_WORKBOOK_ID in settings.");
 
     try {
@@ -1645,8 +1687,9 @@ server.registerTool(
               <span class="xl-title">Worksheets</span>
               <span class="xl-sub">${worksheets.length} sheet${worksheets.length === 1 ? "" : "s"}</span>
             </div>
-            <span class="xl-chip">${esc(clip(workbookId, 16))}</span>
+
           </div>
+          ${renderWorkbookId(workbookId)}
           <div class="xl-list">${rows || '<div class="xl-empty">No worksheets found</div>'}</div>
         </div>
       `;
@@ -1689,12 +1732,12 @@ server.registerTool(
     inputSchema: {
       name: z.string().describe("Name for the new worksheet."),
       worksheet_name: z.string().optional().describe("Alternative alias for worksheet name."),
-      workbook_id: z.string().optional().describe("OneDrive or SharePoint driveItem ID of the Excel workbook. Defaults to DEFAULT_WORKBOOK_ID in settings."),
+      workbook_id: z.string().optional().describe("OneDrive or SharePoint driveItem ID of the Excel workbook. Blank or omitted uses DEFAULT_WORKBOOK_ID in Setup. Resolve it with Get workbook and include the returned ID when preparing a write confirmation."),
       drive_id: z.string().optional().describe("Drive containing the workbook."),
     } as any,
   },
   async (args: any) => {
-    const workbookId = (args?.workbook_id ? String(args.workbook_id).trim() : "") || process.env.DEFAULT_WORKBOOK_ID?.trim() || "";
+    const workbookId = resolveWorkbookId(args?.workbook_id);
     const rawName = String(args?.name || args?.worksheet_name || "").trim();
     if (!workbookId) throw new Error("No workbook ID provided. Specify workbook_id or configure DEFAULT_WORKBOOK_ID in settings.");
     if (!rawName) throw new Error("Worksheet name is required.");
@@ -1730,7 +1773,7 @@ server.registerTool(
         </div>
         <div class="xl-stats">
           <div class="xl-stat"><span class="xl-stat-k">Status</span><span class="xl-stat-v">Ready</span></div>
-          <div class="xl-stat"><span class="xl-stat-k">Workbook</span><span class="xl-stat-v">${esc(clip(workbookId, 16))}</span></div>
+          <div class="xl-stat"><span class="xl-stat-k">Workbook</span><span class="xl-stat-v">${esc(workbookId)}</span></div>
         </div>
         ${collisionResolved ? `<div class="xl-hint">A sheet named '${esc(cleanName)}' already existed in this workbook, so it was created with a unique suffix.</div>` : ""}
       </div>
@@ -1764,12 +1807,12 @@ server.registerTool(
     inputSchema: {
       current_name: z.string().describe("Current name of the worksheet."),
       new_name: z.string().describe("New name for the worksheet."),
-      workbook_id: z.string().optional().describe("OneDrive or SharePoint driveItem ID of the Excel workbook. Defaults to DEFAULT_WORKBOOK_ID in settings."),
+      workbook_id: z.string().optional().describe("OneDrive or SharePoint driveItem ID of the Excel workbook. Blank or omitted uses DEFAULT_WORKBOOK_ID in Setup. Resolve it with Get workbook and include the returned ID when preparing a write confirmation."),
       drive_id: z.string().optional().describe("Drive containing the workbook."),
     } as any,
   },
   async (args: any) => {
-    const workbookId = (args?.workbook_id ? String(args.workbook_id).trim() : "") || process.env.DEFAULT_WORKBOOK_ID?.trim() || "";
+    const workbookId = resolveWorkbookId(args?.workbook_id);
     const currentName = String(args?.current_name || "").trim();
     const newName = String(args?.new_name || "").trim();
     if (!workbookId) throw new Error("No workbook ID provided. Specify workbook_id or configure DEFAULT_WORKBOOK_ID in settings.");
@@ -1844,12 +1887,12 @@ server.registerTool(
     description: "Delete a worksheet tab from an Excel workbook. This action permanently deletes sheet data. Use when the user specifically requests to delete or remove a sheet.",
     inputSchema: {
       worksheet_name: z.string().describe("Name of the worksheet to permanently delete."),
-      workbook_id: z.string().optional().describe("OneDrive or SharePoint driveItem ID of the Excel workbook. Defaults to DEFAULT_WORKBOOK_ID in settings."),
+      workbook_id: z.string().optional().describe("OneDrive or SharePoint driveItem ID of the Excel workbook. Blank or omitted uses DEFAULT_WORKBOOK_ID in Setup. Resolve it with Get workbook and include the returned ID when preparing a write confirmation."),
       drive_id: z.string().optional().describe("Drive containing the workbook."),
     } as any,
   },
   async (args: any) => {
-    const workbookId = (args?.workbook_id ? String(args.workbook_id).trim() : "") || process.env.DEFAULT_WORKBOOK_ID?.trim() || "";
+    const workbookId = resolveWorkbookId(args?.workbook_id);
     const rawTarget = String(args?.worksheet_name || args?.name || args?.worksheet || "").trim();
     if (!workbookId) throw new Error("No workbook ID provided. Specify workbook_id or configure DEFAULT_WORKBOOK_ID in settings.");
     if (!rawTarget) throw new Error("worksheet_name is required.");
@@ -1876,7 +1919,7 @@ server.registerTool(
           </div>
           <div class="xl-stats">
             <div class="xl-stat"><span class="xl-stat-k">Removed</span><span class="xl-stat-v">${esc(clip(resolvedName, 18))}</span></div>
-            <div class="xl-stat"><span class="xl-stat-k">Workbook</span><span class="xl-stat-v">${esc(clip(workbookId, 16))}</span></div>
+            <div class="xl-stat"><span class="xl-stat-k">Workbook</span><span class="xl-stat-v">${esc(workbookId)}</span></div>
           </div>
         </div>
       `;
@@ -1922,12 +1965,12 @@ server.registerTool(
       range: z.string().describe("Target cell range address (e.g. 'A1:B2', 'Sheet1!A1:B2', or ''VoiceOS QA'!A1:B2')."),
       values: z.union([z.array(z.array(z.any())), z.string()]).describe("2D array of values or rows of cell values to update."),
       worksheet_name: z.string().optional().describe("Optional worksheet name if not prefixed in range address."),
-      workbook_id: z.string().optional().describe("OneDrive or SharePoint driveItem ID of the Excel workbook. Defaults to DEFAULT_WORKBOOK_ID in settings."),
+      workbook_id: z.string().optional().describe("OneDrive or SharePoint driveItem ID of the Excel workbook. Blank or omitted uses DEFAULT_WORKBOOK_ID in Setup. Resolve it with Get workbook and include the returned ID when preparing a write confirmation."),
       drive_id: z.string().optional().describe("Drive containing the workbook."),
     } as any,
   },
   async (args: any) => {
-    const workbookId = (args?.workbook_id ? String(args.workbook_id).trim() : "") || process.env.DEFAULT_WORKBOOK_ID?.trim() || "";
+    const workbookId = resolveWorkbookId(args?.workbook_id);
     const range = String(args?.range || "").trim();
     if (!workbookId) throw new Error("No workbook ID provided. Specify workbook_id or configure DEFAULT_WORKBOOK_ID in settings.");
     if (!range) throw new Error("Range address is required.");
@@ -1989,6 +2032,7 @@ server.registerTool(
           type: "text" as const,
           text: JSON.stringify({
             error: err.message,
+            ...rangeTimeoutVerification(err, workbookId, range, args?.worksheet_name),
             _voiceos_glance: { blocks: [{ type: "widget", html: errCard.html, height: errCard.height }] },
           }),
         }],
@@ -2009,13 +2053,13 @@ server.registerTool(
       table_id: z.string().optional().describe("Table ID or table name in Excel (e.g. 'ReleaseQATable' or a table GUID). In Excel and Microsoft Graph, the table name functions directly as the table ID, viewable in Excel under Table Design -> Table Name."),
       table_name: z.string().optional().describe("Name of the target Excel table (e.g. 'ReleaseQATable'). Will be mapped to table_id under Microsoft Graph."),
       rows: z.union([z.array(z.array(z.any())), z.string()]).describe("2D array of row data to append or JSON string (e.g. [['2025-06-01', 'QA Verified', 'Passed']]). Mapped to values for Excel."),
-      workbook_id: z.string().optional().describe("OneDrive or SharePoint driveItem ID of the Excel workbook. Defaults to DEFAULT_WORKBOOK_ID in settings."),
+      workbook_id: z.string().optional().describe("OneDrive or SharePoint driveItem ID of the Excel workbook. Blank or omitted uses DEFAULT_WORKBOOK_ID in Setup. Resolve it with Get workbook and include the returned ID when preparing a write confirmation."),
       worksheet_name: z.string().optional().describe("Worksheet containing the table (e.g. 'Release QA Verified')."),
       drive_id: z.string().optional().describe("Drive containing the workbook."),
     } as any,
   },
   async (args: any) => {
-    const workbookId = (args?.workbook_id ? String(args.workbook_id).trim() : "") || process.env.DEFAULT_WORKBOOK_ID?.trim() || "";
+    const workbookId = resolveWorkbookId(args?.workbook_id);
     const tableIdentifier = (args?.table_id ? String(args.table_id).trim() : "") || (args?.table_name ? String(args.table_name).trim() : "");
     if (!workbookId) throw new Error("No workbook ID provided. Specify workbook_id or configure DEFAULT_WORKBOOK_ID in settings.");
     if (!tableIdentifier) {
@@ -2033,8 +2077,8 @@ server.registerTool(
       const data = await executeComposioAction(APPROVED_COMPOSIO_ACTIONS.excel_add_table_rows, await resolveWriteTarget("EXCEL_ADD_TABLE_ROW", {
         workbook_id: workbookId,
         item_id: workbookId,
-        table_id: tableIdentifier,
-        table_name: tableIdentifier,
+        table_id: args?.table_id?.trim() || undefined,
+        table_name: args?.table_name?.trim() || undefined,
         table: tableIdentifier,
         tableName: tableIdentifier,
         rows: parsedRows,
@@ -2108,12 +2152,12 @@ server.registerTool(
       series_by: z.string().optional().describe("Series arrangement: 'Columns', 'Rows', or 'Auto'. Defaults to 'Auto'."),
       title: z.string().optional().describe("Optional title for the chart."),
       worksheet_name: z.string().optional().describe("Worksheet where chart will be created."),
-      workbook_id: z.string().optional().describe("OneDrive or SharePoint driveItem ID of the Excel workbook. Defaults to DEFAULT_WORKBOOK_ID in settings."),
+      workbook_id: z.string().optional().describe("OneDrive or SharePoint driveItem ID of the Excel workbook. Blank or omitted uses DEFAULT_WORKBOOK_ID in Setup. Resolve it with Get workbook and include the returned ID when preparing a write confirmation."),
       drive_id: z.string().optional().describe("Drive containing the workbook."),
     } as any,
   },
   async (args: any) => {
-    const workbookId = (args?.workbook_id ? String(args.workbook_id).trim() : "") || process.env.DEFAULT_WORKBOOK_ID?.trim() || "";
+    const workbookId = resolveWorkbookId(args?.workbook_id);
     const range = String(args?.range || "").trim();
     const chartType = String(args?.chart_type || "ColumnClustered").trim();
     const chartTitle = args?.title ? String(args.title).trim() : "Excel Chart";

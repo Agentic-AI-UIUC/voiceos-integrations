@@ -1,3 +1,5 @@
+> Update November 11: the v5 collection/mapping safeguards below remain relevant. The current 1.0.5 candidate uses native confirmation cards, SDK 0.28.0, and separate request deadlines. See docs/QA-FIXES-1.0.5.md for current tests and live-QA limits.
+
 # Excel integration: working implementation reference
 
 Recorded November 1, 2026. Working build: `excel-review-fixed-v5-collections`.

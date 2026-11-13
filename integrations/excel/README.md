@@ -4,7 +4,7 @@ Microsoft Excel Cloud tools for VoiceOS Agent Mode, executed through Composio wi
 
 ## Release status
 
-Current release: **1.0.4**, build `excel-review-fixed-v9-footer-layout`, SDK **0.28.0**. It is republished on the existing share channel. See [current QA evidence](docs/live-qa-2026-11-06.md) and [today's ordered screenshots](docs/screenshots/README.md). All six confirmation cards expose approved inputs and separate scrolling fields from the floating footer. Credential lifecycle, cancellation and fresh installation remain separate QA.
+Current source: **1.0.5**, build `excel-qa-v11-compact-confirmations`, pinned SDK **0.28.0**. The share page reports 1.0.5. [Current review status](REVIEW-STATUS.md) records November 13 live results, screenshots, offline tests, and remaining acceptance limits, including the live log's 0.29.0 dependency mismatch.
 
 The verified setup uses a manually configured Connected Account ID. Automatic discovery by User ID is not a verified replacement. The API-key field is intentionally temporary for v1/QA.
 
@@ -31,7 +31,7 @@ List Named Items, Create Workbook, and Create Table are deferred. Delete Workboo
 2. In the VoiceOS integration Setup fields, enter your tester project API key, the connection's owning Composio User ID, and its active Connected Account ID. Use the same project for the key and connection.
 3. Optionally set the workbook driveItem ID and drive ID. Use actual IDs, not file URLs or Auth Config IDs.
 4. Keep the Excel toolkit version at the live-tested `20261029_00` unless separately validating a migration.
-5. Check that startup reports `excel-review-fixed-v9-footer-layout` and discovery reports ten tools.
+5. Check that startup reports `excel-qa-v11-compact-confirmations` and discovery reports ten tools.
 
 The execution path reads tool schemas and executes tools through the current Composio SDK. Connected Accounts Read is used to verify ownership and ACTIVE status. No proxy execution is used. Do not broaden key permissions without identifying the endpoint that needs them.
 
@@ -66,7 +66,7 @@ Publish through VoiceOS separately from uploading this source to GitHub. Verify 
 
 ## CI regression tests
 
-Run `bun install --frozen-lockfile` and `bun test`. There are 160 tests across six files, covering account validation, ten-tool parity, explicit mappings, complete lookups, write timeouts, SDK stdout protection, confirmation input coverage, edit round-trips and footer geometry. The headless layout test requires Chrome/Chromium (`CHROME_BIN` may specify its path); it skips if unavailable. Fake-client tests do not call Composio. The browser test loads local HTML only. Importing the server does not open the MCP transport.
+Run `bun install --frozen-lockfile` and `bun test`. Seven test files cover account validation, exact tool mappings, collection preflights, default-workbook resolution, actual offline stdio MCP initialization, separate request deadlines, uncertain writes/no retry, native confirmation inputs/actions and result scrolling. Tests use fake clients or a child MCP server with credentials disabled; no live API calls occur. Chrome tests load local result HTML only and skip if Chrome is unavailable. Native confirmation cancellation remains a manual host QA step.
 
 Read [IMPLEMENTATION-NOTES.md](IMPLEMENTATION-NOTES.md) before modifying the working
 flow. Keep the SDK pinned to 0.28.0, including after Studio regenerates an export.
@@ -74,3 +74,8 @@ flow. Keep the SDK pinned to 0.28.0, including after Studio regenerates an expor
 ## November 8 follow-up
 
 See [current changes and evidence](docs/review-follow-up-2026-11-08.md). MCP, package, and manifest versions now all report 1.0.4. The latest local confirmation layout uses conditional scrollbars and a 64px opaque button footer. The previous published 1.0.4 evidence remains historical; republishing the latest changes is pending.
+
+
+## November 11 candidate
+
+Version 1.0.5 replaces the November 8 custom confirmation/footer approach. See [current handoff](HANDOFF.md) and [QA audit](docs/QA-FIXES-1.0.5.md). The earlier dated notes below describe historical evidence only.

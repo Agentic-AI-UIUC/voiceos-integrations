@@ -31,9 +31,8 @@ for (const tool of manifest.tools) {
     if (writes.has(tool.name)) {
       expect(tool.confirmation).toBeDefined();
       expect(tool.confirmation.schemaVersion).toBe(1);
-      expect(tool.confirmation.root.type).toBe("widget");
-      expect(tool.confirmation.root.html).toContain("data-k-key");
-      expect(tool.confirmation.root.confirmLabel.length).toBeGreaterThan(0);
+      expect(tool.confirmation.root.type).toBe("card");
+      expect(tool.confirmation.root.footer[0].items.map((a:any)=>a.role)).toEqual(["cancel","confirm"]);
     } else expect(tool.confirmation).toBeUndefined();
   });
 }
@@ -68,7 +67,7 @@ beforeEach(() => {
   process.env.COMPOSIO_CONNECTED_ACCOUNT_ID = "ca_test";
 });
 afterEach(() => {
-  for (const key of ["COMPOSIO_API_KEY", "COMPOSIO_USER_ID", "COMPOSIO_CONNECTED_ACCOUNT_ID"]) {
+  for (const key of ["COMPOSIO_API_KEY", "COMPOSIO_USER_ID", "COMPOSIO_CONNECTED_ACCOUNT_ID", "DEFAULT_WORKBOOK_ID"]) {
     if (savedEnv[key] === undefined) delete process.env[key]; else process.env[key] = savedEnv[key];
   }
 });
@@ -201,3 +200,50 @@ test('production SDK constructor disables update notices on the MCP stdout chann
   expect(calls.length).toBeGreaterThan(0);
   for (const call of calls) expect(call[1]).toMatch(/disableVersionCheck\s*:\s*true/);
 });
+
+import {resolveWorkbookId,requestWithDeadline,ComposioTimeoutError,COMPOSIO_DEADLINES,renderWorkbookId} from './server.ts';
+for(const value of [undefined,null,'','   '])test('blank workbook uses Setup: '+JSON.stringify(value),()=>{
+ expect(resolveWorkbookId(value,{DEFAULT_WORKBOOK_ID:'  qa_default  '})).toBe('qa_default');
+});
+test('explicit workbook overrides Setup without being altered',()=>{
+ expect(resolveWorkbookId('  qa_other  ',{DEFAULT_WORKBOOK_ID:'qa_default'})).toBe('qa_other');
+ expect(()=>resolveWorkbookId(undefined,{})).toThrow('Save DEFAULT_WORKBOOK_ID');
+ expect(()=>resolveWorkbookId(123,{DEFAULT_WORKBOOK_ID:'qa_default'})).toThrow('string');
+});
+test('all ten handlers resolve workbook defaults using the shared resolver',()=>{
+ expect([...source.matchAll(/const workbookId = resolveWorkbookId\(args\?\.workbook_id\)/g)]).toHaveLength(10);
+});
+for(const [action,input,properties] of [
+ ['EXCEL_ADD_WORKSHEET',{name:'QA Mac'},['item_id','name']],
+ ['EXCEL_ADD_CHART',{range:"'\u041b\u0438\u0441\u04421'!A1:B3",chart_type:'ColumnClustered',series_by:'Columns'},['item_id','worksheet','type','sourcedata','seriesby']],
+] as const)for(const workbook_id of [undefined,'','  '])test(action+': confirmed blank ID preserves Setup at SDK boundary '+JSON.stringify(workbook_id),async()=>{
+ process.env.DEFAULT_WORKBOOK_ID='qa_default';const calls:any[]=[];
+ const client={...accountClient(validAccount),tools:{getRawComposioToolBySlug:async()=>({inputParameters:{properties:Object.fromEntries(properties.map(p=>[p,{type:'string'}])),required:properties}}),execute:async(...args:any[])=>{calls.push(args);return {successful:true,data:{id:'created_fixture'}};}}};
+ await executeComposioAction(action,{...input,workbook_id},client);
+ expect(calls).toHaveLength(1);expect(calls[0][1].arguments.item_id).toBe('qa_default');expect(calls[0][2].maxRetries).toBe(0);
+});
+test('schema and execution have separate bounded budgets',async()=>{
+ const calls:any[]=[];const client={...accountClient(validAccount),tools:{getRawComposioToolBySlug:async()=>{await Bun.sleep(20);return {inputParameters:{properties:{item_id:{},values:{},worksheet_id:{},address:{}},required:['item_id','values','worksheet_id','address']}};},execute:async(...args:any[])=>{calls.push(args);await Bun.sleep(25);return {successful:true,data:{values:[[123]]}};}}};
+ const result=await executeComposioAction('EXCEL_UPDATE_RANGE',{workbook_id:'qa_wb',range:"'\u041b\u0438\u0441\u04421'!B2",values:[[123]]},client,{schema:80,execute:80});
+ expect(result.values).toEqual([[123]]);expect(calls).toHaveLength(1);expect(COMPOSIO_DEADLINES.execute).toBeGreaterThan(19000);
+});
+test('schema timeout sends zero writes even if SDK ignores abort',async()=>{
+ let writes=0;const client={...accountClient(validAccount),tools:{getRawComposioToolBySlug:async()=>new Promise(()=>{}),execute:async()=>{writes++;}}};
+ await expect(executeComposioAction('EXCEL_UPDATE_RANGE',{workbook_id:'qa_wb',range:'\u041b\u0438\u0441\u04421!B2',values:[[123]]},client,{schema:10,execute:100})).rejects.toThrow('No execution attempted');expect(writes).toBe(0);
+});
+test('write deadline remains unknown, aborts SDK, and never retries',async()=>{
+ let writes=0,signal:AbortSignal|undefined;const client={...accountClient(validAccount),tools:{getRawComposioToolBySlug:async()=>({inputParameters:{properties:{item_id:{},worksheet_id:{},address:{},values:{}},required:['item_id']}}),execute:async(_a:any,_b:any,opts:any)=>{writes++;signal=opts.signal;return new Promise(()=>{});}}};
+ await expect(executeComposioAction('EXCEL_UPDATE_RANGE',{workbook_id:'qa_wb',range:'\u041b\u0438\u0441\u04421!B2',values:[[123]]},client,{schema:100,execute:10})).rejects.toThrow('Outcome unknown');expect(writes).toBe(1);expect(signal!.aborted).toBe(true);
+});
+test('SDK transport timeout is classified by actual execution stage',async()=>{
+ let writes=0;const client={...accountClient(validAccount),tools:{getRawComposioToolBySlug:async()=>({inputParameters:{properties:{item_id:{},name:{}},required:['item_id','name']}}),execute:async()=>{writes++;throw Object.assign(new Error('socket timed out'),{name:'APIConnectionTimeoutError'});}}};
+ await expect(executeComposioAction('EXCEL_ADD_WORKSHEET',{workbook_id:'qa_wb',name:'QA'},client)).rejects.toThrow('Outcome unknown');expect(writes).toBe(1);
+});
+test('full workbook IDs are rendered without ellipsis and HTML is escaped',()=>{
+ const id='qa_very_long_business_workbook_'+ 'abc'.repeat(30)+'<&';const html=renderWorkbookId(id);
+ expect(html).toContain(id.slice(0,-2)+'&lt;&amp;');expect(html).not.toContain('?');expect(html).not.toContain('<&');
+ expect(source).toContain('overflow-wrap:anywhere;user-select:text');expect(source).not.toContain('esc(clip(workbookId, 16))}</span>');
+});
+
+import {rangeTimeoutVerification} from './server.ts';
+test('uncertain range write supplies exact read-only verification instead of replaying the write',()=>{const details=rangeTimeoutVerification(new ComposioTimeoutError('EXCEL_UPDATE_RANGE','execute'),'qa_wb',"'Sheet QA'!B2");expect(details).toEqual({outcome:'unknown',verification:{tool:'excel_get_range',arguments:{workbook_id:'qa_wb',range:"'Sheet QA'!B2"}}});expect(rangeTimeoutVerification(new ComposioTimeoutError('EXCEL_UPDATE_RANGE','schema'),'qa_wb','B2')).toEqual({});expect(rangeTimeoutVerification(new Error('validation failed'),'qa_wb','B2')).toEqual({});});

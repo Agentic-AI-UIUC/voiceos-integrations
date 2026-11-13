@@ -1,3 +1,7 @@
+Current evidence: [November 13 native confirmations, Cancel responses and results](2026-11-13/README.md).
+
+The November 8 gallery below is historical widget evidence.
+
 # VoiceOS UI evidence ? November 8, 2026
 
 These are author-supplied manual screenshots, copied unchanged from the November 8 final sequence. No VoiceOS window was opened or controlled by the agent. Repeated uploads and superseded intermediate states are omitted.

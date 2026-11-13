@@ -67,3 +67,5 @@ test("duplicate table matches never pick one arbitrarily",async()=>{
 test("table pagination blocks writes",async()=>{
   await expect(resolveWriteTarget("EXCEL_ADD_TABLE_ROW",{table_name:"ReviewTable",worksheet_name:"Review QA"},async slug=>slug==="EXCEL_LIST_WORKSHEETS"?{worksheets:sheets}:{tables,odata_next_link:"next"})).rejects.toThrow("additional pages");
 });
+
+test('append rejects conflicting edited table name and ID',async()=>{const read=async(action:string)=>action==='EXCEL_LIST_WORKSHEETS'?{value:sheets}:{value:tables};await expect(resolveWriteTarget('EXCEL_ADD_TABLE_ROW',{workbook_id:'fixture',worksheet_name:'Sheet1',table_id:'table_42',table_name:'OtherTable'},read)).rejects.toThrow('different targets');const resolved=await resolveWriteTarget('EXCEL_ADD_TABLE_ROW',{workbook_id:'fixture',worksheet_name:'Sheet1',table_id:'table_42',table_name:'ReviewTable'},read);expect(resolved.table_id).toBe('table_42');});
