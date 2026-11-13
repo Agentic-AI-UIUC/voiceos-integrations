@@ -100,7 +100,8 @@ This guide records the programmatic refresh actually used for Monday.
 5. Verify a new app process and installed Monday MCP process appear. An MCP
    `listTools` request against the installed `server.ts` should currently return
    `connect_account`, `connection_status`, `disconnect_account`, `get_boards`,
-   `get_items`, `prepare_create_item`, `create_item`, `update_item_values`, `create_update`,
+   `get_items`, `prepare_create_item`, `create_item`, `prepare_update_item`,
+   `update_item_values`, `create_update`,
    `prepare_create_board`, and `create_board`. Tool discovery needs no Composio key and makes no provider calls.
    Update that expected list as subsequent passes add approved tools.
 

@@ -14,7 +14,7 @@ const manifest = JSON.parse(readFileSync(join(ROOT, "voiceos.integration.json"),
 const KEY = "offline-monday-key-only";
 const IDENTITY = { userId: "voiceos-monday-test" };
 const ACTIVE = { ...IDENTITY, accountId: "ca_test" };
-const TOOLS = ["connect_account", "connection_status", "disconnect_account", "get_boards", "get_items", "prepare_create_item", "create_item", "update_item_values", "create_update", "prepare_create_board", "create_board"].sort();
+const TOOLS = ["connect_account", "connection_status", "disconnect_account", "get_boards", "get_items", "prepare_create_item", "create_item", "prepare_update_item", "update_item_values", "create_update", "prepare_create_board", "create_board"].sort();
 const directory = mkdtempSync(join(tmpdir(), "voiceos-monday-tests-"));
 const statePath = join(directory, ".composio-auth.json");
 const scenarioPath = join(directory, "scenario.json");
@@ -79,7 +79,7 @@ beforeEach(() => {
 afterEach(() => {
   expect(events().filter(event => event.kind === "unexpected")).toEqual([]);
   const executions = events().filter(event => event.path?.includes("/tools/execute/"));
-  expect(executions.every(event => ["MONDAY_BOARDS", "MONDAY_GET_ITEMS", "MONDAY_ITEMS_PAGE", "MONDAY_LIST_GROUPS", "MONDAY_COLUMNS", "MONDAY_LIST_USERS", "MONDAY_GET_TEAMS", "MONDAY_GET_WORKSPACES", "MONDAY_CREATE_ITEM", "MONDAY_UPDATE_ITEM", "MONDAY_CREATE_UPDATE", "MONDAY_CREATE_BOARD"].includes(event.path!.split("/").at(-1)!))).toBe(true);
+  expect(executions.every(event => ["MONDAY_BOARDS", "MONDAY_GET_ITEMS", "MONDAY_ITEMS_PAGE", "MONDAY_LIST_GROUPS", "MONDAY_COLUMNS", "MONDAY_LIST_USERS", "MONDAY_GET_TEAMS", "MONDAY_GET_WORKSPACES", "MONDAY_CREATE_ITEM", "proxy", "MONDAY_CREATE_UPDATE", "MONDAY_CREATE_BOARD"].includes(event.path!.split("/").at(-1)!))).toBe(true);
 });
 afterAll(async () => {
   try { await client?.close(); } finally {
@@ -98,7 +98,7 @@ describe("account tools contract", () => {
       expect(actual.description).toBe(declared.description);
       expect(actual.inputSchema.properties).toEqual(declared.inputSchema.properties);
       expect(actual.inputSchema.additionalProperties).toBe(false);
-      if (["connection_status", "get_boards", "get_items", "prepare_create_item", "prepare_create_board"].includes(actual.name)) {
+      if (["connection_status", "get_boards", "get_items", "prepare_create_item", "prepare_create_board", "prepare_update_item"].includes(actual.name)) {
         expect(declared.confirmation).toBeUndefined();
         expect(declared.uiCallable).toBe(true);
         expect(actual.annotations?.readOnlyHint).toBe(true);
@@ -119,6 +119,9 @@ describe("account tools contract", () => {
           if (!item) expect(root.children[0]).toMatchObject({
             type: "text", text: "{{submission_error}}", visibleIf: "{{submission_error}}", color: "danger",
           });
+        } else if (actual.name === "update_item_values") {
+          expect(declared.confirmation.root.children.find((block: { type: string }) => block.type === "widget").confirmLabel).toBe("Save changes");
+          expect(declared.confirmation.root.children.at(-1).children).toEqual([{ type: "button", label: "Cancel", role: "cancel" }]);
         } else {
           expect(declared.confirmation).toBeUndefined();
         }
@@ -1268,7 +1271,6 @@ describe("Monday write tools", () => {
 
   const cases = [
     { name: "create_item", args: { board_id: 123, item_name: "New task", column_values: '{"status":{"label":"Done"}}' }, action: "MONDAY_CREATE_ITEM", response: { create_item: { id: "456" } }, routed: { board_id: "123", group_id: "incoming", item_name: "New task", column_values: '{"status":{"label":"Done"}}' } },
-    { name: "update_item_values", args: { board_id: 123, item_id: 456, column_values: { status: { label: "Done" }, text: "Hello" } }, action: "MONDAY_UPDATE_ITEM", response: { change_column_value: { id: "456" } }, routed: { board_id: "123", item_id: "456", column_id: "status", value: { label: "Done" } } },
     { name: "create_update", args: { item_id: 456, body: "A comment" }, action: "MONDAY_CREATE_UPDATE", response: { create_update: { id: "789" } }, routed: { item_id: 456, body: "A comment" } },
     { name: "create_board", args: { board_name: "Test board", board_kind: "private" }, action: "MONDAY_CREATE_BOARD", response: { create_board: { id: "987", url: "https://example.monday.com/boards/987", groups: [{ id: "topics", title: "New items" }] } }, routed: { board_name: "Test board", board_kind: "private" } },
   ];
@@ -1306,7 +1308,7 @@ describe("Monday write tools", () => {
           if (property.enum) expect(property.enum).toContain(value);
         }
       }
-      expect(calls).toHaveLength(c.name === "update_item_values" ? 2 : 1);
+      expect(calls).toHaveLength(1);
       expect(notifications).toHaveLength(c.name === "create_board" ? 1 : 0);
     });
     for (const failure of [
@@ -1325,24 +1327,11 @@ describe("Monday write tools", () => {
     });
   }
   test.each(["bad JSON", "[]", "null", '{"":1}'])("rejects malformed column values %s before writes", async columns => {
-    for (const name of ["prepare_create_item", "update_item_values"]) {
+    for (const name of ["prepare_create_item", "prepare_update_item"]) {
       const args = name === "prepare_create_item" ? { board_id: 123, item_name: "Task", column_values: columns } : { board_id: 123, item_id: 456, column_values: columns };
       expect((await invoke(name, args)).isError).toBe(true);
     }
     expect(events()).toEqual([]);
-    expect(notifications).toEqual([]);
-  });
-  test("rejects an empty column update before contacting Monday", async () => {
-    expect((await invoke("update_item_values", { board_id: 123, item_id: 456, column_values: "{}" })).isError).toBe(true);
-    expect(events()).toEqual([]);
-  });
-  test("reports partial changes and stops after a failed column", async () => {
-    scenario({ failColumn: "blocked", toolData: { change_column_value: { id: "456" } } });
-    const result = await invoke("update_item_values", { board_id: 123, item_id: 456, column_values: { text: "Saved", blocked: "Denied", last: "Untouched" } });
-    expect(result.isError).toBe(true);
-    expect(result.body.error).toContain("completed columns: text");
-    expect(result.body.error).toContain("Could not confirm column blocked");
-    expect(events().filter(e => e.path?.includes("/tools/execute/"))).toHaveLength(2);
     expect(notifications).toEqual([]);
   });
   test.each([
@@ -1359,9 +1348,132 @@ describe("Monday write tools", () => {
   });
 });
 
-test("validates all update values before changing any columns", async () => {
-  const result = await invoke("update_item_values", { board_id: 123, item_id: 456, column_values: { text: "Must not write", status: null } });
-  expect(result.isError).toBe(true);
-  expect(events()).toEqual([]);
-  expect(notifications).toEqual([]);
+
+
+describe("reviewed Monday item updates", () => {
+  const columns = [
+    { id: "status_1", title: "Status", type: "status", settings: { labels: [{ id: 1, label: "Done", index: 0 }] } },
+    { id: "people_1", title: "Owner", type: "people" },
+    { id: "priority", title: "Priority", type: "dropdown", settings: { labels: [{ id: 5, label: "High" }] } },
+    { id: "date", title: "Due date", type: "date" },
+    { id: "timeline", title: "Timeline", type: "timeline" },
+    { id: "text", title: "Text", type: "text" },
+    { id: "notes", title: "Notes", type: "long_text" },
+    { id: "estimate", title: "Estimate", type: "numbers" },
+    { id: "ready", title: "Ready", type: "checkbox" },
+    { id: "formula", title: "Total", type: "formula" },
+  ];
+  const original = {
+    id: "456", name: "Review the draft", state: "active",
+    board: { id: "123", name: "Test board", state: "active", columns },
+    column_values: columns.map(column => column.id === "people_1"
+      ? { id: column.id, text: "Maya", value: JSON.stringify({ personsAndTeams: [{ id: 7, kind: "person" }] }) }
+      : { id: column.id, text: null, value: null, ...(column.id === "date" ? { dateIsLeaf: false } : {}) }),
+  };
+  const userPages = { 1: [{ id: "7", name: "Maya" }, { id: "8", name: "Jordan" }] };
+  const writes = () => events().filter(e => String((e.body?.body as Record<string, unknown>)?.query).startsWith("mutation SaveItem"));
+  async function prepare(column_values: Record<string, unknown>) {
+    const result = await invoke("prepare_update_item", { board_id: 123, item_id: 456, column_values });
+    expect(result.isError).toBe(false);
+    expect(result.body.update_item_arguments?.draft_id).toBeTruthy();
+    return result.body.update_item_arguments;
+  }
+
+  test("previews only requested fields and writes them in one mutation after confirmation", async () => {
+    const values = {
+      name: "Review final copy", status_1: { index: 1 },
+      people_1: { personsAndTeams: [{ id: 8, kind: "person" }, { id: 7, kind: "person" }] },
+      priority: { ids: [5] }, date: { date: "2026-11-16" },
+      timeline: { from: "2026-11-16", to: "2026-11-20" },
+      text: "Ready", notes: { text: "For review" }, estimate: "4", ready: { checked: "true" },
+    };
+    const updated = {
+      ...original, name: values.name,
+      column_values: original.column_values.map(cell => ({
+        ...cell, value: Object.hasOwn(values, cell.id) ? JSON.stringify(values[cell.id as keyof typeof values]) : cell.value,
+      })),
+    };
+    scenario({ proxyItem: original, proxyUpdatedItem: updated, userPages });
+    const args = await prepare({
+      name: values.name, Status: "Done", Owner: { operation: "add", names: ["Jordan"] },
+      Priority: "High", "Due date": "2026-11-16", Timeline: values.timeline, Text: "Ready",
+      Notes: "For review", Estimate: 4, Ready: true,
+    });
+    expect(args.preview).toMatchObject({ board: "Test board", item: original.name, changes: [
+      { label: "Name", before: original.name, after: values.name },
+      { label: "Status", before: "Empty", after: "Done" },
+      { label: "Owner", before: "Maya", after: "Jordan, Maya" },
+      { label: "Priority", before: "Empty", after: "High" },
+      { label: "Due date", before: "Empty", after: "Nov 16, 2026" },
+      { label: "Timeline", before: "Empty", after: "Nov 16, 2026 – Nov 20, 2026" },
+      { label: "Text", before: "Empty", after: "Ready" },
+      { label: "Notes", before: "Empty", after: "For review" },
+      { label: "Estimate", before: "Empty", after: "4" },
+      { label: "Ready", before: "Unchecked", after: "Checked" },
+    ] });
+    expect(writes()).toEqual([]);
+    expect((await invoke("update_item_values", { ...args, preview: { ...args.preview, item: "Different item" } })).isError).toBe(true);
+    expect(writes()).toEqual([]);
+    const [result, duplicate] = await Promise.all([
+      invoke("update_item_values", args), invoke("update_item_values", args),
+    ]);
+    expect([result, duplicate].map(value => value.isError).sort()).toEqual([false, true]);
+    const success = result.isError ? duplicate : result;
+    expect(success.body.completedColumns).toEqual(Object.keys(values));
+    expect(writes()).toHaveLength(1);
+    expect(writes()[0].body).toMatchObject({
+      endpoint: "https://api.monday.com/v2", connected_account_id: "ca_test", user_id: IDENTITY.userId,
+      body: { variables: { boardId: "123", itemId: "456", values: JSON.stringify(values) } },
+    });
+    expect(notifications).toEqual([]);
+  });
+
+  test("revises the proposal and prevents saving a stale or changed item", async () => {
+    scenario({ proxyItem: original });
+    const args = await prepare({ Text: "First draft" });
+    const revision = await invoke("prepare_update_item", {
+      replaces_draft_id: args.draft_id, column_values: { Text: "Revised text", Ready: true },
+    });
+    expect(revision.body.update_item_arguments.preview.changes.map((change: { after: string }) => change.after)).toEqual(["Revised text", "Checked"]);
+    expect((await invoke("update_item_values", args)).isError).toBe(true);
+    scenario({ proxyItem: { ...original, name: "Renamed by someone else" } });
+    const result = await invoke("update_item_values", revision.body.update_item_arguments);
+    expect(result.body.error).toContain("changed since the preview");
+    expect(writes()).toEqual([]);
+  });
+
+  test("rejects unsupported fields and mismatched boards before offering a save", async () => {
+    scenario({ proxyItem: original });
+    const details = await invoke("prepare_update_item", { item_id: 456 });
+    expect(details.body.update_item_details.columns.map((column: { id: string }) => column.id)).not.toContain("formula");
+    for (const [board_id, column_values] of [[123, { Text: "Valid", Total: 4 }], [124, { Text: "Wrong board" }]]) {
+      const result = await invoke("prepare_update_item", { board_id, item_id: 456, column_values });
+      expect(result.isError).toBe(true);
+      expect(result.body.update_item_arguments).toBeUndefined();
+    }
+    expect(writes()).toEqual([]);
+  });
+
+  test("rejects a date calculated from child items", async () => {
+    const calculated = columns.map(column => column.id === "date"
+      ? { ...column, capabilities: { calculated: { function: "MIN" } } }
+      : column);
+    scenario({ proxyItem: { ...original, board: { ...original.board, columns: calculated } } });
+    const result = await invoke("prepare_update_item", {
+      item_id: 456, column_values: { "Due date": "2026-11-20" },
+    });
+    expect(result.isError).toBe(true);
+    expect(result.body.update_item_arguments).toBeUndefined();
+    expect(writes()).toEqual([]);
+  });
+
+  test("reports what readback could confirm after an uncertain write, with one attempt", async () => {
+    const updated = { ...original, name: "New title" };
+    scenario({ proxyItem: original, proxyUpdatedItem: updated, proxyMutationHttpStatus: 500 });
+    const args = await prepare({ name: updated.name, Text: "New text" });
+    const result = await invoke("update_item_values", args);
+    expect(result.isError).toBe(true);
+    expect(result.body.error).toContain("Verified changes: Name. Could not verify: Text.");
+    expect(writes()).toHaveLength(1);
+  });
 });

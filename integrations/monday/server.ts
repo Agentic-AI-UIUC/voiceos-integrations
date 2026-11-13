@@ -53,7 +53,7 @@ const readActions = [
   "MONDAY_GET_TEAMS",
   "MONDAY_GET_WORKSPACES",
 ] as const;
-const writeActions = ["MONDAY_CREATE_ITEM", "MONDAY_UPDATE_ITEM", "MONDAY_CREATE_UPDATE", "MONDAY_CREATE_BOARD"] as const;
+const writeActions = ["MONDAY_CREATE_ITEM", "MONDAY_CREATE_UPDATE", "MONDAY_CREATE_BOARD"] as const;
 const approvedActions = [...readActions, ...writeActions];
 type Action = (typeof approvedActions)[number];
 type WriteOutput = { status: string; message: string; id: string; completedColumns?: string[] };
@@ -115,7 +115,46 @@ type PrepareCreateItemOutput = {
 const createItemDrafts = new Map<string, CreateItemDraft>();
 const prepareCreateItemDescription = "Start every Monday item creation here. An explicit item rename, or \"change the name to …\" while the Create item confirmation is active, changes item_name. Pass the new item_name and replaces_draft_id, or revises_item_name with the previous item name. Omit board and group fields unless the user asks to change them. Never use create_board for an item rename. If it is unclear which name the user means, ask whether they mean the board or the item. A follow-up such as 'change the board to voiceos' after a Create item card means change the pending item's destination. For that correction, call this tool with the new board_name and replaces_draft_id. If the pending ID is missing from the context, pass revises_item_name with the exact pending item's name from this conversation. If neither is known, ask which pending item should go on the requested board. Board renaming is unavailable. Omitted group and column arguments are carried over on a revision; ask if a requested value cannot be matched. For a new item, pass item_name and the board the user specified in the request, including a clear reference such as 'that board'. Use board_name or a verified board_id. If the user did not specify a destination, omit both board fields and ask the user to choose. Do not infer a destination from past requests or board lists. If the result is board_choices, ask its question as the final response for that turn and wait for the user to say or type a board name. This is a clarification, so do not open a confirmation yet. A bare board name after that question answers it, even if the reply contains no verb. Call prepare_create_item again with that board_name and pending_item.draft_id as replaces_draft_id, or use revises_item_name with pending_item.item_name if the draft ID is unavailable. Do not list boards or items in response to that choice. Once preparation returns create_item_arguments, call create_item for confirmation. This tool only reads Monday. With a resolved board and without item_name or a revision, it returns groups and columns. Pass optional group_id (ID or title; omit for the top group) and only requested column_values keyed by actual column ID or exact title. Use exact status labels, ISO dates, and Monday person names or IDs. Pass create_item_arguments verbatim to create_item. Never silently drop a requested value.";
 const createItemDescription = "Use create_item_arguments from prepare_create_item verbatim. For a spoken or typed item rename, or a name edit while this card is active, call prepare_create_item with the pending item draft ID and new item_name. Keep the destination and other values. The confirmation lets the user edit the item name and choose a group on the selected board. Approval creates the item in the selected group. Never say an item was created unless the result confirms its ID. For a voice revision such as 'change the board to voiceos', call prepare_create_item with the new board_name and replaces_draft_id or the pending item's exact name in revises_item_name. Ask about any previously requested value with no clear match. Board renaming is unavailable. Do not retry a write automatically.";
-const updateItemValuesSchema = z.object({ board_id: id(), item_id: id(), column_values: columnValues() }).strict();
+const prepareUpdateItemSchema = z.object({
+  board_id: id().optional(),
+  item_id: id().optional(),
+  column_values: columnValues().optional(),
+  replaces_draft_id: draftId().optional(),
+}).strict();
+const updateItemPreview = z.object({
+  board: z.string(),
+  item: z.string(),
+  changes: z.array(z.object({ label: z.string(), before: z.string(), after: z.string() }).strict()),
+}).strict();
+const updateItemValuesSchema = z.object({ draft_id: draftId(), preview: updateItemPreview }).strict();
+type PrepareUpdateItemOutput = {
+  status: string;
+  message: string;
+  update_item_arguments?: z.infer<typeof updateItemValuesSchema>;
+  update_item_details?: { board: string; item: string; columns: { id: string; title: string; type: string; labels: string[] }[] };
+};
+type UpdateItemChange = {
+  id: string;
+  type: string;
+  label: string;
+  before: unknown;
+  expected: unknown;
+  value: unknown;
+  settings: unknown;
+};
+type UpdateItemDraft = {
+  accountId: string;
+  boardId: string;
+  itemId: string;
+  preview: z.infer<typeof updateItemPreview>;
+  changes: UpdateItemChange[];
+  expires: number;
+  revising?: boolean;
+};
+const updateItemDrafts = new Map<string, UpdateItemDraft>();
+const savingItems = new Set<string>();
+const prepareUpdateItemDescription = "Start here when the user wants to edit an existing Monday item. Find the exact item first with get_boards and get_items, paging as needed and asking if multiple boards or items match. Keep IDs internal. Pass the verified item_id and board_id if known. With no column_values this returns the item's editable columns and labels. Pass only requested changes keyed by actual column ID or exact title. Use name for the item name, existing labels for status/dropdown, ISO dates and UTC times, strings for text, numbers for numbers, and booleans for checkboxes. For People, use a name or {names: [...]}, or {operation: 'add' or 'remove', names: [...]} to preserve other assignees. Use null only for an explicit clear. Ask about any unresolved item, column, value, or person before opening a card. For a voice revision of an open Update item card, pass replaces_draft_id and the complete revised set of desired changes, including earlier changes the user still wants. Omit item_id and board_id for revisions. Call update_item_values with update_item_arguments verbatim to show one confirmation. This tool only reads Monday.";
+const updateItemValuesDescription = "Use update_item_arguments from prepare_update_item verbatim to show one Update item confirmation. Approval submits all reviewed changes to the same item in one Monday request. Use prepare_update_item for a voice revision before approval. Only report success if the result confirms the changes. Check Monday before retrying an unconfirmed save.";
 const createUpdateSchema = z.object({ item_id: id(), body: nonempty() }).strict();
 const boardKind = z.enum(["public", "private", "share"]);
 const boardFields = {
@@ -603,6 +642,25 @@ const peopleEntry = z.object({
   kind: z.enum(["person", "team"]),
 }).strict();
 
+function assigneeLookup(lookup: (action: Action, args: Record<string, unknown>) => Promise<Record<string, unknown>>) {
+  let users: Promise<Record<string, unknown>[]> | undefined;
+  let teams: Promise<Record<string, unknown>[]> | undefined;
+  async function listUsers() {
+    const usersById = new Map<string, Record<string, unknown>>();
+    for (let page = 1; ; page++) {
+      const users = records((await lookup("MONDAY_LIST_USERS", { page, limit: 100 })).users);
+      if (users.length === 0) break;
+      const count = usersById.size;
+      for (const user of users) usersById.set(String(user.id), user);
+      if (usersById.size === count) throw new Error("Could not finish verifying the Monday.com users.");
+    }
+    return [...usersById.values()].filter(user => user.enabled !== false && user.is_pending !== true);
+  }
+  return (kind: "person" | "team") => kind === "person"
+    ? (users ??= listUsers())
+    : (teams ??= lookup("MONDAY_GET_TEAMS", {}).then(data => records(data.teams)));
+}
+
 async function prepareColumn(
   column: Record<string, unknown>,
   value: unknown,
@@ -805,19 +863,7 @@ async function prepareCreateItem(input: CreateItemInput): Promise<PrepareCreateI
   }
   groupChoices.set(group.id, groupName);
 
-  let users: Promise<Record<string, unknown>[]> | undefined;
-  let teams: Promise<Record<string, unknown>[]> | undefined;
-  async function listUsers() {
-    const usersById = new Map<string, Record<string, unknown>>();
-    for (let page = 1; ; page++) {
-      const users = records((await lookup("MONDAY_LIST_USERS", { page, limit: 100 })).users);
-      if (users.length === 0) break;
-      const count = usersById.size;
-      for (const user of users) usersById.set(String(user.id), user);
-      if (usersById.size === count) throw new Error("Could not finish verifying the Monday.com users.");
-    }
-    return [...usersById.values()].filter(user => user.enabled !== false && user.is_pending !== true);
-  }
+  const assignees = assigneeLookup(lookup);
   const rows = await Promise.all(columnValues.map(async ({ key, value, type }) => {
     const matches = columns.filter(column => column.title === key);
     const column = (carriedByTitle ? undefined : columns.find(column => column.id === key))
@@ -827,9 +873,7 @@ async function prepareCreateItem(input: CreateItemInput): Promise<PrepareCreateI
     const canonicalType = (value: unknown) => value === "color" ? "status" : value;
     if (type !== undefined && canonicalType(type) !== canonicalType(column.type))
       throw new Error(`Column "${key}" has a different type on "${boardName}". Ask which column or value to use before proposing the item.`);
-    const resolved = await prepareColumn(column, value, kind => kind === "person"
-      ? (users ??= listUsers())
-      : (teams ??= lookup("MONDAY_GET_TEAMS", {}).then(data => records(data.teams))));
+    const resolved = await prepareColumn(column, value, assignees);
     return { id: column.id, label: String(column.title), type: column.type, ...resolved };
   }));
   if (new Set(rows.map(row => row.id)).size !== rows.length)
@@ -875,27 +919,308 @@ async function createItem(input: z.infer<typeof createItemSchema>): Promise<Writ
   }, draft.accountId);
   return writeResult(data, ["create_item"], `Created item "${input.item_name}".`);
 }
-async function updateItemValues(input: z.infer<typeof updateItemValuesSchema>): Promise<WriteOutput> {
-  const columns = normalizeColumns(input.column_values);
-  // UPDATE_ITEM accepts scalar/object values and flat arrays, but not null.
-  const validValue = (value: unknown): boolean => value !== null &&
-    (!Array.isArray(value) || value.every(entry => entry !== null && !Array.isArray(entry)));
-  if (Object.values(columns).some(value => !validValue(value)))
-    throw new Error("Column values cannot be null or contain nested arrays/null array entries for this Composio action.");
-  const completed: string[] = [];
-  for (const [column_id, value] of Object.entries(columns)) {
-    try {
-      const data = await executeAction("MONDAY_UPDATE_ITEM", {
-        board_id: String(input.board_id), item_id: String(input.item_id), column_id, value,
-      });
-      const result = writeResult(data, ["change_column_value", "update_item"], "Updated item.");
-      if (result.id !== String(input.item_id)) throw new Error("Monday.com returned an unexpected item ID.");
-      completed.push(column_id);
-    } catch (error) {
-      throw new Error(`Item ${input.item_id}: completed columns: ${completed.join(", ") || "none"}. Could not confirm column ${column_id}; remaining columns were not attempted. ${error instanceof Error ? error.message : "Write failed."} Check Monday.com before retrying.`);
+const editableItemTypes = new Set(["name", "status", "color", "dropdown", "people", "date", "timeline", "text", "long_text", "numbers", "checkbox"]);
+
+const readItemForUpdateQuery = `query ReviewItem($itemIds: [ID!]!) {
+  items(ids: $itemIds) {
+    id name state
+    board { id name state columns { id title type archived settings capabilities { calculated { function } } } }
+    column_values(capabilities: [CALCULATED]) {
+      id text value
+      ... on BatteryValue { statusIsLeaf: is_leaf }
+      ... on NumbersValue { numberIsLeaf: is_leaf }
+      ... on DateValue { dateIsLeaf: is_leaf }
+      ... on TimelineValue { timelineIsLeaf: is_leaf }
     }
   }
-  return { status: "Success", message: `Updated ${completed.length} column(s) on item ${input.item_id}.`, id: String(input.item_id), completedColumns: completed };
+}`;
+const saveItemUpdateMutation = `mutation SaveItem($boardId: ID!, $itemId: ID!, $values: JSON!) {
+  change_multiple_column_values(board_id: $boardId, item_id: $itemId, column_values: $values) { id }
+}`;
+
+async function itemUpdateRequest(accountId: string, query: string, variables: Record<string, unknown>) {
+  if (disconnecting) throw new Error("Wait for Monday.com to finish disconnecting.");
+  const signal = AbortSignal.timeout(12000);
+  const state = await load();
+  if (state.accountId !== accountId) throw new Error("The Monday.com connection changed. Prepare the changes again.");
+  const saved = await account(accountId, signal);
+  if (!saved || saved.isDisabled || saved.status !== "ACTIVE")
+    throw new Error("The Monday.com connection is inactive. Run Connect Monday.com again.");
+  if (disconnecting || (await load()).accountId !== accountId)
+    throw new Error("The Monday.com connection changed. Prepare the changes again.");
+
+  let response;
+  try {
+    response = await api().tools.proxyExecute({
+      endpoint: "https://api.monday.com/v2", method: "POST",
+      connectedAccountId: accountId, userId: state.userId,
+      parameters: [{ in: "header", name: "API-Version", value: "2026-10" }],
+      body: { query, variables },
+    }, { signal, maxRetries: 0 });
+  } catch (error) {
+    if (httpStatus(error) === 401)
+      throw new Error("Composio rejected the API key configured in Monday.com settings.");
+    if (httpStatus(error) === 403)
+      throw new Error("Composio denied Proxy Execute. Check the project key's Proxy Execute permission.");
+    throw new Error("Could not complete the request through Composio.", { cause: error });
+  }
+  const envelope = record(response.data);
+  if (response.status === 401 || response.status === 403)
+    throw new Error("Monday.com denied access. Check the board permissions and the connected account's authorized scopes.");
+  const errors = envelope?.errors;
+  if (Array.isArray(errors) && errors.length)
+    throw providerError(errors.map(error => displayText(record(error)?.message) ?? "Unknown error").join(" "));
+  const data = record(envelope?.data);
+  if (response.status < 200 || response.status >= 300 || !data || envelope?.error || envelope?.error_message)
+    throw new Error(`Monday.com returned an unexpected response (HTTP ${response.status}).`);
+  return data;
+}
+
+async function readItemForUpdate(accountId: string, itemId: string, boardId?: string) {
+  const data = await itemUpdateRequest(accountId, readItemForUpdateQuery, { itemIds: [itemId] });
+  const item = metadataRows(data.items).find(row => String(row.id) === itemId);
+  const board = record(item?.board);
+  const itemName = displayText(item?.name);
+  const boardName = displayText(board?.name);
+  if (!itemName || !boardName || item?.state !== "active" || board?.state !== "active" ||
+      !id().safeParse(Number(board.id)).success || (boardId && String(board.id) !== boardId))
+    throw new Error("Could not verify the active item on the selected Monday board. Find the item again.");
+  const values = new Map(metadataRows(item.column_values).map(row => [String(row.id), row]));
+  const columns = metadataRows(board.columns).filter(column =>
+    typeof column.id === "string" && displayText(column.title) && !column.archived);
+  if (!columns.some(column => column.id === "name")) columns.unshift({ id: "name", title: "Name", type: "name" });
+  return { itemName, boardName, boardId: String(board.id), columns, values };
+}
+
+function isEditableItemColumn(column: Record<string, unknown>, cell?: Record<string, unknown>) {
+  if (!editableItemTypes.has(String(column.type))) return false;
+  const calculation = record(record(column.capabilities)?.calculated)?.function;
+  return !calculation || calculation === "NONE" ||
+    [cell?.statusIsLeaf, cell?.numberIsLeaf, cell?.dateIsLeaf, cell?.timelineIsLeaf].includes(true);
+}
+
+function storedItemValue(type: string, cell?: Record<string, unknown>) {
+  if (!cell || !Object.hasOwn(cell, "value")) throw new Error("Monday.com did not return the current column value.");
+  const raw: unknown = typeof cell.value === "string" ? JSON.parse(cell.value) : cell.value;
+  const fields = record(raw);
+  switch (type) {
+    case "status":
+    case "color": return fields?.index ?? null;
+    case "dropdown": return Array.isArray(fields?.ids) ? fields.ids.map(Number).sort((a, b) => a - b) : [];
+    case "people": return raw === null ? [] : metadataRows(fields?.personsAndTeams)
+      .map(entry => `${entry.kind}:${entry.id}`).sort();
+    case "date": return fields?.date ? { date: fields.date, time: fields.time || null } : null;
+    case "timeline": return fields?.from ? { from: fields.from, to: fields.to } : null;
+    case "numbers": return raw === null || raw === "" ? null : Number(raw);
+    case "checkbox": return fields?.checked === true || fields?.checked === "true";
+    case "long_text": return fields?.text ?? "";
+    default: return raw ?? "";
+  }
+}
+
+async function prepareItemChange(
+  column: Record<string, unknown>, input: unknown, current: unknown,
+  assignees: ReturnType<typeof assigneeLookup>,
+): Promise<{ value: unknown; expected: unknown; display: string }> {
+  const title = String(column.title);
+  const type = String(column.type);
+  if (type === "name") {
+    const name = nonempty().max(255).safeParse(input);
+    if (!name.success) throw new Error("Use an item name between 1 and 255 characters.");
+    return { value: name.data, expected: name.data, display: name.data };
+  }
+  if (input === null) {
+    const text = ["text", "long_text"].includes(type);
+    const list = ["people", "dropdown"].includes(type);
+    return { value: type === "text" ? "" : null,
+      expected: type === "checkbox" ? false : text ? "" : list ? [] : null,
+      display: type === "checkbox" ? "Unchecked" : "Empty" };
+  }
+  if (type === "text" || type === "long_text") {
+    if (typeof input !== "string" || (type === "long_text" && input.length > 2000))
+      throw new Error(`Provide valid text for "${title}".`);
+    return { value: type === "long_text" ? { text: input } : input, expected: input, display: input || "Empty" };
+  }
+  if (type === "numbers") {
+    if (typeof input !== "number" || !Number.isFinite(input)) throw new Error(`Provide a number for "${title}".`);
+    return { value: String(input), expected: input, display: String(input) };
+  }
+  if (type === "checkbox") {
+    if (typeof input !== "boolean") throw new Error(`Say whether to check or uncheck "${title}".`);
+    return { value: input ? { checked: "true" } : null, expected: input, display: input ? "Checked" : "Unchecked" };
+  }
+  const requested = record(input);
+  if (type === "people") {
+    const operation = requested?.operation ?? "set";
+    if (!["set", "add", "remove"].includes(String(operation))) throw new Error(`Choose set, add, or remove for "${title}".`);
+    const resolved = await prepareColumn(column, input, assignees);
+    const selected = z.array(peopleEntry).parse(record(resolved.value)?.personsAndTeams);
+    const key = (entry: z.infer<typeof peopleEntry>) => `${entry.kind}:${entry.id}`;
+    const targets = new Map(selected.map(entry => [key(entry), entry]));
+    if (operation !== "set") {
+      const existing = z.array(z.string()).parse(current).map(entry => {
+        const [kind, id] = entry.split(":");
+        const parsed = peopleEntry.safeParse({ kind, id });
+        if (!parsed.success) throw new Error(`Could not safely preserve an existing assignee in "${title}".`);
+        return parsed.data;
+      });
+      if (operation === "add") {
+        for (const entry of existing) targets.set(key(entry), entry);
+      } else {
+        const removing = new Set(targets.keys());
+        targets.clear();
+        for (const entry of existing) if (!removing.has(key(entry))) targets.set(key(entry), entry);
+      }
+    }
+    const max = Number(settingsFor(column)?.max_people_allowed);
+    if (max > 0 && targets.size > max) throw new Error(`"${title}" allows up to ${max} assignees.`);
+    const people = [...targets.values()];
+    const names = await Promise.all(people.map(async entry => {
+      const match = (await assignees(entry.kind)).find(candidate => String(candidate.id) === String(entry.id));
+      const name = displayText(match?.name);
+      if (!name) throw new Error(`Could not verify an existing assignee in "${title}".`);
+      return name;
+    }));
+    return { value: people.length ? { personsAndTeams: people } : null,
+      expected: [...targets.keys()].sort(), display: names.join(", ") || "Empty" };
+  }
+  const resolved = await prepareColumn(column, input, assignees);
+  const value = record(resolved.value)!;
+  if (type === "status" || type === "color") {
+    const matches = columnLabels(column).filter(label => label.label === resolved.display);
+    const index = typeof value.index === "number" ? value.index : matches.length === 1 ? Number(matches[0].id) : NaN;
+    if (!Number.isSafeInteger(index)) throw new Error(`Could not verify one status label ID for "${title}".`);
+    return { value: { index }, expected: index, display: resolved.display };
+  }
+  if (type === "dropdown") {
+    const options = columnLabels(column);
+    const labels = z.array(z.string()).parse(value.labels);
+    const ids = labels.map(label => {
+      const matches = options.filter(option => option.label === label);
+      const optionId = matches.length === 1 ? Number(matches[0].id) : NaN;
+      if (!Number.isSafeInteger(optionId)) throw new Error(`Could not verify one dropdown label ID for "${title}".`);
+      return optionId;
+    });
+    const unique = [...new Set(ids)].sort((a, b) => a - b);
+    return { value: { ids: unique }, expected: unique, display: [...new Set(labels)].join(", ") };
+  }
+  return { value, expected: type === "date" ? { ...value, time: value.time ?? null } : value,
+    display: type === "date" && value.time ? `${resolved.display} UTC` : resolved.display };
+}
+
+async function prepareUpdateItem(input: z.infer<typeof prepareUpdateItemSchema>): Promise<PrepareUpdateItemOutput> {
+  const accountId = (await load()).accountId;
+  if (!accountId) throw new Error("Monday.com is not connected. Run Connect Monday.com.");
+  const now = Date.now();
+  for (const [key, draft] of updateItemDrafts) if (draft.expires <= now) updateItemDrafts.delete(key);
+  const prior = input.replaces_draft_id ? updateItemDrafts.get(input.replaces_draft_id) : undefined;
+  if (input.replaces_draft_id && (!prior || prior.accountId !== accountId || prior.revising))
+    throw new Error("The pending item update is unavailable. Find the item and prepare the changes again.");
+  if (prior && (input.item_id || input.board_id || input.column_values === undefined))
+    throw new Error("Pass the complete revised changes and keep the same item.");
+  const itemId = prior?.itemId ?? (input.item_id === undefined ? undefined : String(input.item_id));
+  if (!itemId) throw new Error("Find the exact Monday item before preparing changes.");
+  const boardId = prior?.boardId ?? (input.board_id === undefined ? undefined : String(input.board_id));
+  const requested = input.column_values === undefined ? undefined : Object.entries(normalizeColumns(input.column_values));
+
+  if (prior) prior.revising = true;
+  try {
+    const current = await readItemForUpdate(accountId, itemId, boardId);
+    const columns = current.columns.filter(column => isEditableItemColumn(column, current.values.get(String(column.id))));
+    if (!requested) {
+      return { status: "Item details", message: "Found the editable columns for this item.",
+        update_item_details: { board: current.boardName, item: current.itemName, columns: columns.map(column => ({
+          id: String(column.id), title: String(column.title), type: String(column.type),
+          labels: columnLabels(column).map(label => label.label),
+        })) } };
+    }
+    const assignees = assigneeLookup((action, args) => executeAction(action, args, accountId));
+    const rows = await Promise.all(requested.map(async ([key, inputValue]) => {
+      const exact = columns.find(column => column.id === key);
+      const titles = columns.filter(column => String(column.title).toLowerCase() === key.toLowerCase());
+      const column = exact ?? (titles.length === 1 ? titles[0] : undefined);
+      if (!column) throw new Error(`Could not match one editable column for "${key}" on "${current.boardName}". Ask which field to use.`);
+      const id = String(column.id);
+      const type = String(column.type);
+      const cell = current.values.get(id);
+      const before = type === "name" ? current.itemName : storedItemValue(type, cell);
+      const change = await prepareItemChange(column, inputValue, before, assignees);
+      const beforeDisplay = type === "checkbox" ? before ? "Checked" : "Unchecked"
+        : type === "name" ? current.itemName : displayText(cell?.text) ?? "Empty";
+      return { id, type, label: String(column.title), before, beforeDisplay, settings: column.settings, ...change };
+    }));
+    if (new Set(rows.map(row => row.id)).size !== rows.length) throw new Error("Specify each column only once.");
+    const changes = rows.filter(row => !isDeepStrictEqual(row.before, row.expected));
+    if (!changes.length) {
+      if (input.replaces_draft_id) updateItemDrafts.delete(input.replaces_draft_id);
+      return { status: "No changes", message: "The item already has the requested values." };
+    }
+    const preview = { board: current.boardName, item: current.itemName,
+      changes: changes.map(row => ({ label: row.label, before: row.beforeDisplay, after: row.display })) };
+    const draft_id = randomUUID();
+    updateItemDrafts.set(draft_id, {
+      accountId, itemId, boardId: current.boardId, preview, changes, expires: Date.now() + 30 * 60_000,
+    });
+    if (input.replaces_draft_id) updateItemDrafts.delete(input.replaces_draft_id);
+    return { status: "Ready for confirmation", message: "Use update_item_arguments to show the confirmation card.",
+      update_item_arguments: { draft_id, preview } };
+  } finally {
+    if (prior) prior.revising = false;
+  }
+}
+
+async function updateItemValues(input: z.infer<typeof updateItemValuesSchema>): Promise<WriteOutput> {
+  const draft = updateItemDrafts.get(input.draft_id);
+  if (!draft || draft.revising || draft.expires <= Date.now() || !isDeepStrictEqual(draft.preview, input.preview))
+    throw new Error("The item preview changed, expired, or was already used. Prepare the changes again.");
+  const { accountId, itemId, boardId, changes } = draft;
+  const lock = `${accountId}:${itemId}`;
+  if (savingItems.has(lock)) throw new Error("This item is already being updated. Wait for the result.");
+  savingItems.add(lock);
+  updateItemDrafts.delete(input.draft_id);
+  try {
+    const current = await readItemForUpdate(accountId, itemId, boardId);
+    if (current.itemName !== draft.preview.item || current.boardName !== draft.preview.board ||
+        changes.some(change => {
+          const column = current.columns.find(column => column.id === change.id);
+          const cell = current.values.get(change.id);
+          return !column || !isEditableItemColumn(column, cell) || column.type !== change.type ||
+            column.title !== change.label || !isDeepStrictEqual(column.settings, change.settings) ||
+            (change.type !== "name" && !isDeepStrictEqual(storedItemValue(change.type, cell), change.before));
+        })) throw new Error("The item or board changed since the preview. Prepare and review the changes again.");
+
+    let writeError: unknown;
+    try {
+      const values = JSON.stringify(Object.fromEntries(changes.map(change => [change.id, change.value])));
+      const data = await itemUpdateRequest(accountId, saveItemUpdateMutation, { boardId, itemId, values });
+      if (String(record(data.change_multiple_column_values)?.id) !== itemId)
+        throw new Error("Monday.com returned an unexpected item ID.");
+    } catch (error) {
+      writeError = error;
+    }
+    let updated;
+    try {
+      updated = await readItemForUpdate(accountId, itemId, boardId);
+    } catch (error) {
+      const detail = writeError instanceof Error ? writeError.message : error instanceof Error ? error.message : "";
+      throw new Error(`Could not verify the item update. ${detail} Check Monday.com before retrying.`);
+    }
+    const confirmed = changes.filter(change => {
+      try {
+        const actual = change.type === "name" ? updated.itemName : storedItemValue(change.type, updated.values.get(change.id));
+        return isDeepStrictEqual(actual, change.expected);
+      } catch { return false; }
+    });
+    if (confirmed.length !== changes.length) {
+      const pending = changes.filter(change => !confirmed.includes(change)).map(change => change.label).join(", ");
+      const detail = writeError instanceof Error ? ` ${writeError.message}` : "";
+      throw new Error(`Verified changes: ${confirmed.map(change => change.label).join(", ") || "none"}. Could not verify: ${pending}.${detail} Check Monday.com before retrying.`);
+    }
+    return { status: "Success", message: `Updated ${changes.length} field(s) on “${updated.itemName}”.`,
+      id: itemId, completedColumns: changes.map(change => change.id) };
+  } finally {
+    savingItems.delete(lock);
+  }
 }
 async function createUpdate(input: z.infer<typeof createUpdateSchema>): Promise<WriteOutput> {
   return writeResult(await executeAction("MONDAY_CREATE_UPDATE", input), ["create_update"], "Posted update/comment.");
@@ -1377,7 +1702,7 @@ button.addEventListener('click', () => {
 async function feedback(
   title: string,
   extra: ProgressContext,
-  run: () => Promise<Output | ReadOutput | WriteOutput | CreatedBoardOutput | RejectedBoardOutput | PrepareCreateItemOutput | PrepareCreateBoardOutput>,
+  run: () => Promise<Output | ReadOutput | WriteOutput | CreatedBoardOutput | RejectedBoardOutput | PrepareCreateItemOutput | PrepareCreateBoardOutput | PrepareUpdateItemOutput>,
   notifyResult = false,
   errorTitle?: string,
 ) {
@@ -1390,7 +1715,7 @@ async function feedback(
   }
   const isError = "error" in data;
   await progress(extra, `${title}: ${isError ? "failed" : "finished"}`, true);
-  if ("create_item_arguments" in data || "create_board_arguments" in data || "pending_board" in data ||
+  if ("update_item_arguments" in data || "update_item_details" in data || "create_item_arguments" in data || "create_board_arguments" in data || "pending_board" in data ||
       "board_draft_status" in data || "board" in data) {
     return { content: [{ type: "text" as const, text: JSON.stringify(data) }] };
   }
@@ -1595,8 +1920,13 @@ server.registerTool("create_item", {
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
 }, async (input, extra) => feedback("Create Monday.com item", extra, () => createItem(input)));
 
+server.registerTool("prepare_update_item", {
+  title: "Prepare Monday.com item update", description: prepareUpdateItemDescription, inputSchema: prepareUpdateItemSchema,
+  annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+}, async (input, extra) => feedback("Preparing item changes", extra, () => prepareUpdateItem(input), false, "Couldn’t prepare item changes"));
+
 server.registerTool("update_item_values", {
-  title: "Update Monday.com item values", description: "Update column values on a specific Monday.com item and board. column_values is a JSON object keyed by column ID. Columns are applied sequentially, not atomically; failures report completed columns. Do not retry automatically.", inputSchema: updateItemValuesSchema,
+  title: "Update Monday.com item values", description: updateItemValuesDescription, inputSchema: updateItemValuesSchema,
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
 }, async (input, extra) => feedback("Update Monday.com item values", extra, () => updateItemValues(input)));
 

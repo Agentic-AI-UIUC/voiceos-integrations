@@ -15,7 +15,12 @@ export type Scenario = {
   errorMessage?: string;
   watchBackgroundConnect?: boolean;
   pollIntervalMs?: number;
-  failColumn?: string;
+  proxyHttpStatus?: number;
+  proxyStatus?: number;
+  proxyMutationHttpStatus?: number;
+  proxyMutationData?: Record<string, unknown>;
+  proxyItem?: Record<string, unknown>;
+  proxyUpdatedItem?: Record<string, unknown>;
   toolData?: Record<string, unknown>;
   toolDataByAction?: Record<string, Record<string, unknown>>;
   userPages?: Record<number, Record<string, unknown>[]>;
@@ -33,7 +38,7 @@ function record(event: Event) { appendFileSync(eventsPath!, JSON.stringify(event
 const respond = (data: unknown, status = 200) => new Response(JSON.stringify(data), {
   status, headers: { "content-type": "application/json" },
 });
-const toolNames = "MONDAY_BOARDS|MONDAY_GET_ITEMS|MONDAY_ITEMS_PAGE|MONDAY_LIST_GROUPS|MONDAY_COLUMNS|MONDAY_LIST_USERS|MONDAY_GET_TEAMS|MONDAY_GET_WORKSPACES|MONDAY_CREATE_ITEM|MONDAY_UPDATE_ITEM|MONDAY_CREATE_UPDATE|MONDAY_CREATE_BOARD";
+const toolNames = "MONDAY_BOARDS|MONDAY_GET_ITEMS|MONDAY_ITEMS_PAGE|MONDAY_LIST_GROUPS|MONDAY_COLUMNS|MONDAY_LIST_USERS|MONDAY_GET_TEAMS|MONDAY_GET_WORKSPACES|MONDAY_CREATE_ITEM|MONDAY_CREATE_UPDATE|MONDAY_CREATE_BOARD";
 
 export function execFile(command: string, args: string[], _options: unknown, callback: (error: Error | null) => void) {
   if (command !== "/usr/bin/open") throw new Error("Unexpected child process request");
@@ -55,6 +60,17 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
   }
   record({ kind: "request", path, method: request.method, body, ...(path.includes("/tools/") ? { version: url.searchParams.get("version") } : {}) });
   if (url.origin === "https://backend.composio.dev") {
+    if (path === "/api/v3.1/tools/execute/proxy" && request.method === "POST") {
+      if (config.proxyHttpStatus) return respond({ message: "Composio proxy rejected" }, config.proxyHttpStatus);
+      const isWrite = body?.body?.query?.startsWith("mutation SaveItem");
+      if (isWrite && config.proxyMutationHttpStatus) return respond({ message: "Write outcome unknown" }, config.proxyMutationHttpStatus);
+      const hasWrite = readFileSync(eventsPath!, "utf8").includes("mutation SaveItem");
+      const item = hasWrite ? config.proxyUpdatedItem ?? config.proxyItem : config.proxyItem;
+      return respond({ status: config.proxyStatus ?? 200, data: isWrite
+        ? config.proxyMutationData ?? { data: { change_multiple_column_values: { id: "456" } } }
+        : { data: { items: item ? [item] : [] } } });
+    }
+
     const tool = path.match(new RegExp(`^/api/v3\\.1/tools/(${toolNames})$`));
     if (tool && request.method === "GET") {
       return respond({
@@ -66,9 +82,7 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
     }
     const execute = path.match(new RegExp(`^/api/v3\\.1/tools/execute/(${toolNames})$`));
     if (execute && request.method === "POST") {
-      return config.failColumn && body?.arguments?.column_id === config.failColumn
-        ? respond({ successful: false, error: "Column permission denied", data: {} })
-        : config.toolHttpStatus
+      return config.toolHttpStatus
         ? respond({ message: config.errorMessage ?? "Test tool unavailable" }, config.toolHttpStatus)
         : respond({
           successful: config.toolSuccessful ?? true, error: config.toolError ?? null,

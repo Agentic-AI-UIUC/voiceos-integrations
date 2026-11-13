@@ -316,10 +316,10 @@
       }
     },
     {
-      "name": "update_item_values",
+      "name": "prepare_update_item",
       "visibility": "agent",
-      "title": "Update Monday.com item values",
-      "description": "Update column values on a specific Monday.com item and board. column_values is a JSON object keyed by column ID. Columns are applied sequentially, not atomically; failures report completed columns. Do not retry automatically.",
+      "title": "Prepare Monday.com item update",
+      "description": "Start here when the user wants to edit an existing Monday item. Find the exact item first with get_boards and get_items, paging as needed and asking if multiple boards or items match. Keep IDs internal. Pass the verified item_id and board_id if known. With no column_values this returns the item's editable columns and labels. Pass only requested changes keyed by actual column ID or exact title. Use name for the item name, existing labels for status/dropdown, ISO dates and UTC times, strings for text, numbers for numbers, and booleans for checkboxes. For People, use a name or {names: [...]}, or {operation: 'add' or 'remove', names: [...]} to preserve other assignees. Use null only for an explicit clear. Ask about any unresolved item, column, value, or person before opening a card. For a voice revision of an open Update item card, pass replaces_draft_id and the complete revised set of desired changes, including earlier changes the user still wants. Omit item_id and board_id for revisions. Call update_item_values with update_item_arguments verbatim to show one confirmation. This tool only reads Monday.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -343,19 +343,123 @@
                 "additionalProperties": {}
               }
             ]
+          },
+          "replaces_draft_id": {
+            "type": "string",
+            "format": "uuid"
           }
         },
-        "required": [
-          "board_id",
-          "item_id",
-          "column_values"
-        ],
         "additionalProperties": false
       },
       "uiCallable": true,
       "execution": {
         "mode": "sync",
         "estimatedDurationMs": 5000
+      }
+    },
+    {
+      "name": "update_item_values",
+      "title": "Update Monday.com item values",
+      "description": "Use update_item_arguments from prepare_update_item verbatim to show one Update item confirmation. Approval submits all reviewed changes to the same item in one Monday request. Use prepare_update_item for a voice revision before approval. Only report success if the result confirms the changes. Check Monday before retrying an unconfirmed save.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "draft_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "preview": {
+            "type": "object",
+            "properties": {
+              "board": {
+                "type": "string"
+              },
+              "item": {
+                "type": "string"
+              },
+              "changes": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "label": {
+                      "type": "string"
+                    },
+                    "before": {
+                      "type": "string"
+                    },
+                    "after": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "label",
+                    "before",
+                    "after"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "board",
+              "item",
+              "changes"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "draft_id",
+          "preview"
+        ],
+        "additionalProperties": false
+      },
+      "uiCallable": true,
+      "execution": {
+        "mode": "background",
+        "estimatedDurationMs": 5000
+      },
+      "confirmation": {
+        "schemaVersion": 1,
+        "root": {
+          "type": "card",
+          "title": "Update item",
+          "children": [
+            {
+              "type": "keyValue",
+              "rows": [
+                {
+                  "label": "Item",
+                  "value": "{{preview.item}}"
+                },
+                {
+                  "label": "Board",
+                  "value": "{{preview.board}}"
+                }
+              ]
+            },
+            {
+              "type": "widget",
+              "label": "Proposed changes",
+              "confirmLabel": "Save changes",
+              "height": 72,
+              "html": "<!doctype html>\n<meta charset=\"utf-8\">\n<style>\n:root { color: rgba(255,255,255,.88); --muted: rgba(255,255,255,.57); --divider: rgba(255,255,255,.12); font: 12.5px/1.4 system-ui, sans-serif; }\n:root[data-theme=\"light\"] { color: rgba(0,0,0,.88); --muted: rgba(0,0,0,.6); --divider: rgba(0,0,0,.12); }\nbody { margin: 0; background: transparent; }\ndl { margin: 0; max-height: 250px; overflow: auto; }\n.row { padding: 7px 0; }\n.row + .row { border-top: 1px solid var(--divider); }\ndt { font-weight: 600; }\ndd { margin: 3px 0 0; display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 10px; }\ndd span { overflow-wrap: anywhere; white-space: pre-wrap; }\n.caption { display: block; font-size: 11px; color: var(--muted); }\n</style>\n<dl aria-label=\"Proposed changes\"></dl>\n<script>\nconst list = document.querySelector('dl');\nlet height = 0;\nnew ResizeObserver(() => {\n  const next = Math.ceil(document.body.getBoundingClientRect().height);\n  if (!next || next === height) return;\n  height = next;\n  parent.postMessage({ type: 'voiceos:resize', height }, '*');\n}).observe(document.body);\naddEventListener('message', event => {\n  if (event.source !== parent || event.data?.type !== 'voiceos:init') return;\n  const changes = event.data.args?.preview?.changes;\n  if (!Array.isArray(changes)) return;\n  document.documentElement.dataset.theme = event.data.theme?.mode === 'light' ? 'light' : 'dark';\n  list.replaceChildren(...changes.map(({ label, before, after }) => {\n    const row = document.createElement('div');\n    row.className = 'row';\n    const term = document.createElement('dt');\n    term.textContent = label;\n    const values = document.createElement('dd');\n    for (const [caption, value] of [['Current', before], ['Proposed', after]]) {\n      const cell = document.createElement('span');\n      const heading = document.createElement('span');\n      heading.className = 'caption';\n      heading.textContent = caption;\n      cell.append(heading, document.createTextNode(value));\n      values.append(cell);\n    }\n    row.append(term, values);\n    return row;\n  }));\n});\n</script>\n"
+            },
+            {
+              "type": "stack",
+              "direction": "vertical",
+              "align": "start",
+              "children": [
+                {
+                  "type": "button",
+                  "label": "Cancel",
+                  "role": "cancel"
+                }
+              ]
+            }
+          ]
+        }
       }
     },
     {
