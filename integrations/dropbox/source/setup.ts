@@ -3,6 +3,7 @@ import { randomBytes,randomUUID } from 'node:crypto';
 import { readFile,writeFile } from 'node:fs/promises';
 import { client,checkAccount,errorMessage } from './provider.ts';
 import { approved,VERSION } from './catalog.ts';
+import {dropboxManagedAuthConfig} from './account-config.ts';
 declare const VOICEOS_SETUP_HTML:string;
 export async function startSetup(){
 const csrf=randomBytes(32).toString('hex');
@@ -30,7 +31,7 @@ const server=createServer(async(req,res)=>{
       const user=typeof args.user==='string'&&args.user.trim()?args.user.trim():selected?.user||`voiceos-${randomUUID()}`;
       let authConfig=args.authConfig?.trim()||selected?.authConfig;
       if(!authConfig) {
-        const config=await c.authConfigs.create('dropbox',{type:'use_composio_managed_auth',name:'VoiceOS Dropbox',credentials:{scopes:['files.metadata.read','files.metadata.write','files.content.read','files.content.write','sharing.read','sharing.write']},toolAccessConfig:{toolsForConnectedAccountCreation:[...approved]}},options);
+        const config=await c.authConfigs.create('dropbox',dropboxManagedAuthConfig(),options);
         if(config.toolkit!=='dropbox'||config.authScheme!=='OAUTH2') throw new Error('Created config was not Dropbox OAuth2.');
         authConfig=config.id;
       }

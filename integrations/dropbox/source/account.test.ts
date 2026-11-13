@@ -7,6 +7,15 @@ import {pathToFileURL} from 'node:url';
 import {accountError,accountRequestOptions,connectAccount,connectionStatus,disconnectAccount,loadState} from './account.ts';
 import {accountTools,accountConfirmation} from './account-catalog.ts';
 import {approved} from './catalog.ts';
+import {dropboxManagedAuthConfig} from './account-config.ts';
+
+test('managed OAuth config uses one permission strategy and limits execution to approved tools',()=>{
+ const config=dropboxManagedAuthConfig();
+ assert.equal(approved.size,14);
+ assert.equal('credentials' in config,false);
+ assert.deepEqual(config.toolAccessConfig.toolsForConnectedAccountCreation,[...approved]);
+ assert.deepEqual(config.toolAccessConfig.toolsAvailableForExecution,[...approved]);
+});
 
 test('account requests get a fresh timeout after the server has been idle',()=>{
  const first=accountRequestOptions();
@@ -32,7 +41,7 @@ test('connect opens HTTPS OAuth, verifies ownership, persists account, and statu
  const dir=await mkdtemp(join(tmpdir(),'dropbox-account-')),file=pathToFileURL(join(dir,'connection.json'));
  const raw=(id:string,status='ACTIVE')=>({id,user_id:'voiceos-qa',toolkit:{slug:'dropbox'},auth_config:{auth_scheme:'OAUTH2'},status});
  const calls:string[]=[];
- const c:any={authConfigs:{create:async(_toolkit:string,input:any)=>{calls.push('create');assert.equal(input.type,'use_composio_managed_auth');assert.deepEqual(input.toolAccessConfig.toolsForConnectedAccountCreation,[...approved]);return {id:'ac_qa',toolkit:'dropbox',authScheme:'OAUTH2'};},get:async()=>({toolkit:{slug:'dropbox'},authScheme:'OAUTH2'})},connectedAccounts:{link:async(user:string)=>{calls.push('link');assert.equal(user,'voiceos-qa');return {id:'ca_qa',redirectUrl:'https://backend.composio.dev/oauth/qa'};},waitForConnection:async()=>{calls.push('wait');return raw('ca_qa');},delete:async()=>({success:true})},client:{connectedAccounts:{retrieve:async(id:string)=>{calls.push('retrieve');return raw(id);}}}};
+ const c:any={authConfigs:{create:async(_toolkit:string,input:any)=>{calls.push('create');assert.deepEqual(input,dropboxManagedAuthConfig());return {id:'ac_qa',toolkit:'dropbox',authScheme:'OAUTH2'};},get:async()=>({toolkit:{slug:'dropbox'},authScheme:'OAUTH2'})},connectedAccounts:{link:async(user:string)=>{calls.push('link');assert.equal(user,'voiceos-qa');return {id:'ca_qa',redirectUrl:'https://backend.composio.dev/oauth/qa'};},waitForConnection:async()=>{calls.push('wait');return raw('ca_qa');},delete:async()=>({success:true})},client:{connectedAccounts:{retrieve:async(id:string)=>{calls.push('retrieve');return raw(id);}}}};
  try{
   await import('node:fs/promises').then(fs=>fs.writeFile(file,JSON.stringify({user:'voiceos-qa'})));
   const connected=await connectAccount(c,file,async url=>{calls.push('browser');assert.match(url,/^https:/);});

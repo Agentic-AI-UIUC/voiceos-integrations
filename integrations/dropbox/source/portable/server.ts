@@ -411,8 +411,8 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 // source/catalog.ts
 import { z } from "zod";
 var VERSION = "20261101_00";
-var BUILD = "dropbox-composio-v20-account-permission-guidance";
-var INTEGRATION_VERSION = "2.0.18";
+var BUILD = "dropbox-composio-v21-oauth-config-fix";
+var INTEGRATION_VERSION = "2.0.19";
 var path = z.string().refine((p) => p === "" || p.startsWith("/") && !p.endsWith("/") && !p.includes("//") && !/[\u0000-\u001f]/.test(p) && !p.split("/").some((s) => s === "." || s === ".."), "Use an absolute Dropbox path without control characters, dot segments, or a trailing slash");
 var item = path.refine((p) => p.length > 1, "A file or folder path is required; root is protected");
 var text = z.string().min(1);
@@ -799,6 +799,21 @@ async function execute(tool, input, c = client(), config = connection(), notify 
 import { createServer } from "node:http";
 import { randomBytes, randomUUID } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
+
+// source/account-config.ts
+function dropboxManagedAuthConfig() {
+  const tools2 = [...approved];
+  return {
+    type: "use_composio_managed_auth",
+    name: "VoiceOS Dropbox",
+    toolAccessConfig: {
+      toolsForConnectedAccountCreation: tools2,
+      toolsAvailableForExecution: tools2
+    }
+  };
+}
+
+// source/setup.ts
 async function startSetup() {
   const csrf = randomBytes(32).toString("hex");
   const configUrl = new URL("./connection.json", import.meta.url);
@@ -857,7 +872,7 @@ async function startSetup() {
         const user = typeof args.user === "string" && args.user.trim() ? args.user.trim() : selected2?.user || `voiceos-${randomUUID()}`;
         let authConfig = args.authConfig?.trim() || selected2?.authConfig;
         if (!authConfig) {
-          const config2 = await c.authConfigs.create("dropbox", { type: "use_composio_managed_auth", name: "VoiceOS Dropbox", credentials: { scopes: ["files.metadata.read", "files.metadata.write", "files.content.read", "files.content.write", "sharing.read", "sharing.write"] }, toolAccessConfig: { toolsForConnectedAccountCreation: [...approved] } }, options);
+          const config2 = await c.authConfigs.create("dropbox", dropboxManagedAuthConfig(), options);
           if (config2.toolkit !== "dropbox" || config2.authScheme !== "OAUTH2") throw new Error("Created config was not Dropbox OAuth2.");
           authConfig = config2.id;
         }
@@ -1075,7 +1090,7 @@ async function connectAccount(c = client(), file = stateUrl, open = openAuthoriz
     const user = state.user || `voiceos-${randomUUID2()}`;
     let authConfig = state.authConfig;
     if (!authConfig) {
-      const created = await c.authConfigs.create("dropbox", { type: "use_composio_managed_auth", name: "VoiceOS Dropbox", credentials: { scopes: ["files.metadata.read", "files.metadata.write", "files.content.read", "files.content.write", "sharing.read", "sharing.write"] }, toolAccessConfig: { toolsForConnectedAccountCreation: [...approved] } }, accountRequestOptions());
+      const created = await c.authConfigs.create("dropbox", dropboxManagedAuthConfig(), accountRequestOptions());
       if (created.toolkit !== "dropbox" || created.authScheme !== "OAUTH2") throw new Error("Created config was not Dropbox OAuth2.");
       authConfig = created.id;
     }

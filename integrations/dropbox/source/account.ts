@@ -2,7 +2,7 @@ import {randomUUID} from 'node:crypto';
 import {execFile} from 'node:child_process';
 import {readFile,writeFile} from 'node:fs/promises';
 import {client,checkAccount,errorMessage} from './provider.ts';
-import {approved} from './catalog.ts';
+import {dropboxManagedAuthConfig} from './account-config.ts';
 
 type State={user?:string;account?:string;authConfig?:string;pending?:{id:string;url:string;user:string;authConfig:string};disconnectedAccountId?:string};
 const stateUrl=new URL('./connection.json',import.meta.url);
@@ -45,7 +45,7 @@ export async function connectAccount(c:any=client(),file:URL=stateUrl,open=openA
  if(!state.pending){
   const user=state.user||`voiceos-${randomUUID()}`;
   let authConfig=state.authConfig;
-  if(!authConfig){const created=await c.authConfigs.create('dropbox',{type:'use_composio_managed_auth',name:'VoiceOS Dropbox',credentials:{scopes:['files.metadata.read','files.metadata.write','files.content.read','files.content.write','sharing.read','sharing.write']},toolAccessConfig:{toolsForConnectedAccountCreation:[...approved]}},accountRequestOptions());
+  if(!authConfig){const created=await c.authConfigs.create('dropbox',dropboxManagedAuthConfig(),accountRequestOptions());
    if(created.toolkit!=='dropbox'||created.authScheme!=='OAUTH2')throw new Error('Created config was not Dropbox OAuth2.');authConfig=created.id;
   }
   const checked=await c.authConfigs.get(authConfig,accountRequestOptions());if(checked.toolkit?.slug!=='dropbox'||checked.authScheme!=='OAUTH2')throw new Error('Auth config must be Dropbox OAuth2.');
