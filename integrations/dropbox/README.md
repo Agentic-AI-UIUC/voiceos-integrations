@@ -1,8 +1,8 @@
 # Dropbox VoiceOS integration
 
-Version 2.0.16. Build: dropbox-composio-v18-account-tools. Exactly 14 approved Dropbox actions through Composio OAuth2, plus three account tools: connect, status, and disconnect. The ten acting tools have native Cancel and Confirm cards. No demo preview targets or placeholder cards.
+Version 2.0.17. Build: dropbox-composio-v19-account-timeout-fix. Exactly 14 approved Dropbox actions through Composio OAuth2, plus three account tools: connect, status, and disconnect. The ten acting tools have native Cancel and Confirm cards. No demo preview targets or placeholder cards.
 
-VoiceOS integration share link: https://api.voiceos.com/integration-share/sP1smIT5hsor/page. The last verified shared-link install was 2.0.15 with Composio 0.28.0 and AJV 8.17.1. Version 2.0.16 still needs republishing and a fresh install log. A separate Studio Preview draft previously resolved `latest` dependencies; its 0.29.0 startup log did not describe the shared-link install.
+VoiceOS integration share link: https://api.voiceos.com/integration-share/sP1smIT5hsor/page. The last verified shared-link install was 2.0.15 with Composio 0.28.0 and AJV 8.17.1. Version 2.0.17 needs republishing and a fresh install log. A separate Studio Preview draft previously resolved `latest` dependencies; its 0.29.0 startup log did not describe the shared-link install. Version 2.0.16 reused a startup-time OAuth cancellation signal, which expired after 25 seconds; 2.0.17 gives each account API request a fresh deadline.
 
 The November 10 Studio previews for 2.0.14 and 2.0.15 logged the correct build markers but installed `@composio/core@0.29.0` and `ajv@8.20.0` from separate draft folders whose packages still declare `latest`. The reviewed and shared packages pin `0.28.0` and `8.17.1`. Keep the Studio draft package synchronized if preview parity matters; a server marker alone does not prove dependency parity. `node scripts/verify-install-log.mjs <log-file>` checks a fresh first-launch log when one is available.
 

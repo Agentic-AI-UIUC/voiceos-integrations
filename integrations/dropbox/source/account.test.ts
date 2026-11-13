@@ -4,9 +4,18 @@ import {mkdtemp,rm,readFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
-import {connectAccount,connectionStatus,disconnectAccount,loadState} from './account.ts';
+import {accountRequestOptions,connectAccount,connectionStatus,disconnectAccount,loadState} from './account.ts';
 import {accountTools,accountConfirmation} from './account-catalog.ts';
 import {approved} from './catalog.ts';
+
+test('account requests get a fresh timeout after the server has been idle',()=>{
+ const first=accountRequestOptions();
+ const second=accountRequestOptions();
+ assert.notEqual(first.signal,second.signal);
+ assert.equal(first.signal.aborted,false);
+ assert.equal(second.signal.aborted,false);
+ assert.equal(first.maxRetries,0);
+});
 
 test('three account tools are separate from fourteen approved Dropbox actions and only mutations confirm',()=>{
  assert.equal(approved.size,14);assert.deepEqual(accountTools.map(t=>t.name),['connect_account','connection_status','disconnect_account']);

@@ -411,8 +411,8 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 // source/catalog.ts
 import { z } from "zod";
 var VERSION = "20261101_00";
-var BUILD = "dropbox-composio-v18-account-tools";
-var INTEGRATION_VERSION = "2.0.16";
+var BUILD = "dropbox-composio-v19-account-timeout-fix";
+var INTEGRATION_VERSION = "2.0.17";
 var path = z.string().refine((p) => p === "" || p.startsWith("/") && !p.endsWith("/") && !p.includes("//") && !/[\u0000-\u001f]/.test(p) && !p.split("/").some((s) => s === "." || s === ".."), "Use an absolute Dropbox path without control characters, dot segments, or a trailing slash");
 var item = path.refine((p) => p.length > 1, "A file or folder path is required; root is protected");
 var text = z.string().min(1);
@@ -852,18 +852,18 @@ async function startSetup() {
         if (body.length > 8192) throw new Error("Request too large");
       }
       const args = JSON.parse(body), c = client(args.key || process.env.COMPOSIO_API_KEY);
-      const options2 = { signal: AbortSignal.timeout(25e3), maxRetries: 0 };
+      const options = { signal: AbortSignal.timeout(25e3), maxRetries: 0 };
       if (req.url === "/connect") {
         const user = typeof args.user === "string" && args.user.trim() ? args.user.trim() : selected2?.user || `voiceos-${randomUUID()}`;
         let authConfig = args.authConfig?.trim() || selected2?.authConfig;
         if (!authConfig) {
-          const config2 = await c.authConfigs.create("dropbox", { type: "use_composio_managed_auth", name: "VoiceOS Dropbox", credentials: { scopes: ["files.metadata.read", "files.metadata.write", "files.content.read", "files.content.write", "sharing.read", "sharing.write"] }, toolAccessConfig: { toolsForConnectedAccountCreation: [...approved] } }, options2);
+          const config2 = await c.authConfigs.create("dropbox", { type: "use_composio_managed_auth", name: "VoiceOS Dropbox", credentials: { scopes: ["files.metadata.read", "files.metadata.write", "files.content.read", "files.content.write", "sharing.read", "sharing.write"] }, toolAccessConfig: { toolsForConnectedAccountCreation: [...approved] } }, options);
           if (config2.toolkit !== "dropbox" || config2.authScheme !== "OAUTH2") throw new Error("Created config was not Dropbox OAuth2.");
           authConfig = config2.id;
         }
-        const config = await c.authConfigs.get(authConfig, options2);
+        const config = await c.authConfigs.get(authConfig, options);
         if (config.toolkit.slug !== "dropbox" || config.authScheme !== "OAUTH2") throw new Error("Auth config must be Dropbox OAuth2.");
-        const request = await c.connectedAccounts.link(user, authConfig, {}, options2);
+        const request = await c.connectedAccounts.link(user, authConfig, {}, options);
         const url = new URL(request.redirectUrl);
         if (url.protocol !== "https:") throw new Error("Composio returned an insecure authorization URL.");
         pending = { user, authConfig, request };
@@ -871,21 +871,21 @@ async function startSetup() {
       } else if (req.url === "/check") {
         if (pending) {
           const account = await pending.request.waitForConnection(15e3);
-          const raw = await c.client.connectedAccounts.retrieve(account.id, options2);
+          const raw = await c.client.connectedAccounts.retrieve(account.id, options);
           checkAccount(raw, account.id, pending.user);
           selected2 = { user: pending.user, account: account.id, authConfig: pending.authConfig };
           await writeFile(configUrl, JSON.stringify(selected2, null, 2), { mode: 384 });
           pending = void 0;
         } else if (selected2) {
-          const raw = await c.client.connectedAccounts.retrieve(selected2.account, options2);
+          const raw = await c.client.connectedAccounts.retrieve(selected2.account, options);
           checkAccount(raw, selected2.account, selected2.user);
         } else throw new Error("Start Connect first.");
         res.end(JSON.stringify({ message: "Dropbox is connected. Copy the account ID below into VoiceOS Setup, save the API key there, then Reload.", account: selected2.account }));
       } else if (req.url === "/disconnect") {
         if (!selected2) throw new Error("No saved Dropbox connection.");
-        const raw = await c.client.connectedAccounts.retrieve(selected2.account, options2);
+        const raw = await c.client.connectedAccounts.retrieve(selected2.account, options);
         checkAccount(raw, selected2.account, selected2.user, false);
-        const result = await c.connectedAccounts.delete(selected2.account, options2);
+        const result = await c.connectedAccounts.delete(selected2.account, options);
         if (result.success === false) throw new Error("Composio did not delete the connection.");
         await writeFile(configUrl, JSON.stringify({ disconnectedAccountId: selected2.account, user: selected2.user, authConfig: selected2.authConfig }, null, 2), { mode: 384 });
         selected2 = void 0;
@@ -893,7 +893,7 @@ async function startSetup() {
         res.end(JSON.stringify({ message: "Disconnected from Composio. You can also revoke app access in Dropbox settings. Clear any account ID override in VoiceOS Setup." }));
       } else if (req.url === "/audit") {
         const schemas = {};
-        for (const slug of approved) schemas[slug] = await c.tools.getRawComposioToolBySlug(slug, { version: VERSION }, options2);
+        for (const slug of approved) schemas[slug] = await c.tools.getRawComposioToolBySlug(slug, { version: VERSION }, options);
         await writeFile(new URL("./catalog-snapshot.json", import.meta.url), JSON.stringify(schemas, null, 2));
         res.end(JSON.stringify({ message: "Saved all 14 pinned catalog schemas for review. No Dropbox files were changed." }));
       } else {
@@ -999,7 +999,7 @@ import { randomUUID as randomUUID2 } from "node:crypto";
 import { execFile } from "node:child_process";
 import { readFile as readFile2, writeFile as writeFile2 } from "node:fs/promises";
 var stateUrl = new URL("./connection.json", import.meta.url);
-var options = { signal: AbortSignal.timeout(25e3), maxRetries: 0 };
+var accountRequestOptions = () => ({ signal: AbortSignal.timeout(25e3), maxRetries: 0 });
 async function loadState(file = stateUrl) {
   try {
     return JSON.parse(await readFile2(file, "utf8")) || {};
@@ -1023,7 +1023,7 @@ function accountResult(status, message, extra = {}) {
   return { status, message, ...extra, _voiceos_glance: { blocks: [{ type: "header", title: "Dropbox account", trailing: status === "connected" ? "Connected" : status === "pending" ? "Authorization pending" : status === "disconnected" ? "Disconnected" : "Needs attention" }, { type: "badges", items: [{ text: message.slice(0, 100), tone }] }] } };
 }
 async function verified(c, id, user, active = true) {
-  const raw = await c.client.connectedAccounts.retrieve(id, options);
+  const raw = await c.client.connectedAccounts.retrieve(id, accountRequestOptions());
   const owner = user || raw?.user_id;
   checkAccount(raw, id, owner, active);
   return raw;
@@ -1036,7 +1036,7 @@ async function connectionStatus(c = client(), file = stateUrl) {
   const state = await loadState(file), config = selected(state);
   if (state.pending) {
     try {
-      const raw = await c.client.connectedAccounts.retrieve(state.pending.id, options);
+      const raw = await c.client.connectedAccounts.retrieve(state.pending.id, accountRequestOptions());
       if (raw?.status === "ACTIVE") {
         checkAccount(raw, raw.id, state.pending.user);
         state.account = raw.id;
@@ -1075,13 +1075,13 @@ async function connectAccount(c = client(), file = stateUrl, open = openAuthoriz
     const user = state.user || `voiceos-${randomUUID2()}`;
     let authConfig = state.authConfig;
     if (!authConfig) {
-      const created = await c.authConfigs.create("dropbox", { type: "use_composio_managed_auth", name: "VoiceOS Dropbox", credentials: { scopes: ["files.metadata.read", "files.metadata.write", "files.content.read", "files.content.write", "sharing.read", "sharing.write"] }, toolAccessConfig: { toolsForConnectedAccountCreation: [...approved] } }, options);
+      const created = await c.authConfigs.create("dropbox", { type: "use_composio_managed_auth", name: "VoiceOS Dropbox", credentials: { scopes: ["files.metadata.read", "files.metadata.write", "files.content.read", "files.content.write", "sharing.read", "sharing.write"] }, toolAccessConfig: { toolsForConnectedAccountCreation: [...approved] } }, accountRequestOptions());
       if (created.toolkit !== "dropbox" || created.authScheme !== "OAUTH2") throw new Error("Created config was not Dropbox OAuth2.");
       authConfig = created.id;
     }
-    const checked = await c.authConfigs.get(authConfig, options);
+    const checked = await c.authConfigs.get(authConfig, accountRequestOptions());
     if (checked.toolkit?.slug !== "dropbox" || checked.authScheme !== "OAUTH2") throw new Error("Auth config must be Dropbox OAuth2.");
-    const request = await c.connectedAccounts.link(user, authConfig, {}, options);
+    const request = await c.connectedAccounts.link(user, authConfig, {}, accountRequestOptions());
     if (!request.id || !request.redirectUrl || new URL(request.redirectUrl).protocol !== "https:") throw new Error("Composio did not return a secure authorization link.");
     state.pending = { id: request.id, url: request.redirectUrl, user, authConfig };
     state.authConfig = authConfig;
@@ -1107,9 +1107,9 @@ async function disconnectAccount(c = client(), file = stateUrl) {
   const state = await loadState(file), config = selected(state), id = state.account || config.account;
   if (state.pending && state.pending.id !== id) {
     try {
-      const pending = await c.client.connectedAccounts.retrieve(state.pending.id, options);
+      const pending = await c.client.connectedAccounts.retrieve(state.pending.id, accountRequestOptions());
       if (pending?.toolkit?.slug && pending.toolkit.slug !== "dropbox") throw new Error("Refusing to disconnect a non-Dropbox connection.");
-      await c.connectedAccounts.delete(state.pending.id, options);
+      await c.connectedAccounts.delete(state.pending.id, accountRequestOptions());
     } catch (e) {
       if (e.status !== 404 && e.cause?.status !== 404) throw e;
     }
@@ -1120,7 +1120,7 @@ async function disconnectAccount(c = client(), file = stateUrl) {
     return accountResult("disconnected", "Dropbox is disconnected. Your files were not deleted.");
   }
   const raw = await verified(c, id, state.user || config.user, false);
-  const result = await c.connectedAccounts.delete(raw.id, options);
+  const result = await c.connectedAccounts.delete(raw.id, accountRequestOptions());
   if (result?.success === false) throw new Error("Composio did not disconnect Dropbox.");
   state.disconnectedAccountId = id;
   delete state.account;
