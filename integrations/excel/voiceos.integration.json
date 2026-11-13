@@ -1,0 +1,823 @@
+{
+  "schemaVersion": 1,
+  "id": "com.voiceos.generated.microsoft-excel",
+  "version": "1.0.5",
+  "name": "Microsoft Excel",
+  "summary": "View workbooks, read and update cell ranges, manage worksheets, append table rows, and create charts via Composio.",
+  "description": "Access Microsoft 365 Excel spreadsheets stored in OneDrive or SharePoint Online using Composio-managed OAuth. Inspect workbook metadata, list and manage worksheets, read and update cell ranges, append data to tables, and generate charts.",
+  "icon": "icon.png",
+  "supportedPlatforms": [
+    "win32",
+    "darwin"
+  ],
+  "publisher": {
+    "id": "pub_user",
+    "name": "Made in VoiceOS"
+  },
+  "runtime": {
+    "kind": "local-mcp",
+    "command": "/bin/zsh",
+    "args": [
+      "run.sh"
+    ]
+  },
+  "permissions": [
+    {
+      "kind": "network",
+      "domains": [
+        "backend.composio.dev"
+      ]
+    },
+    {
+      "kind": "background"
+    }
+  ],
+  "preferences": [
+    {
+      "name": "COMPOSIO_API_KEY",
+      "title": "Temporary Composio API key — v1/QA",
+      "description": "Temporary v1/QA key from platform.composio.dev ? Platform workspace ? API Keys. Use the same project as the Excel connection.",
+      "type": "password",
+      "required": true
+    },
+    {
+      "name": "COMPOSIO_USER_ID",
+      "title": "Composio user ID",
+      "description": "Your user identifier or entity ID configured in Composio (e.g. default, qa-user, or your email).",
+      "type": "text",
+      "required": true
+    },
+    {
+      "name": "COMPOSIO_CONNECTED_ACCOUNT_ID",
+      "title": "Connected Account ID",
+      "description": "Required for v1: copy the active Excel connection ID from Composio dashboard > Connected Accounts (starts with ca_).",
+      "type": "text",
+      "required": true
+    },
+    {
+      "name": "DEFAULT_WORKBOOK_ID",
+      "title": "Default workbook ID",
+      "description": "OneDrive or SharePoint driveItem ID of your target Excel workbook (e.g. AF3F7AC4C1C35888!...).",
+      "type": "text",
+      "required": false
+    },
+    {
+      "name": "DEFAULT_DRIVE_ID",
+      "title": "Default drive ID",
+      "description": "Optional OneDrive or SharePoint drive ID containing the target workbooks.",
+      "type": "text",
+      "required": false
+    },
+    {
+      "name": "COMPOSIO_EXCEL_VERSION",
+      "title": "Composio Excel version",
+      "description": "Optional version tag for Composio Excel actions (defaults to 20261029_00).",
+      "type": "text",
+      "required": false,
+      "default": "20261029_00"
+    }
+  ],
+  "setupGuide": {
+    "title": "Connect Microsoft Excel via Composio",
+    "collapsedByDefault": false,
+    "blocks": [
+      {
+        "type": "text",
+        "text": "1. Log into your Composio dashboard at app.composio.dev\n2. Navigate to Connected Accounts and connect your Microsoft 365 / OneDrive account under your Composio User ID.\n3. Copy the active Excel connection ID from Connected Accounts (starts with ca_).\n4. Enter your Composio API key (COMPOSIO_API_KEY), User ID (COMPOSIO_USER_ID), and Connected Account ID (COMPOSIO_CONNECTED_ACCOUNT_ID) below."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "excel_get_workbook",
+      "title": "Get workbook",
+      "description": "Retrieve overview metadata and worksheets for an Excel workbook in OneDrive/SharePoint via Composio. Use when the user asks what sheets are in the workbook, wants to view workbook details, or inspect the default spreadsheet.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "drive_id": {
+            "type": "string",
+            "description": "Drive containing the workbook. Defaults to DEFAULT_DRIVE_ID; specify for SharePoint or another drive."
+          },
+          "workbook_id": {
+            "type": "string",
+            "description": "Workbook driveItem ID. Blank or omitted uses DEFAULT_WORKBOOK_ID from Setup. When preparing a write, call Get workbook to resolve the default and include its returned ID so the confirmation shows the target."
+          }
+        }
+      },
+      "execution": {
+        "mode": "background",
+        "estimatedDurationMs": 15000
+      }
+    },
+    {
+      "name": "excel_get_worksheet",
+      "title": "Get worksheet",
+      "description": "Get details and properties of a specific worksheet in an Excel workbook by name or ID. Use when the user asks about a particular sheet's position or visibility.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "worksheet_name": {
+            "type": "string",
+            "description": "Name or ID of the worksheet to inspect."
+          },
+          "workbook_id": {
+            "type": "string",
+            "description": "Workbook driveItem ID. Blank or omitted uses DEFAULT_WORKBOOK_ID from Setup. When preparing a write, call Get workbook to resolve the default and include its returned ID so the confirmation shows the target."
+          },
+          "drive_id": {
+            "type": "string",
+            "description": "Drive containing the workbook."
+          }
+        },
+        "required": [
+          "worksheet_name"
+        ]
+      },
+      "execution": {
+        "mode": "background",
+        "estimatedDurationMs": 15000
+      }
+    },
+    {
+      "name": "excel_get_range",
+      "title": "Get cell range",
+      "description": "Read cell values and dimensions from an Excel worksheet range (e.g. 'A1:C10', 'Sheet1!B2:E6', or 'VoiceOS QA'!A1:B4) via Composio. Use when the user asks to read data, view cells, check a table, or inspect specific numbers or labels from an Excel sheet.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "range": {
+            "type": "string",
+            "description": "Excel range address (e.g., 'A1:D5', 'Sheet1!A1:D5', or ''VoiceOS QA'!A1:B4')."
+          },
+          "drive_id": {
+            "type": "string",
+            "description": "Drive containing the workbook. Defaults to DEFAULT_DRIVE_ID; specify for SharePoint or another drive."
+          },
+          "workbook_id": {
+            "type": "string",
+            "description": "Workbook driveItem ID. Blank or omitted uses DEFAULT_WORKBOOK_ID from Setup. When preparing a write, call Get workbook to resolve the default and include its returned ID so the confirmation shows the target."
+          },
+          "worksheet_name": {
+            "type": "string",
+            "description": "Optional worksheet name if not specified in the range address."
+          }
+        },
+        "required": [
+          "range"
+        ]
+      },
+      "execution": {
+        "mode": "background",
+        "estimatedDurationMs": 15000
+      }
+    },
+    {
+      "name": "excel_list_worksheets",
+      "title": "List worksheets",
+      "description": "List all worksheet tabs in an Excel workbook with their names, positions, and visibility. Use when the user asks what tabs or sheets exist in the spreadsheet.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workbook_id": {
+            "type": "string",
+            "description": "Workbook driveItem ID. Blank or omitted uses DEFAULT_WORKBOOK_ID from Setup. When preparing a write, call Get workbook to resolve the default and include its returned ID so the confirmation shows the target."
+          },
+          "drive_id": {
+            "type": "string",
+            "description": "Drive containing the workbook."
+          }
+        }
+      },
+      "execution": {
+        "mode": "background",
+        "estimatedDurationMs": 15000
+      }
+    },
+    {
+      "name": "excel_create_worksheet",
+      "title": "Create worksheet",
+      "description": "Create a new worksheet tab in an Excel workbook. Use when the user asks to add, insert, or create a new sheet or tab. Before confirming, resolve the default workbook with Get workbook and include its returned ID so the user sees the destination. Cancel runs no action.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Name for the new worksheet."
+          },
+          "worksheet_name": {
+            "type": "string",
+            "description": "Alternative alias for worksheet name."
+          },
+          "workbook_id": {
+            "type": "string",
+            "description": "Workbook driveItem ID. Blank or omitted uses DEFAULT_WORKBOOK_ID from Setup. When preparing a write, call Get workbook to resolve the default and include its returned ID so the confirmation shows the target."
+          },
+          "drive_id": {
+            "type": "string",
+            "description": "Drive containing the workbook."
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "confirmation": {
+        "schemaVersion": 1,
+        "root": {
+          "type": "card",
+          "title": "Create worksheet",
+          "children": [
+            {
+              "type": "textField",
+              "bind": "{{name}}",
+              "label": "Worksheet name",
+              "required": true
+            },
+            {
+              "type": "stack",
+              "direction": "vertical",
+              "gap": "xs",
+              "children": [
+                {
+                  "type": "text",
+                  "text": "Workbook",
+                  "variant": "caption",
+                  "color": "muted"
+                },
+                {
+                  "type": "text",
+                  "text": "{{workbook_id}}",
+                  "variant": "mono"
+                }
+              ]
+            }
+          ],
+          "footer": [
+            {
+              "type": "actions",
+              "items": [
+                {
+                  "label": "Cancel",
+                  "role": "cancel"
+                },
+                {
+                  "label": "Create worksheet",
+                  "role": "confirm",
+                  "color": "accent"
+                }
+              ]
+            }
+          ],
+          "icon": "data:image/png;base64,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"
+        }
+      },
+      "execution": {
+        "mode": "background",
+        "estimatedDurationMs": 15000
+      }
+    },
+    {
+      "name": "excel_rename_worksheet",
+      "title": "Rename worksheet",
+      "description": "Rename an existing worksheet tab in an Excel workbook. Use when the user asks to rename a sheet or change its tab title. Before confirming, resolve the default workbook with Get workbook and include its returned ID so the user sees the destination. Cancel runs no action.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "current_name": {
+            "type": "string",
+            "description": "Current name of the worksheet."
+          },
+          "new_name": {
+            "type": "string",
+            "description": "New name for the worksheet."
+          },
+          "workbook_id": {
+            "type": "string",
+            "description": "Workbook driveItem ID. Blank or omitted uses DEFAULT_WORKBOOK_ID from Setup. When preparing a write, call Get workbook to resolve the default and include its returned ID so the confirmation shows the target."
+          },
+          "drive_id": {
+            "type": "string",
+            "description": "Drive containing the workbook."
+          }
+        },
+        "required": [
+          "current_name",
+          "new_name"
+        ]
+      },
+      "confirmation": {
+        "schemaVersion": 1,
+        "root": {
+          "type": "card",
+          "title": "Rename worksheet",
+          "children": [
+            {
+              "type": "stack",
+              "direction": "horizontal",
+              "gap": "sm",
+              "align": "start",
+              "children": [
+                {
+                  "type": "textField",
+                  "bind": "{{current_name}}",
+                  "label": "Current worksheet",
+                  "required": true
+                },
+                {
+                  "type": "textField",
+                  "bind": "{{new_name}}",
+                  "label": "New worksheet name",
+                  "required": true
+                }
+              ]
+            },
+            {
+              "type": "stack",
+              "direction": "vertical",
+              "gap": "xs",
+              "children": [
+                {
+                  "type": "text",
+                  "text": "Workbook",
+                  "variant": "caption",
+                  "color": "muted"
+                },
+                {
+                  "type": "text",
+                  "text": "{{workbook_id}}",
+                  "variant": "mono"
+                }
+              ]
+            }
+          ],
+          "footer": [
+            {
+              "type": "actions",
+              "items": [
+                {
+                  "label": "Cancel",
+                  "role": "cancel"
+                },
+                {
+                  "label": "Rename worksheet",
+                  "role": "confirm",
+                  "color": "accent"
+                }
+              ]
+            }
+          ],
+          "icon": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAABwhSURBVHhetZp3XFRnvsa59+7d3SSCIr0jRXpHEFDpvYP0MnRQYBhmhi4iCCoqI4q9a+wlxhiNUaNGNxqz2ezqpqiI2KIymE2iuZvNJvjcz/uec2bODNg2u+fzeT7EM+ePfJ/n9/u973tmNDT+Ddfah7UuvfeEhd13Kzvab1XIWm6VyZpvlcla7lTwNIvRzQpZ840yWWN/iUz6VZFM/IVAVnMlR1b5WZas4pN0WcmlFFnRR4myjLORsqQTYbL5f8mQHf26RvbhsFR2elgqOzUslR0flsreGxbLjgyLZYeHxbJDw2LZgWGxbN+wWLZnWCzbPSyW7Ryulb05XCvbNlwr20L0jVi27VtJ19YnkvTur4o01Rn+pWvHg4aCzQ+lH6/+WoQ130ux/LEYi78XoeuxEJ2Pa9D5RISuJyIs+KGWqutxLTq/E6Hjb0LMG67C3Iez0Px1GRpuF0NyU4Ca6zmo/CoDRZeTUX45CfsfVeHySCv+irn489O5+PTpXFwaacWFkVacH5mDsyNz8MHIHJwcacHxkRYcG2nBkZEWHB5pwaGRZhwcacb+kWbsHWnGnpFm7H7ajJ0jTdj4RDrYd68mQZ3npa+dg032+x+2/OGt/2vD9m8a0HdbiKWDlegarEDbYDmaB8vQNFiG5ltE5Wi5XYGWWxVoHqxA00AZGvtLUXe1GJIvCiC6koeqP2eh4o/pKLmYgvzz8cg5G423b1fi8nfNOD9chzPDUpwaluJ9uRTH5BK8K5fgsFyCt+QSHJCLsVcuxm65GDvkYmyX12KrvBab5bXYKK/FerkI6+QirJGLsEouwkq5CBt/rMf6v9dj+VB1lDrbC68Dt1oDjg63/+3oDx3YeluKtbdEWDFYjSWDsxkDbhL4UjQOlqKJNaD5djlayN+b5dSAhuslkH5VBPHnAggv52L2nzJR/slMFF9IQtrpKPT8NRdXvmvGOR78iTHg97Pwuyh8LbbJa7FFXotNLPhaHnifXIQVchF65TVYNlSDNT/Wo+dhzS11vudeR++1TT413PXdie86set2A7bcIgbUYMVgFZYMzkLXzXLMJQbcLGEM4JswWI6mm0z69deKIfmyELV/zUf1X7Ix69MMlH6cAsH5BGSficKRu1W49LdGnB2W4gMW/j0VeDGF38PCv8lLfYO8ViVxAr6cBZcN1aBnqAZLhmqweKgGK36qhzrjM682tP33ya8XXLrwYw/eujMHu+80YsstCdYO1mD5YBUW35yFTmpAKTWggWcCaQXSEo0DpWjoL0Hd1SJIvuSXfxpKLiYj98NYFHwYg1MPavGHR/U4PSzFyWF1eCZ5dXiSOoEnqa9mS50kvowFX8pCdw/VYOFQDRYMCdH7S8PLG3Du4eLcy7+swntfd+DQ3VbsphXAGnCTNWCgjBrQOFDMGMCvBHL/RinqufL/QoCay7mo/Iwp/6ILicg+Gw3B2SiceFCLc4/qaOkfl0txVC7BO3IJDvF6Xh2eK3kudS5xDnwRBReia0iIziEh5g8JsfRVDPjowdI/fvp/y6kBb92dw7aABGuoAZXUgPkDZWgdKEHDQDHq1Uyg6d8ooeUv/aoQtZ/nQ3g5B7P/lIGyS6ko/CgBWWeikHc6AscfiHD2UZ1i6B2RS/D2S8Jzfc6VOpM4A06g24eEmDckRNuQEAt/eckWuDDUY3NJ3jtyTr4Y793jGyDGmkEheokBAxU8A4oYA3gmNJD7pPyvseWv6P902v8F5+OR+UEEcj4Ix7EHIpx+VKdS+gflYuxTTHtm4DE9rwpPSp7Ac6nzwQn03KFqzBmqRvNQNTpf1oBPhnpTv/ppHc4+WIT37rXTGUAM2MwZMDAb3QMV6LhRijkk5RtFqONMuMmYQNPvL6b9L/5SANFfSf9ns8tfMgTn45BxKhzZp0Lx7gMRTj2qUyl9ru93ysU8eKbn+fBcyXOpd7CJzx0SKsCbWM1/WQMuyZcJr/2yHmfuL8QxhQH12DwoxuqbQiwjBtwoZw0oRv2NQtTdKEQ9rxLqyf3rRZBeLWT6/0quYgAWX0xC/rlYpJ8KQ9bJULxzX4QTw3Vjlj5Z58lSR9Z4Mu3JwOMnz5U86XMu9VY18Fc24JOh5dJrv2x4hgHV1IBF1IAStJD0+wshpSYQAxgT6vuLUHe9CBLS/6wBlZ9loZwYcCEJeedikXYyDJknQvD2/RocH5bS9Lkljyt9ft8TeG7gcWXPh+dSVwd/ZQMuPeyV8A04eKcFO2/VY5OKAWVo7y9BCwHtL4C0v4BWATWBmlIEKen/rwpQ+wUzAPkrQN6HMUg7GYrME8E4dL8Gx4alKumT0ifpc31P1nmy1C1np/1Y8C1jQP9LBlykBihbQGlALVbdrIbsxiwspAYUo5mkf70AEmoC0wpU5P61QsYAdgVQN2DmiVBknAjGW/eFODpcp5I+f+qrlD477bmBR3qelP2L4P8NBtRh081arBqoYgzoL8M8YsB1YoAAkusCWgWcCVJynxhABuDneWMbcJIx4MB9IY4M19HJz+999fS50id9TzY2ZNoT+OeV/X/IgAos7C/FvOtFaCLpXxdATEzoV5pAq+JqAbMCfJ6HarIH+CwTZaNaIAT779fgnWGpYvLze5+fPil9kj6/9J818MbSqxnwM2fAPGrAjlt12HhTRA3o6a/Agv5StHEGXMuH+Ho+NYJphQJaAWMZoKwAMgQZA/bdr8HhYSld97lND5n83LI3VvqvUvr/mgFcBdydh4O3lQasvFHJGHC9hBrQeE0A8bU81KqZILmmXgHZmP1ZhuIUSJZBsg9IOR6I7XcqcfibulHDjz/5ybLH9T5Jn6z1JH11yOep4+e6VzCArYCjd+fhwO1m7BiU8gwoZwy4VsgYcJUYoGbCtQKIrwpQ+2U+zwD2GEz3AXHIOh2BuKPT0HklG8e+a1SUP9n4cOVPNj3kdMdNfn7vv0r6rd+KUPew8t9jwNL+cnRdL8Hca4VouJqP2qu5ELEmiFkTxNQYxoAa1gA6BNmTINkJkqNwyvtBSDsehO33qnDo2wbF9Ccbn7HKn0z+V+39Od/UYP4/6hC4NvDlDDj39dJ60gKn1Q0YqEEfWwEL+0vQfqMIzTdIz+dDciMf0hsCSAcEqBsoYERnQQHEX5EqyIXwchZmf5aOsk9SUHQhAXnnopF1OgzxRwOQcyoE6+5U4MD39djzpB5vPqnHlid12PCkDmueSNH3WIplj6VY8liChY8lmP9YjLYXaN4TMTp+rEPLIyFC1gZhQqrRrzNg86AI629XUwPmXBFA9McslF8kO7tUFBFdJOVNRFIm99NR/FEaiv4wE4XnUiH4MAX5ZxKR80E8sk7EIP14JFKPhiHxnWBEHgxA4rtBqDyfjKYL2Wj6KAd157MhPp+NmvNZqDqfhVnns1B2PgvF57NQeD4Tghco72w6YnZEwqbKHpqx+tDPNXsFA35WGkBWgf13G9B3tRKVZ7KQuC8aoVtCELghCDPWByLwZbUhiCqI00aiYARvCkbYtjC4zvPExExTvBGvD80EA2jFG0CL/E0wwPhEQ6oJREmMtNXE3SfPkH+PTzCAZowetBMNoZduCoM881c34P2v2/H23RY0XCxBxL4ETNsSjsBNIQjZHExN+HcoYkc4HOpdoBmjjwkJhtBOMcLEVGNMTDWBzkwT6KaxSjeFXoYp9KnMoJ85hjLM6DOj9K8YcO7BIhy504biM4WYvjcJoXsTEL4rBmHbwxG2LfTXa2soonZFYEq3L4XXTmLAdYgouCl0000Y6ExT6GeZQT/bHAavoiwzKmKOocDi5Q3op4ehBSg5V44ZhzIQ9XYaIg8kIXJ3LCLejEDEtrBfr+1h1ADzUhvaoxw8l7YuSY6kmmXKgGSbwSDHAoa5r6AccyqDHHMYFVq+vAF3nm7E3D9LEXg0HzHHchF9OB1RB5MRtTcOkTsiEflm2K9W1I5whG8JpemQvqUGkOTZ1PUyTaFHUyfg5jDMNYdhngUM8yxhlM+TgBX/HpUFozxGxiWTXs6Ay0O99R/+0IeoM+WIOVmE2PfyEHMkE9GHUhC9Lx5ROyPp//yvVfSuCIRtCWEMSDKCzkxl+gSeKXklPAUhQAJLGBdMojIpVBV3nxF5zhLG5HmBJUzKrF/OgC+Ge+sXf92F0DPliP+gBHHHBYh9Nwsxb6cien8ConZFIWpHxK9W9K5IRQVoJxtBh8KzPc+WvD6BJ6krwC1hTGCLrGBKVDyGiqxgUkSeYcWaYzbL5uUMODO0tHr27XlI+KgKSR+WIfFUARLey0b8O6mIOxiP2D2RiN0VzlOYimJ2hiN6Z8QLFbM7EuFbQ2l/T0wxovCKvmeTJ5ObD09hCFSxFcxKrGBWaj2GmM9MObHGmFfajjYg+AOJReBxcdL0YyKB/6HZBT4HZudlfFC7P+6iFGHHZyH0aClCDhci+GAegvdmImhXGgK3JyFwWyKCFEpCMKvQbYmI3BGL2N2MOTG7Ip+p2D1RdBiSaT0xlRig7HtFz+db0OlNUjdmwSlUqRXMy6xhXv4Mkc/KrGHGqdQaFtWTlQaEHBYahJyq3x74vuTvgafrMO2kBH7HRfA5Wg23fWVw2lIAx80COGzMh/36PNivzYPdmlzYrc6F3aoc2K3MgX1fDhz6cuC4IhfOK/Lg2pcP9z4BvFcJMG19FqJ2xFAj1MHHNsCYGXxc37PwdLiRsufBEyAKWWEDi1mcbFnx7lXY0Geoym1gWWPHGDD9uNgs6KS0P/ijJkx9pxpeByrgvqcUrjuL4bS9AI5b8mG/KQ92G3JguzYbtqszYbMqA9Z96bBengbr3jRYL0uDjSwNtj0zYduTBrueNDj0pMOxJwMusiy4yvLgvSIXEdtjEbc7YhS8igE55nT608HH9r0BGXgkeQX8JB48A0WALSufo9lKkWetxKwBAUeEp2eca4A3Ad9XCpddxXB6swD2W/MxeVMubDZkw3ptJqxWZ2BSXzosV8yERW8qLHpSYL40BRZLkmHenQSLRYwsFybBamESrBcmw3ZhCuwWpcKhOw1O3Znw6k1ngHc/2wDDHAs6AOnUJ/Bc+tzAK54EE1L2pJQJPEmXgFVOxqTqF6iKkWXVZFhLHaDhf6Rqut/JWngeqIDrnhI47SyE/TYBJm9mwK3WZWLS6gxYrEyD+YpUmC1LgWlPMkyXJMGkOxEmixJgsiABJl3xMOmMg8n8OJh2xMGsPQ7m7fGwaI+HVUcCbOYnwa4zGfadaQjcEIe4PaOrQGFAngUdgIrSJ4OPDL1CS0XypmVWMCNlP8uGSbXKlgJaCe1gVfMCkWeEdrCpd4SG18HyeT4nRHDZXQzHNwtgtzUPNptyYL0hC+ar0zBBFgOtJVHQXBSBcQvCodcdB5PFiTBaFA+jBXEw6oyFYUcsxjUH4/cN0/Fa3XS8Jp2GiU2hMGmNgemcaJi1xsCiNRZWbfGwak2C97J4xO8d24DIbWF0fSfT3yDHjJY+GXokfTLtGXiSPANvMduGpknTrbGDtcge1rUvEHlGZA/bRkdouO0tXeH+biUctgsweUserDdmY9K6TJisSoXLhgKUHV0CweEuCA51Iv+tTtj1ZmJiZxQMu+JgOD8Whu0x0GoOQfjaamS/2Yrs7XOQt70NM5aVQlsaDMPGCBg1RsKkMQpmTdEwa4yFW3cs4vY+uwXIro30Pzf1VYYeWdIU8GzywslMsgRM7AAbyQtEnhE7wK7FCRqOuwp7nQ+Vw3ZLLqw2ZMFybQZN3mh5MsyWz8Tgtw/Av3b85X38pmU6hTfoiMG4pmC4LcnFP37+p8pzUX3VeK3aH3qSUBhIQmEoDYOxNBxG4kg4d0Uh/hkGkAogg470P2kFOvW50ufgycDjkmfhrWvtGHipI2zrXkJSR9i3OkPDflter/2BEgW82ao0mPalwqQ3Ba8vDEfyniYVsJGnI5ixdhZebw6Cwbxo/I/ED29dOaPyzMqze6FR5gHd2mDoioKgWxMMvZpgGIhCoFcdCseOiDENiNsTRXeCZHtLyp9MfQJP02f7noG3hUWVLSxJz1N4e9hI7GEjdYBtvSMmNzhR2amJu09V7wiHeS7QsN2U22u7p1AJvyIVxr0pMJYlwWhpIn7bHoS3vjirAvj+tY/xu4bp+K00ALHra1U+u/etHEZ1EdCsngadmiBMrA7ExMpA6FQGQrcqEDqzgmDXFjqmAQkHYuC/zB+6pPz5pc/1fYU1TZ6Dpz1P4R1gW8fCNzrCrskZ9s8Q+Yyq0QmOHa7QsF6f2Wu9Ix/mCvhkCm+8NAlGSxIxvjMCbn35+OGnH1VA4zdKoFHthU/vfKlyv2hbOzRKPWnqDPwMaM+aDu2K6ZhYMR0TSqdjcmsI4vdFqaa/Nwpxe6NhVWkH/WxTXt+T0lcOPbqeV9tSeCs2eVLSJNHJjU6wb3aGfYszHFpcnil7Kmc4dbpDw2Jteu+kbbkM/DIOPhFGixNg1J0Ao4Xx+J/mAHSd3qoCeuLqxyjZ3aVy7/TVP+I3FVOgLQxUwE8k8OXToF0aQKVVGADbliAkHIhG7O4oWvYkeQLv1OhKhx8Hb8zvezL0KDxJfjIP3gGTGxxponbNznCY48Ko9QWa4wLnBR7QMF85s9diczYD38OUPYVfFA/DhfF02uu0R0K/PRoDj+4pYJ8+fYp//PyT4t///OVnTFmQh9+W+0CnOkgJXzEN2mXTMKEkABOK/KGZ5wfrhhmI3R2BKPIiZWsYApYFwKpyMvSy1JPnw9soljorMvDYsifJM/BOcJjjDMdWV0ZzX6BWV7gs9ISG6YrUXvONmQz8Eh78gjgKb8Audb+p80fujjYFsPq19MR2aBS5jQEfoIAfX+CH8QJ/6BZ4wLTQkp7IyLmc2/Lyt7kmavBczzPwyoFH4JmyZ5JVALa5wukZIp8RuSwiBixL7jVbl8HAk5Ln4DtjKbxBewwM2qKh3xqF/xZNxYmrl9TZ8fD7b6AnCsG4Wf504E2cPYP2PD95Cp8/FePz/KCdQ0rdWLHTo9N+rLInE5/tebp7E40BT4ZbizPsKbwLC+kGp3kvlmu3FzSMe5J7TVenK/pdAd8RowI/viEYJq2xuDZ0W52f7gGS+mrxX4Xu0BkDfgIHn+sLzWxfaoBhnhl7tOWf7kaXPR14BJ6u8yw8GXpkaWPhac/PVQV3bn+x3JYQA5Yk9pqunKnodwX8vGgFvH5LJDSEU7D54jvq7Iqrf+gOJlRMw7hSv2ck7wutHB9oZvpAO9sVRgJzCq66zvO2uASe7vKY5K3E9vTwwsCTpc5JCU96vs0Vzgpwdzh3vFjuS72hYbw4vtd4ReooeP22KApv0BKJ/xX5IWqVUAX42JU/UPGvzsProZHpCO1nwGtlTcG49CnQznKBcaGFyrGWf7hh4Mkuj0l+THhu4pPSJ2VP4HlwLvNfLA+ZNzQMF8X3ko0P7XcOfi6Bj6TJazeEYLw0CJ/fH1CAkhXAsyMLUzpyVAz4+0//gHN9Mv43xx0TCkfDa2Z4Y9xMb2hnusCk2BImJWzJkzM92eSw67zqtFeWvS0fnht6PHgXFXAPuHQq5aomcs9j2RRoGC6I6zWWJTP9zsHPIfAR0G+KgMZsL3Qc26ACuv3Cu9AocIOGwA37Pzmp8tm7f/oQGmmO0Mr3HQWvmeaFcSle1ACz0tF7e5V1nj/w1JNvcYGjOjwHzgfter48e4kBnXG9ZNen6HcC3xwBvaYIvCYKgMeCHPz4T+V6//2PP8C2MQGvlfrid0XecGtOG3UQmtlTC40kO4xXg9dM9cQbSeT7PmeYlU9ShafbW+UOTzHw6N5+jOTJ0KPwbqrgfMgFnnB7jryW+0DDeH5cr/GSJMWw0yPwjeHQqQvF6zXT8NGNv6jAzT20Ghp5Lpg4awYmlk+nPb/y/d0qz9z75iH0BAF4Lc1dBX5csgfeSPTARFIBFVb0tbS52t6ewpNNDoUnuzwy7dmBp4BnJz2FZ0t8LOiFz5fXCmJAR+xy48WJNHmSOoHXqw/D76r9kLWpGY9++A73vxvGg++G8fHAFXqg0SzzY7e30/D7fG9YVkXii7sDuP83OdWjx99CvLkb/xVnp4RP8cC4JHe8kcAYYDGbHGyUb3KU8Oz2ltvhkaVuzIH3HHgOcpEX3J8j7z5faBjPi1lGXm3R9BvDoVsfBl1pKCaKg2HZFAvz+miYSiJhKo6kJzoCT5In+/oJJf7QLvLH67ne0CkMgGFxIAwKp8OwYDpMCoMwLs0T4zj4RALvjnEJHtDJdIFllfJNDneep6c6KTnYOKlscvhL3aiyZ+FVUueDdo8tj24veK/0hYZJW4zQtDsJBs2R0GsIp/C64hDo1IZgQvUMaFVOg+asAGiW+0OrzF9xsJlQ7M9M+oKpdNq/ke2F1zI88VqaB36f6o7XU90VZc/Au0EzkRjgCf08Z0wSMnt7/nmelD1/b093eOwmZ9TAU4dnU+eDE0iPxd6qWsJqsTemrJoKDfO2WCvTtphfjFqjoV8fTt/g6IiCeWf5Gapb21HwvtDK9YFW9hRoZfKmvRr8OGqAB7SSvGBa6oBJNbyBR15TcQOPPdVRcG5v3+bGbHIU01458EbBcwmrAXtyWqqUz+qpzGtx09boTrPuJPr+jhigK1Ke5ZlDDW9ry8EL1OG9nwmvmeBO4TUTvKCf44pJQuUOj3mH56iApwcbeqpjJz27vaU7PPX0eWU/Cp4Dp7BTlOpRymeNn/KbIdPmqPWm7XEwmhMNPUkY80KjSu1gUxyACYX+GC9gNjlaub7QyvZhkk8fDc+I/LcntBK9oZflRt/dW5H3eAS+1h62EmXZk57nL3OKsqcGcBud0emrlD0Lz6SthPbiJCPyofJdxzOAmtAUnWTUGHnMQBz2QFcY/GTi7Bk/aJdPezKhxP/J+CK/H7SLSPJkg+OD8TlToJXlDa1ML2ime0IzzROaqR7QTHGHZrI7tFiNT/WATrobjAscYUnP9MqTnY1Yte9Vpj1NnzVgrPS7Rqc/Cn4MaK9lPvBm5bvBf/SXo+TSa0sbpyuKNNItnU6lNzvQkPzVybDcrS+YBN1081HSy7CAfqYFDLItYZg7CUYCKxgXWMOkmHx1ZcVb9pgvL6yfY4Cy/J9jgDo83wAVeAacg/buVWrqxoCxDXjWpZOgoamXYXyFfEWtR76350k/wwQGWaYwJG9z88xhXGABkyJL5fd37NvcX2vAmOU/RvoKeBVwX0xZzmqFL3zXPaMCnnfpJpsb6WWafmogsFD82oqKfJND3uWT396Qn5+QX2AUTqJvfchX0eQLTL4Bz2uB5w3AFxrApc+WPQOvCk7++m+eRv5+os73UpdRnNHruhlmK/WzzJ6SaiBfYnA/YXmuAeTbW+6Y+x8wQD19Dt6bB++z0g8BW6dj6lr/Rz7LfRzV2V7p0k0399TLNF2nl2l6h/6EhbzLJy84yDGXnO8rrNm9/mRYCu0wSWQPK4k9rOscYNPgiMlNTrCb4wyHuS5wbHeF03w3OHe5w2WBO1wWesB1kQdcuz3httiTvr1xX+oFj54p8JD5wLPXB57LfeC1wpduaaesnAqfVVPhs9oPvmv84LvWH1PX+WPq+gD4bQiA36YA+G+aRj576rvO/z2vFX72hOH/ASiWIjSjG0ZMAAAAAElFTkSuQmCC"
+        }
+      },
+      "execution": {
+        "mode": "background",
+        "estimatedDurationMs": 15000
+      }
+    },
+    {
+      "name": "excel_delete_worksheet",
+      "title": "Delete worksheet",
+      "description": "Delete a worksheet tab from an Excel workbook. This action permanently deletes sheet data. Use when the user specifically requests to delete or remove a sheet. Before confirming, resolve the default workbook with Get workbook and include its returned ID so the user sees the destination. Cancel runs no action.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "worksheet_name": {
+            "type": "string",
+            "description": "Name of the worksheet to permanently delete."
+          },
+          "workbook_id": {
+            "type": "string",
+            "description": "Workbook driveItem ID. Blank or omitted uses DEFAULT_WORKBOOK_ID from Setup. When preparing a write, call Get workbook to resolve the default and include its returned ID so the confirmation shows the target."
+          },
+          "drive_id": {
+            "type": "string",
+            "description": "Drive containing the workbook."
+          }
+        },
+        "required": [
+          "worksheet_name"
+        ]
+      },
+      "confirmation": {
+        "schemaVersion": 1,
+        "root": {
+          "type": "card",
+          "title": "Delete worksheet",
+          "children": [
+            {
+              "type": "text",
+              "text": "Permanently deletes this worksheet and its data. Cannot be undone.",
+              "color": "danger"
+            },
+            {
+              "type": "textField",
+              "bind": "{{worksheet_name}}",
+              "label": "Worksheet name",
+              "required": true
+            },
+            {
+              "type": "stack",
+              "direction": "vertical",
+              "gap": "xs",
+              "children": [
+                {
+                  "type": "text",
+                  "text": "Workbook",
+                  "variant": "caption",
+                  "color": "muted"
+                },
+                {
+                  "type": "text",
+                  "text": "{{workbook_id}}",
+                  "variant": "mono"
+                }
+              ]
+            }
+          ],
+          "footer": [
+            {
+              "type": "actions",
+              "items": [
+                {
+                  "label": "Cancel",
+                  "role": "cancel"
+                },
+                {
+                  "label": "Delete worksheet",
+                  "role": "confirm",
+                  "color": "danger"
+                }
+              ]
+            }
+          ],
+          "icon": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAABwhSURBVHhetZp3XFRnvsa59+7d3SSCIr0jRXpHEFDpvYP0MnRQYBhmhi4iCCoqI4q9a+wlxhiNUaNGNxqz2ezqpqiI2KIymE2iuZvNJvjcz/uec2bODNg2u+fzeT7EM+ePfJ/n9/u973tmNDT+Ddfah7UuvfeEhd13Kzvab1XIWm6VyZpvlcla7lTwNIvRzQpZ840yWWN/iUz6VZFM/IVAVnMlR1b5WZas4pN0WcmlFFnRR4myjLORsqQTYbL5f8mQHf26RvbhsFR2elgqOzUslR0flsreGxbLjgyLZYeHxbJDw2LZgWGxbN+wWLZnWCzbPSyW7Ryulb05XCvbNlwr20L0jVi27VtJ19YnkvTur4o01Rn+pWvHg4aCzQ+lH6/+WoQ130ux/LEYi78XoeuxEJ2Pa9D5RISuJyIs+KGWqutxLTq/E6Hjb0LMG67C3Iez0Px1GRpuF0NyU4Ca6zmo/CoDRZeTUX45CfsfVeHySCv+irn489O5+PTpXFwaacWFkVacH5mDsyNz8MHIHJwcacHxkRYcG2nBkZEWHB5pwaGRZhwcacb+kWbsHWnGnpFm7H7ajJ0jTdj4RDrYd68mQZ3npa+dg032+x+2/OGt/2vD9m8a0HdbiKWDlegarEDbYDmaB8vQNFiG5ltE5Wi5XYGWWxVoHqxA00AZGvtLUXe1GJIvCiC6koeqP2eh4o/pKLmYgvzz8cg5G423b1fi8nfNOD9chzPDUpwaluJ9uRTH5BK8K5fgsFyCt+QSHJCLsVcuxm65GDvkYmyX12KrvBab5bXYKK/FerkI6+QirJGLsEouwkq5CBt/rMf6v9dj+VB1lDrbC68Dt1oDjg63/+3oDx3YeluKtbdEWDFYjSWDsxkDbhL4UjQOlqKJNaD5djlayN+b5dSAhuslkH5VBPHnAggv52L2nzJR/slMFF9IQtrpKPT8NRdXvmvGOR78iTHg97Pwuyh8LbbJa7FFXotNLPhaHnifXIQVchF65TVYNlSDNT/Wo+dhzS11vudeR++1TT413PXdie86set2A7bcIgbUYMVgFZYMzkLXzXLMJQbcLGEM4JswWI6mm0z69deKIfmyELV/zUf1X7Ix69MMlH6cAsH5BGSficKRu1W49LdGnB2W4gMW/j0VeDGF38PCv8lLfYO8ViVxAr6cBZcN1aBnqAZLhmqweKgGK36qhzrjM682tP33ya8XXLrwYw/eujMHu+80YsstCdYO1mD5YBUW35yFTmpAKTWggWcCaQXSEo0DpWjoL0Hd1SJIvuSXfxpKLiYj98NYFHwYg1MPavGHR/U4PSzFyWF1eCZ5dXiSOoEnqa9mS50kvowFX8pCdw/VYOFQDRYMCdH7S8PLG3Du4eLcy7+swntfd+DQ3VbsphXAGnCTNWCgjBrQOFDMGMCvBHL/RinqufL/QoCay7mo/Iwp/6ILicg+Gw3B2SiceFCLc4/qaOkfl0txVC7BO3IJDvF6Xh2eK3kudS5xDnwRBReia0iIziEh5g8JsfRVDPjowdI/fvp/y6kBb92dw7aABGuoAZXUgPkDZWgdKEHDQDHq1Uyg6d8ooeUv/aoQtZ/nQ3g5B7P/lIGyS6ko/CgBWWeikHc6AscfiHD2UZ1i6B2RS/D2S8Jzfc6VOpM4A06g24eEmDckRNuQEAt/eckWuDDUY3NJ3jtyTr4Y793jGyDGmkEheokBAxU8A4oYA3gmNJD7pPyvseWv6P902v8F5+OR+UEEcj4Ix7EHIpx+VKdS+gflYuxTTHtm4DE9rwpPSp7Ac6nzwQn03KFqzBmqRvNQNTpf1oBPhnpTv/ppHc4+WIT37rXTGUAM2MwZMDAb3QMV6LhRijkk5RtFqONMuMmYQNPvL6b9L/5SANFfSf9ns8tfMgTn45BxKhzZp0Lx7gMRTj2qUyl9ru93ysU8eKbn+fBcyXOpd7CJzx0SKsCbWM1/WQMuyZcJr/2yHmfuL8QxhQH12DwoxuqbQiwjBtwoZw0oRv2NQtTdKEQ9rxLqyf3rRZBeLWT6/0quYgAWX0xC/rlYpJ8KQ9bJULxzX4QTw3Vjlj5Z58lSR9Z4Mu3JwOMnz5U86XMu9VY18Fc24JOh5dJrv2x4hgHV1IBF1IAStJD0+wshpSYQAxgT6vuLUHe9CBLS/6wBlZ9loZwYcCEJeedikXYyDJknQvD2/RocH5bS9Lkljyt9ft8TeG7gcWXPh+dSVwd/ZQMuPeyV8A04eKcFO2/VY5OKAWVo7y9BCwHtL4C0v4BWATWBmlIEKen/rwpQ+wUzAPkrQN6HMUg7GYrME8E4dL8Gx4alKumT0ifpc31P1nmy1C1np/1Y8C1jQP9LBlykBihbQGlALVbdrIbsxiwspAYUo5mkf70AEmoC0wpU5P61QsYAdgVQN2DmiVBknAjGW/eFODpcp5I+f+qrlD477bmBR3qelP2L4P8NBtRh081arBqoYgzoL8M8YsB1YoAAkusCWgWcCVJynxhABuDneWMbcJIx4MB9IY4M19HJz+999fS50id9TzY2ZNoT+OeV/X/IgAos7C/FvOtFaCLpXxdATEzoV5pAq+JqAbMCfJ6HarIH+CwTZaNaIAT779fgnWGpYvLze5+fPil9kj6/9J818MbSqxnwM2fAPGrAjlt12HhTRA3o6a/Agv5StHEGXMuH+Ho+NYJphQJaAWMZoKwAMgQZA/bdr8HhYSld97lND5n83LI3VvqvUvr/mgFcBdydh4O3lQasvFHJGHC9hBrQeE0A8bU81KqZILmmXgHZmP1ZhuIUSJZBsg9IOR6I7XcqcfibulHDjz/5ybLH9T5Jn6z1JH11yOep4+e6VzCArYCjd+fhwO1m7BiU8gwoZwy4VsgYcJUYoGbCtQKIrwpQ+2U+zwD2GEz3AXHIOh2BuKPT0HklG8e+a1SUP9n4cOVPNj3kdMdNfn7vv0r6rd+KUPew8t9jwNL+cnRdL8Hca4VouJqP2qu5ELEmiFkTxNQYxoAa1gA6BNmTINkJkqNwyvtBSDsehO33qnDo2wbF9Ccbn7HKn0z+V+39Od/UYP4/6hC4NvDlDDj39dJ60gKn1Q0YqEEfWwEL+0vQfqMIzTdIz+dDciMf0hsCSAcEqBsoYERnQQHEX5EqyIXwchZmf5aOsk9SUHQhAXnnopF1OgzxRwOQcyoE6+5U4MD39djzpB5vPqnHlid12PCkDmueSNH3WIplj6VY8liChY8lmP9YjLYXaN4TMTp+rEPLIyFC1gZhQqrRrzNg86AI629XUwPmXBFA9McslF8kO7tUFBFdJOVNRFIm99NR/FEaiv4wE4XnUiH4MAX5ZxKR80E8sk7EIP14JFKPhiHxnWBEHgxA4rtBqDyfjKYL2Wj6KAd157MhPp+NmvNZqDqfhVnns1B2PgvF57NQeD4Tghco72w6YnZEwqbKHpqx+tDPNXsFA35WGkBWgf13G9B3tRKVZ7KQuC8aoVtCELghCDPWByLwZbUhiCqI00aiYARvCkbYtjC4zvPExExTvBGvD80EA2jFG0CL/E0wwPhEQ6oJREmMtNXE3SfPkH+PTzCAZowetBMNoZduCoM881c34P2v2/H23RY0XCxBxL4ETNsSjsBNIQjZHExN+HcoYkc4HOpdoBmjjwkJhtBOMcLEVGNMTDWBzkwT6KaxSjeFXoYp9KnMoJ85hjLM6DOj9K8YcO7BIhy504biM4WYvjcJoXsTEL4rBmHbwxG2LfTXa2soonZFYEq3L4XXTmLAdYgouCl0000Y6ExT6GeZQT/bHAavoiwzKmKOocDi5Q3op4ehBSg5V44ZhzIQ9XYaIg8kIXJ3LCLejEDEtrBfr+1h1ADzUhvaoxw8l7YuSY6kmmXKgGSbwSDHAoa5r6AccyqDHHMYFVq+vAF3nm7E3D9LEXg0HzHHchF9OB1RB5MRtTcOkTsiEflm2K9W1I5whG8JpemQvqUGkOTZ1PUyTaFHUyfg5jDMNYdhngUM8yxhlM+TgBX/HpUFozxGxiWTXs6Ay0O99R/+0IeoM+WIOVmE2PfyEHMkE9GHUhC9Lx5ROyPp//yvVfSuCIRtCWEMSDKCzkxl+gSeKXklPAUhQAJLGBdMojIpVBV3nxF5zhLG5HmBJUzKrF/OgC+Ge+sXf92F0DPliP+gBHHHBYh9Nwsxb6cien8ConZFIWpHxK9W9K5IRQVoJxtBh8KzPc+WvD6BJ6krwC1hTGCLrGBKVDyGiqxgUkSeYcWaYzbL5uUMODO0tHr27XlI+KgKSR+WIfFUARLey0b8O6mIOxiP2D2RiN0VzlOYimJ2hiN6Z8QLFbM7EuFbQ2l/T0wxovCKvmeTJ5ObD09hCFSxFcxKrGBWaj2GmM9MObHGmFfajjYg+AOJReBxcdL0YyKB/6HZBT4HZudlfFC7P+6iFGHHZyH0aClCDhci+GAegvdmImhXGgK3JyFwWyKCFEpCMKvQbYmI3BGL2N2MOTG7Ip+p2D1RdBiSaT0xlRig7HtFz+db0OlNUjdmwSlUqRXMy6xhXv4Mkc/KrGHGqdQaFtWTlQaEHBYahJyq3x74vuTvgafrMO2kBH7HRfA5Wg23fWVw2lIAx80COGzMh/36PNivzYPdmlzYrc6F3aoc2K3MgX1fDhz6cuC4IhfOK/Lg2pcP9z4BvFcJMG19FqJ2xFAj1MHHNsCYGXxc37PwdLiRsufBEyAKWWEDi1mcbFnx7lXY0Geoym1gWWPHGDD9uNgs6KS0P/ijJkx9pxpeByrgvqcUrjuL4bS9AI5b8mG/KQ92G3JguzYbtqszYbMqA9Z96bBengbr3jRYL0uDjSwNtj0zYduTBrueNDj0pMOxJwMusiy4yvLgvSIXEdtjEbc7YhS8igE55nT608HH9r0BGXgkeQX8JB48A0WALSufo9lKkWetxKwBAUeEp2eca4A3Ad9XCpddxXB6swD2W/MxeVMubDZkw3ptJqxWZ2BSXzosV8yERW8qLHpSYL40BRZLkmHenQSLRYwsFybBamESrBcmw3ZhCuwWpcKhOw1O3Znw6k1ngHc/2wDDHAs6AOnUJ/Bc+tzAK54EE1L2pJQJPEmXgFVOxqTqF6iKkWXVZFhLHaDhf6Rqut/JWngeqIDrnhI47SyE/TYBJm9mwK3WZWLS6gxYrEyD+YpUmC1LgWlPMkyXJMGkOxEmixJgsiABJl3xMOmMg8n8OJh2xMGsPQ7m7fGwaI+HVUcCbOYnwa4zGfadaQjcEIe4PaOrQGFAngUdgIrSJ4OPDL1CS0XypmVWMCNlP8uGSbXKlgJaCe1gVfMCkWeEdrCpd4SG18HyeT4nRHDZXQzHNwtgtzUPNptyYL0hC+ar0zBBFgOtJVHQXBSBcQvCodcdB5PFiTBaFA+jBXEw6oyFYUcsxjUH4/cN0/Fa3XS8Jp2GiU2hMGmNgemcaJi1xsCiNRZWbfGwak2C97J4xO8d24DIbWF0fSfT3yDHjJY+GXokfTLtGXiSPANvMduGpknTrbGDtcge1rUvEHlGZA/bRkdouO0tXeH+biUctgsweUserDdmY9K6TJisSoXLhgKUHV0CweEuCA51Iv+tTtj1ZmJiZxQMu+JgOD8Whu0x0GoOQfjaamS/2Yrs7XOQt70NM5aVQlsaDMPGCBg1RsKkMQpmTdEwa4yFW3cs4vY+uwXIro30Pzf1VYYeWdIU8GzywslMsgRM7AAbyQtEnhE7wK7FCRqOuwp7nQ+Vw3ZLLqw2ZMFybQZN3mh5MsyWz8Tgtw/Av3b85X38pmU6hTfoiMG4pmC4LcnFP37+p8pzUX3VeK3aH3qSUBhIQmEoDYOxNBxG4kg4d0Uh/hkGkAogg470P2kFOvW50ufgycDjkmfhrWvtGHipI2zrXkJSR9i3OkPDflter/2BEgW82ao0mPalwqQ3Ba8vDEfyniYVsJGnI5ixdhZebw6Cwbxo/I/ED29dOaPyzMqze6FR5gHd2mDoioKgWxMMvZpgGIhCoFcdCseOiDENiNsTRXeCZHtLyp9MfQJP02f7noG3hUWVLSxJz1N4e9hI7GEjdYBtvSMmNzhR2amJu09V7wiHeS7QsN2U22u7p1AJvyIVxr0pMJYlwWhpIn7bHoS3vjirAvj+tY/xu4bp+K00ALHra1U+u/etHEZ1EdCsngadmiBMrA7ExMpA6FQGQrcqEDqzgmDXFjqmAQkHYuC/zB+6pPz5pc/1fYU1TZ6Dpz1P4R1gW8fCNzrCrskZ9s8Q+Yyq0QmOHa7QsF6f2Wu9Ix/mCvhkCm+8NAlGSxIxvjMCbn35+OGnH1VA4zdKoFHthU/vfKlyv2hbOzRKPWnqDPwMaM+aDu2K6ZhYMR0TSqdjcmsI4vdFqaa/Nwpxe6NhVWkH/WxTXt+T0lcOPbqeV9tSeCs2eVLSJNHJjU6wb3aGfYszHFpcnil7Kmc4dbpDw2Jteu+kbbkM/DIOPhFGixNg1J0Ao4Xx+J/mAHSd3qoCeuLqxyjZ3aVy7/TVP+I3FVOgLQxUwE8k8OXToF0aQKVVGADbliAkHIhG7O4oWvYkeQLv1OhKhx8Hb8zvezL0KDxJfjIP3gGTGxxponbNznCY48Ko9QWa4wLnBR7QMF85s9diczYD38OUPYVfFA/DhfF02uu0R0K/PRoDj+4pYJ8+fYp//PyT4t///OVnTFmQh9+W+0CnOkgJXzEN2mXTMKEkABOK/KGZ5wfrhhmI3R2BKPIiZWsYApYFwKpyMvSy1JPnw9soljorMvDYsifJM/BOcJjjDMdWV0ZzX6BWV7gs9ISG6YrUXvONmQz8Eh78gjgKb8Audb+p80fujjYFsPq19MR2aBS5jQEfoIAfX+CH8QJ/6BZ4wLTQkp7IyLmc2/Lyt7kmavBczzPwyoFH4JmyZ5JVALa5wukZIp8RuSwiBixL7jVbl8HAk5Ln4DtjKbxBewwM2qKh3xqF/xZNxYmrl9TZ8fD7b6AnCsG4Wf504E2cPYP2PD95Cp8/FePz/KCdQ0rdWLHTo9N+rLInE5/tebp7E40BT4ZbizPsKbwLC+kGp3kvlmu3FzSMe5J7TVenK/pdAd8RowI/viEYJq2xuDZ0W52f7gGS+mrxX4Xu0BkDfgIHn+sLzWxfaoBhnhl7tOWf7kaXPR14BJ6u8yw8GXpkaWPhac/PVQV3bn+x3JYQA5Yk9pqunKnodwX8vGgFvH5LJDSEU7D54jvq7Iqrf+gOJlRMw7hSv2ck7wutHB9oZvpAO9sVRgJzCq66zvO2uASe7vKY5K3E9vTwwsCTpc5JCU96vs0Vzgpwdzh3vFjuS72hYbw4vtd4ReooeP22KApv0BKJ/xX5IWqVUAX42JU/UPGvzsProZHpCO1nwGtlTcG49CnQznKBcaGFyrGWf7hh4Mkuj0l+THhu4pPSJ2VP4HlwLvNfLA+ZNzQMF8X3ko0P7XcOfi6Bj6TJazeEYLw0CJ/fH1CAkhXAsyMLUzpyVAz4+0//gHN9Mv43xx0TCkfDa2Z4Y9xMb2hnusCk2BImJWzJkzM92eSw67zqtFeWvS0fnht6PHgXFXAPuHQq5aomcs9j2RRoGC6I6zWWJTP9zsHPIfAR0G+KgMZsL3Qc26ACuv3Cu9AocIOGwA37Pzmp8tm7f/oQGmmO0Mr3HQWvmeaFcSle1ACz0tF7e5V1nj/w1JNvcYGjOjwHzgfter48e4kBnXG9ZNen6HcC3xwBvaYIvCYKgMeCHPz4T+V6//2PP8C2MQGvlfrid0XecGtOG3UQmtlTC40kO4xXg9dM9cQbSeT7PmeYlU9ShafbW+UOTzHw6N5+jOTJ0KPwbqrgfMgFnnB7jryW+0DDeH5cr/GSJMWw0yPwjeHQqQvF6zXT8NGNv6jAzT20Ghp5Lpg4awYmlk+nPb/y/d0qz9z75iH0BAF4Lc1dBX5csgfeSPTARFIBFVb0tbS52t6ewpNNDoUnuzwy7dmBp4BnJz2FZ0t8LOiFz5fXCmJAR+xy48WJNHmSOoHXqw/D76r9kLWpGY9++A73vxvGg++G8fHAFXqg0SzzY7e30/D7fG9YVkXii7sDuP83OdWjx99CvLkb/xVnp4RP8cC4JHe8kcAYYDGbHGyUb3KU8Oz2ltvhkaVuzIH3HHgOcpEX3J8j7z5faBjPi1lGXm3R9BvDoVsfBl1pKCaKg2HZFAvz+miYSiJhKo6kJzoCT5In+/oJJf7QLvLH67ne0CkMgGFxIAwKp8OwYDpMCoMwLs0T4zj4RALvjnEJHtDJdIFllfJNDneep6c6KTnYOKlscvhL3aiyZ+FVUueDdo8tj24veK/0hYZJW4zQtDsJBs2R0GsIp/C64hDo1IZgQvUMaFVOg+asAGiW+0OrzF9xsJlQ7M9M+oKpdNq/ke2F1zI88VqaB36f6o7XU90VZc/Au0EzkRjgCf08Z0wSMnt7/nmelD1/b093eOwmZ9TAU4dnU+eDE0iPxd6qWsJqsTemrJoKDfO2WCvTtphfjFqjoV8fTt/g6IiCeWf5Gapb21HwvtDK9YFW9hRoZfKmvRr8OGqAB7SSvGBa6oBJNbyBR15TcQOPPdVRcG5v3+bGbHIU01458EbBcwmrAXtyWqqUz+qpzGtx09boTrPuJPr+jhigK1Ke5ZlDDW9ry8EL1OG9nwmvmeBO4TUTvKCf44pJQuUOj3mH56iApwcbeqpjJz27vaU7PPX0eWU/Cp4Dp7BTlOpRymeNn/KbIdPmqPWm7XEwmhMNPUkY80KjSu1gUxyACYX+GC9gNjlaub7QyvZhkk8fDc+I/LcntBK9oZflRt/dW5H3eAS+1h62EmXZk57nL3OKsqcGcBud0emrlD0Lz6SthPbiJCPyofJdxzOAmtAUnWTUGHnMQBz2QFcY/GTi7Bk/aJdPezKhxP/J+CK/H7SLSPJkg+OD8TlToJXlDa1ML2ime0IzzROaqR7QTHGHZrI7tFiNT/WATrobjAscYUnP9MqTnY1Yte9Vpj1NnzVgrPS7Rqc/Cn4MaK9lPvBm5bvBf/SXo+TSa0sbpyuKNNItnU6lNzvQkPzVybDcrS+YBN1081HSy7CAfqYFDLItYZg7CUYCKxgXWMOkmHx1ZcVb9pgvL6yfY4Cy/J9jgDo83wAVeAacg/buVWrqxoCxDXjWpZOgoamXYXyFfEWtR76350k/wwQGWaYwJG9z88xhXGABkyJL5fd37NvcX2vAmOU/RvoKeBVwX0xZzmqFL3zXPaMCnnfpJpsb6WWafmogsFD82oqKfJND3uWT396Qn5+QX2AUTqJvfchX0eQLTL4Bz2uB5w3AFxrApc+WPQOvCk7++m+eRv5+os73UpdRnNHruhlmK/WzzJ6SaiBfYnA/YXmuAeTbW+6Y+x8wQD19Dt6bB++z0g8BW6dj6lr/Rz7LfRzV2V7p0k0399TLNF2nl2l6h/6EhbzLJy84yDGXnO8rrNm9/mRYCu0wSWQPK4k9rOscYNPgiMlNTrCb4wyHuS5wbHeF03w3OHe5w2WBO1wWesB1kQdcuz3httiTvr1xX+oFj54p8JD5wLPXB57LfeC1wpduaaesnAqfVVPhs9oPvmv84LvWH1PX+WPq+gD4bQiA36YA+G+aRj576rvO/z2vFX72hOH/ASiWIjSjG0ZMAAAAAElFTkSuQmCC"
+        }
+      },
+      "execution": {
+        "mode": "background",
+        "estimatedDurationMs": 15000
+      }
+    },
+    {
+      "name": "excel_update_range",
+      "title": "Update cell range",
+      "description": "Write or update cell values in an Excel worksheet range (e.g. 'A1:B2', 'Sheet1!A1:B2', or ''VoiceOS QA'!A1:B2'). Use when the user asks to write numbers, set values, or update cells in a sheet. Before confirming, resolve the default workbook with Get workbook and include its returned ID so the user sees the destination. Cancel runs no action.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "range": {
+            "type": "string",
+            "description": "Target cell range address (e.g. 'A1:B2', 'Sheet1!A1:B2', or ''VoiceOS QA'!A1:B2')."
+          },
+          "values": {
+            "type": "array",
+            "description": "2D array of values or rows of cell values to update."
+          },
+          "worksheet_name": {
+            "type": "string",
+            "description": "Optional worksheet name if not prefixed in range address."
+          },
+          "workbook_id": {
+            "type": "string",
+            "description": "Workbook driveItem ID. Blank or omitted uses DEFAULT_WORKBOOK_ID from Setup. When preparing a write, call Get workbook to resolve the default and include its returned ID so the confirmation shows the target."
+          },
+          "drive_id": {
+            "type": "string",
+            "description": "Drive containing the workbook."
+          }
+        },
+        "required": [
+          "range",
+          "values"
+        ]
+      },
+      "confirmation": {
+        "schemaVersion": 1,
+        "root": {
+          "type": "card",
+          "title": "Update cell range",
+          "children": [
+            {
+              "type": "stack",
+              "direction": "horizontal",
+              "gap": "sm",
+              "align": "start",
+              "children": [
+                {
+                  "type": "textField",
+                  "bind": "{{range}}",
+                  "label": "Range",
+                  "required": true
+                },
+                {
+                  "type": "textField",
+                  "bind": "{{worksheet_name}}",
+                  "label": "Worksheet"
+                }
+              ]
+            },
+            {
+              "type": "textField",
+              "bind": "{{values}}",
+              "label": "Values (JSON rows)",
+              "required": true,
+              "placeholder": "[[\"Product\",2],[\"Mouse\",5]]"
+            },
+            {
+              "type": "stack",
+              "direction": "vertical",
+              "gap": "xs",
+              "children": [
+                {
+                  "type": "text",
+                  "text": "Workbook",
+                  "variant": "caption",
+                  "color": "muted"
+                },
+                {
+                  "type": "text",
+                  "text": "{{workbook_id}}",
+                  "variant": "mono"
+                }
+              ]
+            }
+          ],
+          "footer": [
+            {
+              "type": "actions",
+              "items": [
+                {
+                  "label": "Cancel",
+                  "role": "cancel"
+                },
+                {
+                  "label": "Update range",
+                  "role": "confirm",
+                  "color": "accent"
+                }
+              ]
+            }
+          ],
+          "icon": "data:image/png;base64,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"
+        }
+      },
+      "execution": {
+        "mode": "background",
+        "estimatedDurationMs": 15000
+      }
+    },
+    {
+      "name": "excel_add_table_rows",
+      "title": "Add table rows",
+      "description": "Append new data rows to an existing Excel table (e.g. 'ReleaseQATable' on 'Release QA Verified'). Use when the user asks to insert or append rows to a table. Before confirming, resolve the default workbook with Get workbook and include its returned ID so the user sees the destination. Cancel runs no action.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "table_id": {
+            "type": "string",
+            "description": "Table ID or table name in Excel (e.g. 'ReleaseQATable' or a table GUID). In Excel and Microsoft Graph, the table name functions directly as the table ID, viewable in Excel under Table Design -> Table Name."
+          },
+          "table_name": {
+            "type": "string",
+            "description": "Name of the target Excel table (e.g. 'ReleaseQATable'). Will be mapped to table_id under Microsoft Graph."
+          },
+          "rows": {
+            "type": "array",
+            "description": "2D array of row data to append or JSON string (e.g. [['2025-06-01', 'QA Verified', 'Passed']]). Mapped to values for Excel."
+          },
+          "workbook_id": {
+            "type": "string",
+            "description": "Workbook driveItem ID. Blank or omitted uses DEFAULT_WORKBOOK_ID from Setup. When preparing a write, call Get workbook to resolve the default and include its returned ID so the confirmation shows the target."
+          },
+          "worksheet_name": {
+            "type": "string",
+            "description": "Worksheet containing the table (e.g. 'Release QA Verified')."
+          },
+          "drive_id": {
+            "type": "string",
+            "description": "Drive containing the workbook."
+          }
+        },
+        "required": [
+          "rows"
+        ]
+      },
+      "confirmation": {
+        "schemaVersion": 1,
+        "root": {
+          "type": "card",
+          "title": "Add table rows",
+          "children": [
+            {
+              "type": "stack",
+              "direction": "horizontal",
+              "gap": "sm",
+              "align": "start",
+              "children": [
+                {
+                  "type": "textField",
+                  "bind": "{{table_name}}",
+                  "label": "Table name"
+                },
+                {
+                  "type": "textField",
+                  "bind": "{{table_id}}",
+                  "label": "Table ID"
+                }
+              ]
+            },
+            {
+              "type": "stack",
+              "direction": "horizontal",
+              "gap": "sm",
+              "align": "start",
+              "children": [
+                {
+                  "type": "textField",
+                  "bind": "{{rows}}",
+                  "label": "Rows (JSON)",
+                  "required": true,
+                  "placeholder": "[[\"Product\",2],[\"Mouse\",5]]"
+                },
+                {
+                  "type": "textField",
+                  "bind": "{{worksheet_name}}",
+                  "label": "Worksheet"
+                }
+              ]
+            },
+            {
+              "type": "stack",
+              "direction": "vertical",
+              "gap": "xs",
+              "children": [
+                {
+                  "type": "text",
+                  "text": "Workbook",
+                  "variant": "caption",
+                  "color": "muted"
+                },
+                {
+                  "type": "text",
+                  "text": "{{workbook_id}}",
+                  "variant": "mono"
+                }
+              ]
+            }
+          ],
+          "footer": [
+            {
+              "type": "actions",
+              "items": [
+                {
+                  "label": "Cancel",
+                  "role": "cancel"
+                },
+                {
+                  "label": "Add rows",
+                  "role": "confirm",
+                  "color": "accent"
+                }
+              ]
+            }
+          ],
+          "icon": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAABwhSURBVHhetZp3XFRnvsa59+7d3SSCIr0jRXpHEFDpvYP0MnRQYBhmhi4iCCoqI4q9a+wlxhiNUaNGNxqz2ezqpqiI2KIymE2iuZvNJvjcz/uec2bODNg2u+fzeT7EM+ePfJ/n9/u973tmNDT+Ddfah7UuvfeEhd13Kzvab1XIWm6VyZpvlcla7lTwNIvRzQpZ840yWWN/iUz6VZFM/IVAVnMlR1b5WZas4pN0WcmlFFnRR4myjLORsqQTYbL5f8mQHf26RvbhsFR2elgqOzUslR0flsreGxbLjgyLZYeHxbJDw2LZgWGxbN+wWLZnWCzbPSyW7Ryulb05XCvbNlwr20L0jVi27VtJ19YnkvTur4o01Rn+pWvHg4aCzQ+lH6/+WoQ130ux/LEYi78XoeuxEJ2Pa9D5RISuJyIs+KGWqutxLTq/E6Hjb0LMG67C3Iez0Px1GRpuF0NyU4Ca6zmo/CoDRZeTUX45CfsfVeHySCv+irn489O5+PTpXFwaacWFkVacH5mDsyNz8MHIHJwcacHxkRYcG2nBkZEWHB5pwaGRZhwcacb+kWbsHWnGnpFm7H7ajJ0jTdj4RDrYd68mQZ3npa+dg032+x+2/OGt/2vD9m8a0HdbiKWDlegarEDbYDmaB8vQNFiG5ltE5Wi5XYGWWxVoHqxA00AZGvtLUXe1GJIvCiC6koeqP2eh4o/pKLmYgvzz8cg5G423b1fi8nfNOD9chzPDUpwaluJ9uRTH5BK8K5fgsFyCt+QSHJCLsVcuxm65GDvkYmyX12KrvBab5bXYKK/FerkI6+QirJGLsEouwkq5CBt/rMf6v9dj+VB1lDrbC68Dt1oDjg63/+3oDx3YeluKtbdEWDFYjSWDsxkDbhL4UjQOlqKJNaD5djlayN+b5dSAhuslkH5VBPHnAggv52L2nzJR/slMFF9IQtrpKPT8NRdXvmvGOR78iTHg97Pwuyh8LbbJa7FFXotNLPhaHnifXIQVchF65TVYNlSDNT/Wo+dhzS11vudeR++1TT413PXdie86set2A7bcIgbUYMVgFZYMzkLXzXLMJQbcLGEM4JswWI6mm0z69deKIfmyELV/zUf1X7Ix69MMlH6cAsH5BGSficKRu1W49LdGnB2W4gMW/j0VeDGF38PCv8lLfYO8ViVxAr6cBZcN1aBnqAZLhmqweKgGK36qhzrjM682tP33ya8XXLrwYw/eujMHu+80YsstCdYO1mD5YBUW35yFTmpAKTWggWcCaQXSEo0DpWjoL0Hd1SJIvuSXfxpKLiYj98NYFHwYg1MPavGHR/U4PSzFyWF1eCZ5dXiSOoEnqa9mS50kvowFX8pCdw/VYOFQDRYMCdH7S8PLG3Du4eLcy7+swntfd+DQ3VbsphXAGnCTNWCgjBrQOFDMGMCvBHL/RinqufL/QoCay7mo/Iwp/6ILicg+Gw3B2SiceFCLc4/qaOkfl0txVC7BO3IJDvF6Xh2eK3kudS5xDnwRBReia0iIziEh5g8JsfRVDPjowdI/fvp/y6kBb92dw7aABGuoAZXUgPkDZWgdKEHDQDHq1Uyg6d8ooeUv/aoQtZ/nQ3g5B7P/lIGyS6ko/CgBWWeikHc6AscfiHD2UZ1i6B2RS/D2S8Jzfc6VOpM4A06g24eEmDckRNuQEAt/eckWuDDUY3NJ3jtyTr4Y793jGyDGmkEheokBAxU8A4oYA3gmNJD7pPyvseWv6P902v8F5+OR+UEEcj4Ix7EHIpx+VKdS+gflYuxTTHtm4DE9rwpPSp7Ac6nzwQn03KFqzBmqRvNQNTpf1oBPhnpTv/ppHc4+WIT37rXTGUAM2MwZMDAb3QMV6LhRijkk5RtFqONMuMmYQNPvL6b9L/5SANFfSf9ns8tfMgTn45BxKhzZp0Lx7gMRTj2qUyl9ru93ysU8eKbn+fBcyXOpd7CJzx0SKsCbWM1/WQMuyZcJr/2yHmfuL8QxhQH12DwoxuqbQiwjBtwoZw0oRv2NQtTdKEQ9rxLqyf3rRZBeLWT6/0quYgAWX0xC/rlYpJ8KQ9bJULxzX4QTw3Vjlj5Z58lSR9Z4Mu3JwOMnz5U86XMu9VY18Fc24JOh5dJrv2x4hgHV1IBF1IAStJD0+wshpSYQAxgT6vuLUHe9CBLS/6wBlZ9loZwYcCEJeedikXYyDJknQvD2/RocH5bS9Lkljyt9ft8TeG7gcWXPh+dSVwd/ZQMuPeyV8A04eKcFO2/VY5OKAWVo7y9BCwHtL4C0v4BWATWBmlIEKen/rwpQ+wUzAPkrQN6HMUg7GYrME8E4dL8Gx4alKumT0ifpc31P1nmy1C1np/1Y8C1jQP9LBlykBihbQGlALVbdrIbsxiwspAYUo5mkf70AEmoC0wpU5P61QsYAdgVQN2DmiVBknAjGW/eFODpcp5I+f+qrlD477bmBR3qelP2L4P8NBtRh081arBqoYgzoL8M8YsB1YoAAkusCWgWcCVJynxhABuDneWMbcJIx4MB9IY4M19HJz+999fS50id9TzY2ZNoT+OeV/X/IgAos7C/FvOtFaCLpXxdATEzoV5pAq+JqAbMCfJ6HarIH+CwTZaNaIAT779fgnWGpYvLze5+fPil9kj6/9J818MbSqxnwM2fAPGrAjlt12HhTRA3o6a/Agv5StHEGXMuH+Ho+NYJphQJaAWMZoKwAMgQZA/bdr8HhYSld97lND5n83LI3VvqvUvr/mgFcBdydh4O3lQasvFHJGHC9hBrQeE0A8bU81KqZILmmXgHZmP1ZhuIUSJZBsg9IOR6I7XcqcfibulHDjz/5ybLH9T5Jn6z1JH11yOep4+e6VzCArYCjd+fhwO1m7BiU8gwoZwy4VsgYcJUYoGbCtQKIrwpQ+2U+zwD2GEz3AXHIOh2BuKPT0HklG8e+a1SUP9n4cOVPNj3kdMdNfn7vv0r6rd+KUPew8t9jwNL+cnRdL8Hca4VouJqP2qu5ELEmiFkTxNQYxoAa1gA6BNmTINkJkqNwyvtBSDsehO33qnDo2wbF9Ccbn7HKn0z+V+39Od/UYP4/6hC4NvDlDDj39dJ60gKn1Q0YqEEfWwEL+0vQfqMIzTdIz+dDciMf0hsCSAcEqBsoYERnQQHEX5EqyIXwchZmf5aOsk9SUHQhAXnnopF1OgzxRwOQcyoE6+5U4MD39djzpB5vPqnHlid12PCkDmueSNH3WIplj6VY8liChY8lmP9YjLYXaN4TMTp+rEPLIyFC1gZhQqrRrzNg86AI629XUwPmXBFA9McslF8kO7tUFBFdJOVNRFIm99NR/FEaiv4wE4XnUiH4MAX5ZxKR80E8sk7EIP14JFKPhiHxnWBEHgxA4rtBqDyfjKYL2Wj6KAd157MhPp+NmvNZqDqfhVnns1B2PgvF57NQeD4Tghco72w6YnZEwqbKHpqx+tDPNXsFA35WGkBWgf13G9B3tRKVZ7KQuC8aoVtCELghCDPWByLwZbUhiCqI00aiYARvCkbYtjC4zvPExExTvBGvD80EA2jFG0CL/E0wwPhEQ6oJREmMtNXE3SfPkH+PTzCAZowetBMNoZduCoM881c34P2v2/H23RY0XCxBxL4ETNsSjsBNIQjZHExN+HcoYkc4HOpdoBmjjwkJhtBOMcLEVGNMTDWBzkwT6KaxSjeFXoYp9KnMoJ85hjLM6DOj9K8YcO7BIhy504biM4WYvjcJoXsTEL4rBmHbwxG2LfTXa2soonZFYEq3L4XXTmLAdYgouCl0000Y6ExT6GeZQT/bHAavoiwzKmKOocDi5Q3op4ehBSg5V44ZhzIQ9XYaIg8kIXJ3LCLejEDEtrBfr+1h1ADzUhvaoxw8l7YuSY6kmmXKgGSbwSDHAoa5r6AccyqDHHMYFVq+vAF3nm7E3D9LEXg0HzHHchF9OB1RB5MRtTcOkTsiEflm2K9W1I5whG8JpemQvqUGkOTZ1PUyTaFHUyfg5jDMNYdhngUM8yxhlM+TgBX/HpUFozxGxiWTXs6Ay0O99R/+0IeoM+WIOVmE2PfyEHMkE9GHUhC9Lx5ROyPp//yvVfSuCIRtCWEMSDKCzkxl+gSeKXklPAUhQAJLGBdMojIpVBV3nxF5zhLG5HmBJUzKrF/OgC+Ge+sXf92F0DPliP+gBHHHBYh9Nwsxb6cien8ConZFIWpHxK9W9K5IRQVoJxtBh8KzPc+WvD6BJ6krwC1hTGCLrGBKVDyGiqxgUkSeYcWaYzbL5uUMODO0tHr27XlI+KgKSR+WIfFUARLey0b8O6mIOxiP2D2RiN0VzlOYimJ2hiN6Z8QLFbM7EuFbQ2l/T0wxovCKvmeTJ5ObD09hCFSxFcxKrGBWaj2GmM9MObHGmFfajjYg+AOJReBxcdL0YyKB/6HZBT4HZudlfFC7P+6iFGHHZyH0aClCDhci+GAegvdmImhXGgK3JyFwWyKCFEpCMKvQbYmI3BGL2N2MOTG7Ip+p2D1RdBiSaT0xlRig7HtFz+db0OlNUjdmwSlUqRXMy6xhXv4Mkc/KrGHGqdQaFtWTlQaEHBYahJyq3x74vuTvgafrMO2kBH7HRfA5Wg23fWVw2lIAx80COGzMh/36PNivzYPdmlzYrc6F3aoc2K3MgX1fDhz6cuC4IhfOK/Lg2pcP9z4BvFcJMG19FqJ2xFAj1MHHNsCYGXxc37PwdLiRsufBEyAKWWEDi1mcbFnx7lXY0Geoym1gWWPHGDD9uNgs6KS0P/ijJkx9pxpeByrgvqcUrjuL4bS9AI5b8mG/KQ92G3JguzYbtqszYbMqA9Z96bBengbr3jRYL0uDjSwNtj0zYduTBrueNDj0pMOxJwMusiy4yvLgvSIXEdtjEbc7YhS8igE55nT608HH9r0BGXgkeQX8JB48A0WALSufo9lKkWetxKwBAUeEp2eca4A3Ad9XCpddxXB6swD2W/MxeVMubDZkw3ptJqxWZ2BSXzosV8yERW8qLHpSYL40BRZLkmHenQSLRYwsFybBamESrBcmw3ZhCuwWpcKhOw1O3Znw6k1ngHc/2wDDHAs6AOnUJ/Bc+tzAK54EE1L2pJQJPEmXgFVOxqTqF6iKkWXVZFhLHaDhf6Rqut/JWngeqIDrnhI47SyE/TYBJm9mwK3WZWLS6gxYrEyD+YpUmC1LgWlPMkyXJMGkOxEmixJgsiABJl3xMOmMg8n8OJh2xMGsPQ7m7fGwaI+HVUcCbOYnwa4zGfadaQjcEIe4PaOrQGFAngUdgIrSJ4OPDL1CS0XypmVWMCNlP8uGSbXKlgJaCe1gVfMCkWeEdrCpd4SG18HyeT4nRHDZXQzHNwtgtzUPNptyYL0hC+ar0zBBFgOtJVHQXBSBcQvCodcdB5PFiTBaFA+jBXEw6oyFYUcsxjUH4/cN0/Fa3XS8Jp2GiU2hMGmNgemcaJi1xsCiNRZWbfGwak2C97J4xO8d24DIbWF0fSfT3yDHjJY+GXokfTLtGXiSPANvMduGpknTrbGDtcge1rUvEHlGZA/bRkdouO0tXeH+biUctgsweUserDdmY9K6TJisSoXLhgKUHV0CweEuCA51Iv+tTtj1ZmJiZxQMu+JgOD8Whu0x0GoOQfjaamS/2Yrs7XOQt70NM5aVQlsaDMPGCBg1RsKkMQpmTdEwa4yFW3cs4vY+uwXIro30Pzf1VYYeWdIU8GzywslMsgRM7AAbyQtEnhE7wK7FCRqOuwp7nQ+Vw3ZLLqw2ZMFybQZN3mh5MsyWz8Tgtw/Av3b85X38pmU6hTfoiMG4pmC4LcnFP37+p8pzUX3VeK3aH3qSUBhIQmEoDYOxNBxG4kg4d0Uh/hkGkAogg470P2kFOvW50ufgycDjkmfhrWvtGHipI2zrXkJSR9i3OkPDflter/2BEgW82ao0mPalwqQ3Ba8vDEfyniYVsJGnI5ixdhZebw6Cwbxo/I/ED29dOaPyzMqze6FR5gHd2mDoioKgWxMMvZpgGIhCoFcdCseOiDENiNsTRXeCZHtLyp9MfQJP02f7noG3hUWVLSxJz1N4e9hI7GEjdYBtvSMmNzhR2amJu09V7wiHeS7QsN2U22u7p1AJvyIVxr0pMJYlwWhpIn7bHoS3vjirAvj+tY/xu4bp+K00ALHra1U+u/etHEZ1EdCsngadmiBMrA7ExMpA6FQGQrcqEDqzgmDXFjqmAQkHYuC/zB+6pPz5pc/1fYU1TZ6Dpz1P4R1gW8fCNzrCrskZ9s8Q+Yyq0QmOHa7QsF6f2Wu9Ix/mCvhkCm+8NAlGSxIxvjMCbn35+OGnH1VA4zdKoFHthU/vfKlyv2hbOzRKPWnqDPwMaM+aDu2K6ZhYMR0TSqdjcmsI4vdFqaa/Nwpxe6NhVWkH/WxTXt+T0lcOPbqeV9tSeCs2eVLSJNHJjU6wb3aGfYszHFpcnil7Kmc4dbpDw2Jteu+kbbkM/DIOPhFGixNg1J0Ao4Xx+J/mAHSd3qoCeuLqxyjZ3aVy7/TVP+I3FVOgLQxUwE8k8OXToF0aQKVVGADbliAkHIhG7O4oWvYkeQLv1OhKhx8Hb8zvezL0KDxJfjIP3gGTGxxponbNznCY48Ko9QWa4wLnBR7QMF85s9diczYD38OUPYVfFA/DhfF02uu0R0K/PRoDj+4pYJ8+fYp//PyT4t///OVnTFmQh9+W+0CnOkgJXzEN2mXTMKEkABOK/KGZ5wfrhhmI3R2BKPIiZWsYApYFwKpyMvSy1JPnw9soljorMvDYsifJM/BOcJjjDMdWV0ZzX6BWV7gs9ISG6YrUXvONmQz8Eh78gjgKb8Audb+p80fujjYFsPq19MR2aBS5jQEfoIAfX+CH8QJ/6BZ4wLTQkp7IyLmc2/Lyt7kmavBczzPwyoFH4JmyZ5JVALa5wukZIp8RuSwiBixL7jVbl8HAk5Ln4DtjKbxBewwM2qKh3xqF/xZNxYmrl9TZ8fD7b6AnCsG4Wf504E2cPYP2PD95Cp8/FePz/KCdQ0rdWLHTo9N+rLInE5/tebp7E40BT4ZbizPsKbwLC+kGp3kvlmu3FzSMe5J7TVenK/pdAd8RowI/viEYJq2xuDZ0W52f7gGS+mrxX4Xu0BkDfgIHn+sLzWxfaoBhnhl7tOWf7kaXPR14BJ6u8yw8GXpkaWPhac/PVQV3bn+x3JYQA5Yk9pqunKnodwX8vGgFvH5LJDSEU7D54jvq7Iqrf+gOJlRMw7hSv2ck7wutHB9oZvpAO9sVRgJzCq66zvO2uASe7vKY5K3E9vTwwsCTpc5JCU96vs0Vzgpwdzh3vFjuS72hYbw4vtd4ReooeP22KApv0BKJ/xX5IWqVUAX42JU/UPGvzsProZHpCO1nwGtlTcG49CnQznKBcaGFyrGWf7hh4Mkuj0l+THhu4pPSJ2VP4HlwLvNfLA+ZNzQMF8X3ko0P7XcOfi6Bj6TJazeEYLw0CJ/fH1CAkhXAsyMLUzpyVAz4+0//gHN9Mv43xx0TCkfDa2Z4Y9xMb2hnusCk2BImJWzJkzM92eSw67zqtFeWvS0fnht6PHgXFXAPuHQq5aomcs9j2RRoGC6I6zWWJTP9zsHPIfAR0G+KgMZsL3Qc26ACuv3Cu9AocIOGwA37Pzmp8tm7f/oQGmmO0Mr3HQWvmeaFcSle1ACz0tF7e5V1nj/w1JNvcYGjOjwHzgfter48e4kBnXG9ZNen6HcC3xwBvaYIvCYKgMeCHPz4T+V6//2PP8C2MQGvlfrid0XecGtOG3UQmtlTC40kO4xXg9dM9cQbSeT7PmeYlU9ShafbW+UOTzHw6N5+jOTJ0KPwbqrgfMgFnnB7jryW+0DDeH5cr/GSJMWw0yPwjeHQqQvF6zXT8NGNv6jAzT20Ghp5Lpg4awYmlk+nPb/y/d0qz9z75iH0BAF4Lc1dBX5csgfeSPTARFIBFVb0tbS52t6ewpNNDoUnuzwy7dmBp4BnJz2FZ0t8LOiFz5fXCmJAR+xy48WJNHmSOoHXqw/D76r9kLWpGY9++A73vxvGg++G8fHAFXqg0SzzY7e30/D7fG9YVkXii7sDuP83OdWjx99CvLkb/xVnp4RP8cC4JHe8kcAYYDGbHGyUb3KU8Oz2ltvhkaVuzIH3HHgOcpEX3J8j7z5faBjPi1lGXm3R9BvDoVsfBl1pKCaKg2HZFAvz+miYSiJhKo6kJzoCT5In+/oJJf7QLvLH67ne0CkMgGFxIAwKp8OwYDpMCoMwLs0T4zj4RALvjnEJHtDJdIFllfJNDneep6c6KTnYOKlscvhL3aiyZ+FVUueDdo8tj24veK/0hYZJW4zQtDsJBs2R0GsIp/C64hDo1IZgQvUMaFVOg+asAGiW+0OrzF9xsJlQ7M9M+oKpdNq/ke2F1zI88VqaB36f6o7XU90VZc/Au0EzkRjgCf08Z0wSMnt7/nmelD1/b093eOwmZ9TAU4dnU+eDE0iPxd6qWsJqsTemrJoKDfO2WCvTtphfjFqjoV8fTt/g6IiCeWf5Gapb21HwvtDK9YFW9hRoZfKmvRr8OGqAB7SSvGBa6oBJNbyBR15TcQOPPdVRcG5v3+bGbHIU01458EbBcwmrAXtyWqqUz+qpzGtx09boTrPuJPr+jhigK1Ke5ZlDDW9ry8EL1OG9nwmvmeBO4TUTvKCf44pJQuUOj3mH56iApwcbeqpjJz27vaU7PPX0eWU/Cp4Dp7BTlOpRymeNn/KbIdPmqPWm7XEwmhMNPUkY80KjSu1gUxyACYX+GC9gNjlaub7QyvZhkk8fDc+I/LcntBK9oZflRt/dW5H3eAS+1h62EmXZk57nL3OKsqcGcBud0emrlD0Lz6SthPbiJCPyofJdxzOAmtAUnWTUGHnMQBz2QFcY/GTi7Bk/aJdPezKhxP/J+CK/H7SLSPJkg+OD8TlToJXlDa1ML2ime0IzzROaqR7QTHGHZrI7tFiNT/WATrobjAscYUnP9MqTnY1Yte9Vpj1NnzVgrPS7Rqc/Cn4MaK9lPvBm5bvBf/SXo+TSa0sbpyuKNNItnU6lNzvQkPzVybDcrS+YBN1081HSy7CAfqYFDLItYZg7CUYCKxgXWMOkmHx1ZcVb9pgvL6yfY4Cy/J9jgDo83wAVeAacg/buVWrqxoCxDXjWpZOgoamXYXyFfEWtR76350k/wwQGWaYwJG9z88xhXGABkyJL5fd37NvcX2vAmOU/RvoKeBVwX0xZzmqFL3zXPaMCnnfpJpsb6WWafmogsFD82oqKfJND3uWT396Qn5+QX2AUTqJvfchX0eQLTL4Bz2uB5w3AFxrApc+WPQOvCk7++m+eRv5+os73UpdRnNHruhlmK/WzzJ6SaiBfYnA/YXmuAeTbW+6Y+x8wQD19Dt6bB++z0g8BW6dj6lr/Rz7LfRzV2V7p0k0399TLNF2nl2l6h/6EhbzLJy84yDGXnO8rrNm9/mRYCu0wSWQPK4k9rOscYNPgiMlNTrCb4wyHuS5wbHeF03w3OHe5w2WBO1wWesB1kQdcuz3httiTvr1xX+oFj54p8JD5wLPXB57LfeC1wpduaaesnAqfVVPhs9oPvmv84LvWH1PX+WPq+gD4bQiA36YA+G+aRj576rvO/z2vFX72hOH/ASiWIjSjG0ZMAAAAAElFTkSuQmCC"
+        }
+      },
+      "execution": {
+        "mode": "background",
+        "estimatedDurationMs": 15000
+      }
+    },
+    {
+      "name": "excel_create_chart",
+      "title": "Create chart",
+      "description": "Create an Excel chart (e.g. ColumnClustered, Line, Pie) from a range of cell data via Composio. Use when the user asks to create, insert, or plot a chart or graph. Before confirming, resolve the default workbook with Get workbook and include its returned ID so the user sees the destination. Cancel runs no action.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "range": {
+            "type": "string",
+            "description": "Source cell range for chart data (e.g. 'A1:C5', 'Sheet1!A1:D10', or ''VoiceOS QA'!A1:B4')."
+          },
+          "chart_type": {
+            "type": "string",
+            "description": "Chart type: 'ColumnClustered', 'Line', 'Pie', 'BarClustered', etc."
+          },
+          "series_by": {
+            "type": "string",
+            "description": "Series arrangement: 'Columns', 'Rows', or 'Auto'. Defaults to 'Auto'."
+          },
+          "title": {
+            "type": "string",
+            "description": "Optional title for the chart."
+          },
+          "worksheet_name": {
+            "type": "string",
+            "description": "Worksheet where chart will be created."
+          },
+          "workbook_id": {
+            "type": "string",
+            "description": "Workbook driveItem ID. Blank or omitted uses DEFAULT_WORKBOOK_ID from Setup. When preparing a write, call Get workbook to resolve the default and include its returned ID so the confirmation shows the target."
+          },
+          "drive_id": {
+            "type": "string",
+            "description": "Drive containing the workbook."
+          }
+        },
+        "required": [
+          "range",
+          "chart_type"
+        ]
+      },
+      "confirmation": {
+        "schemaVersion": 1,
+        "root": {
+          "type": "card",
+          "title": "Create chart",
+          "children": [
+            {
+              "type": "stack",
+              "direction": "horizontal",
+              "gap": "sm",
+              "align": "start",
+              "children": [
+                {
+                  "type": "textField",
+                  "bind": "{{range}}",
+                  "label": "Source range",
+                  "required": true
+                },
+                {
+                  "type": "textField",
+                  "bind": "{{worksheet_name}}",
+                  "label": "Worksheet"
+                }
+              ]
+            },
+            {
+              "type": "stack",
+              "direction": "horizontal",
+              "gap": "sm",
+              "align": "start",
+              "children": [
+                {
+                  "type": "textField",
+                  "bind": "{{chart_type}}",
+                  "label": "Chart type",
+                  "required": true
+                },
+                {
+                  "type": "textField",
+                  "bind": "{{series_by}}",
+                  "label": "Series by (Auto, Columns, Rows)",
+                  "placeholder": "Columns"
+                }
+              ]
+            },
+            {
+              "type": "stack",
+              "direction": "vertical",
+              "gap": "xs",
+              "children": [
+                {
+                  "type": "text",
+                  "text": "Workbook",
+                  "variant": "caption",
+                  "color": "muted"
+                },
+                {
+                  "type": "text",
+                  "text": "{{workbook_id}}",
+                  "variant": "mono"
+                }
+              ]
+            }
+          ],
+          "footer": [
+            {
+              "type": "actions",
+              "items": [
+                {
+                  "label": "Cancel",
+                  "role": "cancel"
+                },
+                {
+                  "label": "Create chart",
+                  "role": "confirm",
+                  "color": "accent"
+                }
+              ]
+            }
+          ],
+          "icon": "data:image/png;base64,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"
+        }
+      },
+      "execution": {
+        "mode": "background",
+        "estimatedDurationMs": 15000
+      }
+    }
+  ]
+}

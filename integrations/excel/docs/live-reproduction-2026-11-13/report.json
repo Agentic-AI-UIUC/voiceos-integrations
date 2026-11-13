@@ -1,0 +1,130 @@
+{
+  "date": "2026-11-13T19:09:39.174Z",
+  "mode": "live MCP; no VoiceOS UI control",
+  "sdk": "0.28.0",
+  "version": "1.0.5",
+  "toolkit": "20261029_00",
+  "steps": [
+    {
+      "label": "Initial worksheet inventory",
+      "tool": "excel_list_worksheets",
+      "workbook_id": "omitted",
+      "elapsedMs": 2384,
+      "ok": true,
+      "status": "read"
+    },
+    {
+      "label": "#25 create QA Mac with omitted ID",
+      "tool": "excel_create_worksheet",
+      "workbook_id": "omitted",
+      "elapsedMs": 1544,
+      "ok": true,
+      "status": "created"
+    },
+    {
+      "label": "#25 create with blank ID",
+      "tool": "excel_create_worksheet",
+      "workbook_id": "blank",
+      "elapsedMs": 2788,
+      "ok": true,
+      "status": "created"
+    },
+    {
+      "label": "Create disposable Cyrillic reproduction sheet",
+      "tool": "excel_create_worksheet",
+      "workbook_id": "omitted",
+      "elapsedMs": 3316,
+      "ok": true,
+      "status": "created"
+    },
+    {
+      "label": "Seed disposable chart source",
+      "tool": "excel_update_range",
+      "workbook_id": "omitted",
+      "elapsedMs": 1416,
+      "ok": true,
+      "status": "updated"
+    },
+    {
+      "label": "#25 exact Cyrillic chart with omitted ID",
+      "tool": "excel_create_chart",
+      "workbook_id": "omitted",
+      "elapsedMs": 2829,
+      "ok": true,
+      "status": "chart_created"
+    },
+    {
+      "label": "#25 Cyrillic chart with blank ID",
+      "tool": "excel_create_chart",
+      "workbook_id": "blank",
+      "elapsedMs": 3194,
+      "ok": true,
+      "status": "chart_created"
+    },
+    {
+      "label": "#27 exact Cyrillic B2 equals 123",
+      "tool": "excel_update_range",
+      "workbook_id": "omitted",
+      "elapsedMs": 1601,
+      "ok": true,
+      "status": "updated"
+    },
+    {
+      "label": "#27 verify B2 readback",
+      "tool": "excel_get_range",
+      "workbook_id": "omitted",
+      "elapsedMs": 1412,
+      "ok": true,
+      "status": "read"
+    },
+    {
+      "label": "Cleanup owned disposable sheet",
+      "tool": "excel_delete_worksheet",
+      "workbook_id": "omitted",
+      "elapsedMs": 4117,
+      "ok": true,
+      "status": "deleted"
+    },
+    {
+      "label": "Cleanup owned disposable sheet",
+      "tool": "excel_delete_worksheet",
+      "workbook_id": "omitted",
+      "elapsedMs": 3685,
+      "ok": true,
+      "status": "deleted"
+    },
+    {
+      "label": "Cleanup owned disposable sheet",
+      "tool": "excel_delete_worksheet",
+      "workbook_id": "omitted",
+      "elapsedMs": 3128,
+      "ok": true,
+      "status": "deleted"
+    },
+    {
+      "label": "Verify original worksheet inventory restored",
+      "tool": "excel_list_worksheets",
+      "workbook_id": "omitted",
+      "elapsedMs": 1280,
+      "ok": true,
+      "status": "read"
+    }
+  ],
+  "cleanup": [
+    {
+      "sheet": "Лист1",
+      "deleted": true
+    },
+    {
+      "sheet": "QA Mac Blank",
+      "deleted": true
+    },
+    {
+      "sheet": "QA Mac",
+      "deleted": true
+    }
+  ],
+  "success": true,
+  "b2ReadbackMatches": true,
+  "originalInventoryRestored": true
+}
