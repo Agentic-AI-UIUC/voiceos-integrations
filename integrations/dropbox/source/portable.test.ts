@@ -23,7 +23,7 @@ test('release packages and lockfiles pin the same Composio SDK',async()=>{
  assert.match(bun,/"@composio\/core": "0\.28\.0"/);
  assert.match(bun,/"@composio\/core": \["@composio\/core@0\.28\.0"/);
 });
-test('Studio-style clean folder starts and discovers exactly 14 tools without local helpers',{timeout:20000},async()=>{
+test('Studio-style clean folder starts and discovers 14 actions plus 3 account tools without local helpers',{timeout:20000},async()=>{
  const dir=await mkdtemp(fileURLToPath(new URL('./portable-check-',import.meta.url)));
  let client:Client|undefined;
  try {
@@ -36,8 +36,9 @@ test('Studio-style clean folder starts and discovers exactly 14 tools without lo
   const transport=new StdioClientTransport({command:process.execPath,args:[dir+'/server.ts'],env,cwd:dir,stderr:'pipe'});
   let stderr='';transport.stderr?.on('data',b=>stderr+=String(b));
   client=new Client({name:'portable-qa',version:'1'});await client.connect(transport);
-  const list=await client.listTools();assert.equal(list.tools.length,14);assert.ok(stderr.includes(BUILD));assert.doesNotMatch(stderr,/Dropbox setup:/);assert.equal(client.getServerVersion()?.version,INTEGRATION_VERSION);
+  const list=await client.listTools();assert.equal(list.tools.length,17);assert.ok(stderr.includes(BUILD));assert.doesNotMatch(stderr,/Dropbox setup:/);assert.equal(client.getServerVersion()?.version,INTEGRATION_VERSION);
   const result:any=await client.callTool({name:'list_files',arguments:{path:''}});
   assert.equal(result.isError,true);assert.match(result.content[0].text,/COMPOSIO_API_KEY/);
+  const accountResult:any=await client.callTool({name:'connect_account',arguments:{}});assert.equal(accountResult.isError,true);assert.match(accountResult.content[0].text,/COMPOSIO_API_KEY/);
  } finally {await client?.close();await rm(dir,{recursive:true,force:true});}
 });

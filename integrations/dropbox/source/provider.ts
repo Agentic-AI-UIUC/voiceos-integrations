@@ -13,13 +13,15 @@ export function connection() {
   let saved:any={};
   try {saved=JSON.parse(readFileSync(new URL('./connection.json',import.meta.url),'utf8'))||{};}
   catch(e:any) {if(e.code!=='ENOENT') throw new Error('Saved Dropbox connection is unreadable. Reconnect using Setup.');}
-  return {user:process.env.COMPOSIO_USER_ID?.trim()||saved.user||'',account:process.env.COMPOSIO_CONNECTED_ACCOUNT_ID?.trim()||saved.account||''};
+  const manual=process.env.COMPOSIO_CONNECTED_ACCOUNT_ID?.trim()||'';
+  const account=saved.account||(manual&&manual!==saved.disconnectedAccountId?manual:'');
+  return {user:saved.account?saved.user||'':process.env.COMPOSIO_USER_ID?.trim()||'',account};
 }
 export function checkAccount(a:any,id:string,user:string,active=true) {
   if (!user || a?.id!==id || a?.user_id!==user) throw new Error('Cannot verify account ownership. Check COMPOSIO_USER_ID and connected account ID.');
   if(a.toolkit?.slug!=='dropbox') throw new Error('Selected account is not Dropbox.');
   if(a.auth_config?.auth_scheme!=='OAUTH2' && a.authScheme!=='OAUTH2') throw new Error('Selected Dropbox account must use OAuth2.');
-  if(active && a.status!=='ACTIVE') throw new Error('Dropbox OAuth connection is inactive, expired, or revoked. Reconnect using Setup.');
+  if(active && a.status!=='ACTIVE') throw new Error('Dropbox OAuth connection is inactive, expired, or revoked. Ask VoiceOS to connect Dropbox again, or use Setup.');
 }
 export function unwrap(value:any,depth=0):any {
   if(depth>8) throw new Error('Malformed Composio result: excessive wrapper nesting.');
@@ -68,7 +70,7 @@ export function errorMessage(error:any,write=false,started=false,action?:Tool['n
   if(/cancelled|canceled/i.test(m))return write&&started?'Dropbox write outcome is unknown after cancellation. Inspect Dropbox before retrying.':'Dropbox request was cancelled before completion.';
   if(/abort|timeout|timed out|ECONNRESET|fetch failed/i.test(m)) return write&&started?'Dropbox write outcome is unknown. Inspect the destination before retrying; no automatic retry was made.':'Dropbox request timed out. Try again after checking the connection.';
   if(/invalid.*api.?key|APIKey_Invalid|missing.*api.?key/i.test(m))return 'Composio API key is missing or invalid. Update it in VoiceOS Setup and reload.';
-  if(/401|invalid_access_token|expired.*token|revoked|reauth/i.test(m)) return 'Dropbox OAuth token expired or was revoked. Reconnect using Setup.';
+  if(/401|invalid_access_token|expired.*token|revoked|reauth/i.test(m)) return 'Dropbox OAuth token expired or was revoked. Ask VoiceOS to connect Dropbox again, or use Setup.';
   if(/403|permission|insufficient_scope|no_permission/i.test(m)) return 'Dropbox denied permission. Check file access and reconnect with the required scopes.';
   if(/too_large|file.size|payload.*large|413/i.test(m)) return 'File exceeds the supported transfer size. Choose a smaller file; this integration does not start multipart upload sessions.';
   if(/conflict|already_exists|409/i.test(m)) return action==='upload_file'?'Dropbox destination conflicts with an existing item. Choose another destination, or explicitly approve Overwrite to replace an existing file. Overwrite cannot replace a folder.':'Dropbox destination already exists or conflicts with another item. Choose another destination.';

@@ -13,7 +13,7 @@ for(const targetArg of process.argv.slice(2)){
  const client=new Client({name:'installed-qa',version:'1'});
  try{
   await client.connect(transport);const {tools}=await client.listTools();
-  assert.equal(tools.length,14);assert.deepEqual(tools.map(t=>t.name).sort(),manifest.tools.map(t=>t.name).sort());
+  assert.equal(tools.length,17);assert.deepEqual(tools.map(t=>t.name).sort(),manifest.tools.map(t=>t.name).sort());
   assert.ok(marker.includes(BUILD));
   const pkg=JSON.parse(await readFile(join(target,'package.json'),'utf8'));
   for(const name of ['@composio/core','mammoth','yauzl']){
@@ -23,6 +23,6 @@ for(const targetArg of process.argv.slice(2)){
   assert.equal(manifest.version,INTEGRATION_VERSION);assert.equal(pkg.version,manifest.version);assert.equal(client.getServerVersion()?.version,manifest.version);
   assert.deepEqual(manifest.preferences.map(p=>p.name),['COMPOSIO_API_KEY','COMPOSIO_CONNECTED_ACCOUNT_ID']);
   const result=await client.callTool({name:'list_files',arguments:{path:''}});assert.equal(result.isError,true);assert.match(result.content[0].text,/COMPOSIO_API_KEY/);
-  console.log(`${target}: version ${manifest.version} matches manifest/package/MCP; pinned SDK/parsers, portable startup, 14-tool parity, 2-field setup and missing-key handling passed`);
+  console.log(`${target}: version ${manifest.version} matches manifest/package/MCP; pinned SDK/parsers, portable startup, 14 Dropbox actions plus 3 account tools, 2-field fallback setup and missing-key handling passed`);
  }catch(e){throw new Error(`${e.message}\nServer stderr: ${marker}`,{cause:e});}finally{await client.close();}
 }

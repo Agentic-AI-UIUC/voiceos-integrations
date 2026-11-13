@@ -6,14 +6,21 @@ import {successCard} from './cards.ts';
 import {confirmationCard} from './confirmation.ts';
 test('all eight native confirmations bind every editable argument and have one Cancel and Confirm',()=>{
  const writes=tools.filter(t=>t.write);assert.equal(writes.length,8);
- for(const tool of writes){const card=confirmationCard(tool);assert.equal(card.root.type,'card');const fields=card.root.children[0].children.filter(c=>c.type==='textField');assert.deepEqual(fields.map(f=>f.bind),Object.keys(tool.schema).map(k=>'{{'+k+'}}'));const actions=card.root.footer.flatMap(f=>f.items);assert.deepEqual(actions.map(a=>a.role),['cancel','confirm']);assert.doesNotMatch(JSON.stringify(card),/voiceos:invokeTool|<script|confirmLabel/);}
+ for(const tool of writes){const card=confirmationCard(tool);assert.equal(card.root.type,'card');const fields=card.root.children[0].children.filter(c=>c.type==='textField'||c.type==='select');assert.deepEqual(fields.map(f=>f.bind),Object.keys(tool.schema).map(k=>'{{'+k+'}}'));const actions=card.root.footer.flatMap(f=>f.items);assert.deepEqual(actions.map(a=>a.role),['cancel','confirm']);assert.doesNotMatch(JSON.stringify(card),/voiceos:invokeTool|<script|confirmLabel/);if(tool.name==='upload_file'){const mode=fields.find(f=>f.bind==='{{mode}}') as any;assert.equal(mode.type,'select');assert.deepEqual(mode.options.map((o:any)=>o.value),['add','overwrite']);assert.match(JSON.stringify(card),/Selected source: \{\{file\}\}/);}}
  for(const tool of tools.filter(t=>!t.write))assert.throws(()=>confirmationCard(tool),/Read-only/);
 });
 
-test('result cards retain 30 returned rows, escaped metadata and revision identifiers',()=>{
+test('result cards retain 30 returned rows without exposing raw revision identifiers',()=>{
  const entries=Array.from({length:30},(_,i)=>({name:`file-${i}`,rev:`rev-${i}`,path_display:`/file-${i}`,size:100}));
  const {html}=successCard(tools[0],{entries,has_more:false},{path:''}).blocks[0];
- assert.equal((html.match(/class="db-item"/g)||[]).length,30);assert.match(html,/file-29/);assert.match(html,/rev-29/);assert.match(html,/overflow:auto/);assert.match(html,/30 of 30 returned items/);
+ assert.equal((html.match(/class="db-item"/g)||[]).length,30);assert.match(html,/file-29/);assert.doesNotMatch(html,/rev-29/);assert.match(html,/overflow:auto/);assert.match(html,/30 of 30 returned items/);
+});
+test('revision and metadata cards show readable dates while model data keeps exact values',()=>{
+ const row={name:'review.docx',rev:'0165secret',server_modified:'2026-11-10T21:16:14Z',path_display:'/review.docx',size:13313};
+ const revision=successCard(tools.find(t=>t.name==='list_revisions')!,{entries:[row]},{path:'/review.docx'}).blocks[0].html;
+ const metadata=successCard(tools.find(t=>t.name==='get_metadata')!,row,{path:'/review.docx'}).blocks[0].html;
+ for(const html of [revision,metadata]){assert.doesNotMatch(html,/0165secret|2026-11-10T21:16:14Z/);assert.match(html,/Nov 10/);}
+ assert.equal(row.rev,'0165secret');
 });
 test('shared links are usable but unsafe URLs and binary signed URLs are not rendered as links',()=>{
  const tool=tools.find(t=>t.name==='create_shared_link')!;

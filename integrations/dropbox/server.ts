@@ -411,8 +411,8 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 // source/catalog.ts
 import { z } from "zod";
 var VERSION = "20261101_00";
-var BUILD = "dropbox-composio-v17-studio-package-parity";
-var INTEGRATION_VERSION = "2.0.15";
+var BUILD = "dropbox-composio-v18-account-tools";
+var INTEGRATION_VERSION = "2.0.16";
 var path = z.string().refine((p) => p === "" || p.startsWith("/") && !p.endsWith("/") && !p.includes("//") && !/[\u0000-\u001f]/.test(p) && !p.split("/").some((s) => s === "." || s === ".."), "Use an absolute Dropbox path without control characters, dot segments, or a trailing slash");
 var item = path.refine((p) => p.length > 1, "A file or folder path is required; root is protected");
 var text = z.string().min(1);
@@ -422,7 +422,7 @@ var tools = [
   { name: "search_files", title: "Search files and folders", slug: "DROPBOX_FILES_SEARCH", schema: { query: text, path: path.optional(), max_results: limit }, collection: "matches", use: "find Dropbox files or folders by keyword", write: false },
   { name: "get_metadata", title: "Get file or folder metadata", slug: "DROPBOX_GET_METADATA", schema: { path: item }, use: "inspect Dropbox file or folder metadata", write: false },
   { name: "read_file", title: "Read a file", slug: "DROPBOX_READ_FILE", schema: { path: item }, use: "read a Dropbox file; Word .docx files up to 20 MiB return extracted readable text, while other binary formats return a file reference", write: false },
-  { name: "upload_file", title: "Upload File", slug: "DROPBOX_UPLOAD_FILE", schema: { path: item, file: text.describe("Full existing local file path, without surrounding quotes or brackets. Supports binary Word/PDF/image files up to 50 MiB; never invent a file reference."), mode: z.enum(["add", "overwrite"]).default("add") }, use: "upload an existing local file to Dropbox; overwrite requires explicit approval", write: true },
+  { name: "upload_file", title: "Upload File", slug: "DROPBOX_UPLOAD_FILE", schema: { path: item, file: text.describe("Full existing local file path under your home Desktop, Documents, Downloads, Pictures, Movies, Videos, or Music folder, without surrounding quotes or brackets. Supports binary Word/PDF/image files up to 50 MiB; never invent a file reference."), mode: z.enum(["add", "overwrite"]).default("add") }, use: "upload an existing local file from an allowed home folder to Dropbox; overwrite requires explicit approval", write: true },
   { name: "create_folder", title: "Create folder", slug: "DROPBOX_CREATE_FOLDER", schema: { path: item }, use: "create a Dropbox folder", write: true },
   { name: "copy_item", title: "Copy file or folder", slug: "DROPBOX_COPY_FILE_OR_FOLDER", schema: { from_path: item, to_path: item }, use: "copy a Dropbox file or folder to an exact destination", write: true },
   { name: "move_item", title: "Move file or folder", slug: "DROPBOX_MOVE_FILE_OR_FOLDER", schema: { from_path: item, to_path: item }, use: "move or rename a Dropbox file or folder", write: true },
@@ -449,8 +449,16 @@ import { isDeepStrictEqual } from "node:util";
 
 // source/upload.ts
 import { stat, realpath } from "node:fs/promises";
-import { isAbsolute } from "node:path";
+import { isAbsolute, posix, win32 } from "node:path";
+import { homedir } from "node:os";
 var MAX_LOCAL_UPLOAD_BYTES = 50 * 1024 * 1024;
+function allowedUploadPath(real, home = homedir(), platform = process.platform) {
+  const p = platform === "win32" ? win32 : posix;
+  const relative = p.relative(p.resolve(home), p.resolve(real));
+  if (!relative || relative === ".." || relative.startsWith(".." + p.sep) || p.isAbsolute(relative)) return false;
+  const parts = relative.split(/[\\/]/);
+  return parts.length >= 2 && (/* @__PURE__ */ new Set(["Desktop", "Documents", "Downloads", "Pictures", "Movies", "Videos", "Music"])).has(parts[0]) && parts.every((part) => part.length > 0 && !part.startsWith("."));
+}
 function dereference(root, value) {
   let current = value;
   for (let depth = 0; current?.$ref && depth < 8; depth++) {
@@ -493,6 +501,11 @@ async function stageLocalFile(tool, source, c, signal, notify) {
   let path2, info;
   try {
     path2 = await realpath(source);
+  } catch {
+    throw new Error("The selected local file is unavailable. Check its full path and save it before uploading.");
+  }
+  if (!allowedUploadPath(path2)) throw new Error("Local uploads are allowed only from Desktop, Documents, Downloads, Pictures, Movies, Videos, or Music in your home folder. Move the file there and try again.");
+  try {
     info = await stat(path2);
   } catch {
     throw new Error("The selected local file is unavailable. Check its full path and save it before uploading.");
@@ -665,13 +678,15 @@ function connection() {
   } catch (e) {
     if (e.code !== "ENOENT") throw new Error("Saved Dropbox connection is unreadable. Reconnect using Setup.");
   }
-  return { user: process.env.COMPOSIO_USER_ID?.trim() || saved.user || "", account: process.env.COMPOSIO_CONNECTED_ACCOUNT_ID?.trim() || saved.account || "" };
+  const manual = process.env.COMPOSIO_CONNECTED_ACCOUNT_ID?.trim() || "";
+  const account = saved.account || (manual && manual !== saved.disconnectedAccountId ? manual : "");
+  return { user: saved.account ? saved.user || "" : process.env.COMPOSIO_USER_ID?.trim() || "", account };
 }
 function checkAccount(a, id, user, active = true) {
   if (!user || a?.id !== id || a?.user_id !== user) throw new Error("Cannot verify account ownership. Check COMPOSIO_USER_ID and connected account ID.");
   if (a.toolkit?.slug !== "dropbox") throw new Error("Selected account is not Dropbox.");
   if (a.auth_config?.auth_scheme !== "OAUTH2" && a.authScheme !== "OAUTH2") throw new Error("Selected Dropbox account must use OAuth2.");
-  if (active && a.status !== "ACTIVE") throw new Error("Dropbox OAuth connection is inactive, expired, or revoked. Reconnect using Setup.");
+  if (active && a.status !== "ACTIVE") throw new Error("Dropbox OAuth connection is inactive, expired, or revoked. Ask VoiceOS to connect Dropbox again, or use Setup.");
 }
 function unwrap(value, depth = 0) {
   if (depth > 8) throw new Error("Malformed Composio result: excessive wrapper nesting.");
@@ -724,7 +739,7 @@ function errorMessage(error, write = false, started = false, action) {
   if (/cancelled|canceled/i.test(m)) return write && started ? "Dropbox write outcome is unknown after cancellation. Inspect Dropbox before retrying." : "Dropbox request was cancelled before completion.";
   if (/abort|timeout|timed out|ECONNRESET|fetch failed/i.test(m)) return write && started ? "Dropbox write outcome is unknown. Inspect the destination before retrying; no automatic retry was made." : "Dropbox request timed out. Try again after checking the connection.";
   if (/invalid.*api.?key|APIKey_Invalid|missing.*api.?key/i.test(m)) return "Composio API key is missing or invalid. Update it in VoiceOS Setup and reload.";
-  if (/401|invalid_access_token|expired.*token|revoked|reauth/i.test(m)) return "Dropbox OAuth token expired or was revoked. Reconnect using Setup.";
+  if (/401|invalid_access_token|expired.*token|revoked|reauth/i.test(m)) return "Dropbox OAuth token expired or was revoked. Ask VoiceOS to connect Dropbox again, or use Setup.";
   if (/403|permission|insufficient_scope|no_permission/i.test(m)) return "Dropbox denied permission. Check file access and reconnect with the required scopes.";
   if (/too_large|file.size|payload.*large|413/i.test(m)) return "File exceeds the supported transfer size. Choose a smaller file; this integration does not start multipart upload sessions.";
   if (/conflict|already_exists|409/i.test(m)) return action === "upload_file" ? "Dropbox destination conflicts with an existing item. Choose another destination, or explicitly approve Overwrite to replace an existing file. Overwrite cannot replace a folder." : "Dropbox destination already exists or conflicts with another item. Choose another destination.";
@@ -787,11 +802,12 @@ import { readFile, writeFile } from "node:fs/promises";
 async function startSetup() {
   const csrf = randomBytes(32).toString("hex");
   const configUrl = new URL("./connection.json", import.meta.url);
-  let selected;
+  let selected2;
   let pending;
   let busy = false;
   try {
-    selected = JSON.parse(await readFile(configUrl, "utf8"));
+    const saved = JSON.parse(await readFile(configUrl, "utf8"));
+    if (saved?.account) selected2 = saved;
   } catch (e) {
     if (e.code !== "ENOENT") throw e;
   }
@@ -836,18 +852,18 @@ async function startSetup() {
         if (body.length > 8192) throw new Error("Request too large");
       }
       const args = JSON.parse(body), c = client(args.key || process.env.COMPOSIO_API_KEY);
-      const options = { signal: AbortSignal.timeout(25e3), maxRetries: 0 };
+      const options2 = { signal: AbortSignal.timeout(25e3), maxRetries: 0 };
       if (req.url === "/connect") {
-        const user = typeof args.user === "string" && args.user.trim() ? args.user.trim() : selected?.user || `voiceos-${randomUUID()}`;
-        let authConfig = args.authConfig?.trim() || selected?.authConfig;
+        const user = typeof args.user === "string" && args.user.trim() ? args.user.trim() : selected2?.user || `voiceos-${randomUUID()}`;
+        let authConfig = args.authConfig?.trim() || selected2?.authConfig;
         if (!authConfig) {
-          const config2 = await c.authConfigs.create("dropbox", { type: "use_composio_managed_auth", name: "VoiceOS Dropbox", credentials: { scopes: ["files.metadata.read", "files.metadata.write", "files.content.read", "files.content.write", "sharing.read", "sharing.write"] }, toolAccessConfig: { toolsForConnectedAccountCreation: [...approved] } }, options);
+          const config2 = await c.authConfigs.create("dropbox", { type: "use_composio_managed_auth", name: "VoiceOS Dropbox", credentials: { scopes: ["files.metadata.read", "files.metadata.write", "files.content.read", "files.content.write", "sharing.read", "sharing.write"] }, toolAccessConfig: { toolsForConnectedAccountCreation: [...approved] } }, options2);
           if (config2.toolkit !== "dropbox" || config2.authScheme !== "OAUTH2") throw new Error("Created config was not Dropbox OAuth2.");
           authConfig = config2.id;
         }
-        const config = await c.authConfigs.get(authConfig, options);
+        const config = await c.authConfigs.get(authConfig, options2);
         if (config.toolkit.slug !== "dropbox" || config.authScheme !== "OAUTH2") throw new Error("Auth config must be Dropbox OAuth2.");
-        const request = await c.connectedAccounts.link(user, authConfig, {}, options);
+        const request = await c.connectedAccounts.link(user, authConfig, {}, options2);
         const url = new URL(request.redirectUrl);
         if (url.protocol !== "https:") throw new Error("Composio returned an insecure authorization URL.");
         pending = { user, authConfig, request };
@@ -855,29 +871,29 @@ async function startSetup() {
       } else if (req.url === "/check") {
         if (pending) {
           const account = await pending.request.waitForConnection(15e3);
-          const raw = await c.client.connectedAccounts.retrieve(account.id, options);
+          const raw = await c.client.connectedAccounts.retrieve(account.id, options2);
           checkAccount(raw, account.id, pending.user);
-          selected = { user: pending.user, account: account.id, authConfig: pending.authConfig };
-          await writeFile(configUrl, JSON.stringify(selected, null, 2), { mode: 384 });
+          selected2 = { user: pending.user, account: account.id, authConfig: pending.authConfig };
+          await writeFile(configUrl, JSON.stringify(selected2, null, 2), { mode: 384 });
           pending = void 0;
-        } else if (selected) {
-          const raw = await c.client.connectedAccounts.retrieve(selected.account, options);
-          checkAccount(raw, selected.account, selected.user);
+        } else if (selected2) {
+          const raw = await c.client.connectedAccounts.retrieve(selected2.account, options2);
+          checkAccount(raw, selected2.account, selected2.user);
         } else throw new Error("Start Connect first.");
-        res.end(JSON.stringify({ message: "Dropbox is connected. Copy the account ID below into VoiceOS Setup, save the API key there, then Reload.", account: selected.account }));
+        res.end(JSON.stringify({ message: "Dropbox is connected. Copy the account ID below into VoiceOS Setup, save the API key there, then Reload.", account: selected2.account }));
       } else if (req.url === "/disconnect") {
-        if (!selected) throw new Error("No saved Dropbox connection.");
-        const raw = await c.client.connectedAccounts.retrieve(selected.account, options);
-        checkAccount(raw, selected.account, selected.user, false);
-        const result = await c.connectedAccounts.delete(selected.account, options);
+        if (!selected2) throw new Error("No saved Dropbox connection.");
+        const raw = await c.client.connectedAccounts.retrieve(selected2.account, options2);
+        checkAccount(raw, selected2.account, selected2.user, false);
+        const result = await c.connectedAccounts.delete(selected2.account, options2);
         if (result.success === false) throw new Error("Composio did not delete the connection.");
-        await writeFile(configUrl, "null", { mode: 384 });
-        selected = void 0;
+        await writeFile(configUrl, JSON.stringify({ disconnectedAccountId: selected2.account, user: selected2.user, authConfig: selected2.authConfig }, null, 2), { mode: 384 });
+        selected2 = void 0;
         pending = void 0;
         res.end(JSON.stringify({ message: "Disconnected from Composio. You can also revoke app access in Dropbox settings. Clear any account ID override in VoiceOS Setup." }));
       } else if (req.url === "/audit") {
         const schemas = {};
-        for (const slug of approved) schemas[slug] = await c.tools.getRawComposioToolBySlug(slug, { version: VERSION }, options);
+        for (const slug of approved) schemas[slug] = await c.tools.getRawComposioToolBySlug(slug, { version: VERSION }, options2);
         await writeFile(new URL("./catalog-snapshot.json", import.meta.url), JSON.stringify(schemas, null, 2));
         res.end(JSON.stringify({ message: "Saved all 14 pinned catalog schemas for review. No Dropbox files were changed." }));
       } else {
@@ -920,6 +936,11 @@ function size(n) {
   if (typeof n !== "number" || !Number.isFinite(n) || n < 0) return "";
   return n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`;
 }
+function readableDate(value) {
+  if (typeof value !== "string") return "";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "" : new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(date);
+}
 function successCard(tool, data, args) {
   const entries = "collection" in tool ? data[tool.collection] : void 0;
   let content = "", shown = 0, budget = 0, textLength = 0;
@@ -928,8 +949,8 @@ function successCard(tool, data, args) {
     if (!entries.length) content = `<p class="db-detail">${empty}</p>`;
     for (const row of entries) {
       const item2 = row.metadata?.metadata || row.metadata || row;
-      const name = item2.name || item2.url || item2.rev || item2.path_display || item2.id;
-      const details = [item2[".tag"] === "folder" ? "Folder" : size(item2.size), item2.rev ? `Revision ${item2.rev}` : "", item2.server_modified || ""].filter(Boolean).join(" · ");
+      const name = item2.name || item2.path_display || (item2.rev ? "File revision" : void 0) || item2.id;
+      const details = [item2[".tag"] === "folder" ? "Folder" : size(item2.size), readableDate(item2.server_modified)].filter(Boolean).join(" · ");
       const link = tool.name === "list_shared_links" ? linkControls(item2.url, shown) : "";
       const fragment = `<div class="db-item"><span>${esc(String(name || "Unlabelled returned item").slice(0, 180))}</span>${item2.path_display ? `<span class="db-meta">${esc(item2.path_display.slice(0, 220))}</span>` : ""}${details ? `<span class="db-meta">${esc(details)}</span>` : ""}${link}</div>`;
       if (budget + fragment.length > 14e4) break;
@@ -941,7 +962,7 @@ function successCard(tool, data, args) {
     const item2 = data?.metadata || data;
     const detail = item2?.path_display || data?.file_name || item2?.name || args.to_path || args.path;
     if (detail) content += `<div class="db-item">${esc(String(detail).slice(0, 300))}</div>`;
-    const pairs = [["Size", size(item2?.size)], ["Modified", item2?.server_modified], ["Revision", item2?.rev]].filter(([, v]) => v);
+    const pairs = [["Size", size(item2?.size)], ["Modified", readableDate(item2?.server_modified)]].filter(([, v]) => v);
     for (const [label, value] of pairs) content += `<p class="db-detail">${label}: ${esc(String(value))}</p>`;
     if (tool.name === "create_shared_link") content += linkControls(data?.url, 0);
     const text2 = typeof data?.extracted_text === "string" ? data.extracted_text : typeof data?.content === "string" ? data.content : typeof data === "string" ? data : void 0;
@@ -965,8 +986,156 @@ function failureCard(tool, message, status = "failed") {
 
 // source/server.ts
 import { pathToFileURL } from "node:url";
+
+// source/account-catalog.ts
+var accountTools = [
+  { name: "connect_account", title: "Connect Dropbox", description: "Connect Dropbox through Composio OAuth2. Use when the user asks to connect or authorize their Dropbox account. Opens browser consent and verifies the connection; does not change Dropbox files.", write: true },
+  { name: "connection_status", title: "Dropbox account status", description: "Check this Dropbox OAuth2 connection. Use when the user asks whether Dropbox is connected or needs reauthorization. Read only; does not start OAuth or change files.", write: false },
+  { name: "disconnect_account", title: "Disconnect Dropbox", description: "Disconnect the saved Dropbox account in Composio. Use only when the user explicitly asks to disconnect or unlink Dropbox. Does not delete Dropbox files.", write: true }
+];
+
+// source/account.ts
+import { randomUUID as randomUUID2 } from "node:crypto";
+import { execFile } from "node:child_process";
+import { readFile as readFile2, writeFile as writeFile2 } from "node:fs/promises";
+var stateUrl = new URL("./connection.json", import.meta.url);
+var options = { signal: AbortSignal.timeout(25e3), maxRetries: 0 };
+async function loadState(file = stateUrl) {
+  try {
+    return JSON.parse(await readFile2(file, "utf8")) || {};
+  } catch (e) {
+    if (e.code === "ENOENT") return {};
+    throw new Error("Saved Dropbox connection is unreadable. Reconnect using Setup.");
+  }
+}
+async function saveState(state, file = stateUrl) {
+  await writeFile2(file, JSON.stringify(state, null, 2), { mode: 384 });
+}
+function openAuthorization(url) {
+  const target = new URL(url);
+  if (target.protocol !== "https:") throw new Error("Composio returned an insecure authorization URL.");
+  const command = process.platform === "win32" ? "rundll32.exe" : process.platform === "darwin" ? "/usr/bin/open" : "xdg-open";
+  const args = process.platform === "win32" ? ["url.dll,FileProtocolHandler", target.href] : [target.href];
+  return new Promise((resolve, reject) => execFile(command, args, { timeout: 8e3, windowsHide: true }, (e) => e ? reject(new Error("Could not open the authorization browser. Use the saved authorization link or local setup page.")) : resolve()));
+}
+function accountResult(status, message, extra = {}) {
+  const tone = status === "connected" ? "good" : status === "error" ? "bad" : "neutral";
+  return { status, message, ...extra, _voiceos_glance: { blocks: [{ type: "header", title: "Dropbox account", trailing: status === "connected" ? "Connected" : status === "pending" ? "Authorization pending" : status === "disconnected" ? "Disconnected" : "Needs attention" }, { type: "badges", items: [{ text: message.slice(0, 100), tone }] }] } };
+}
+async function verified(c, id, user, active = true) {
+  const raw = await c.client.connectedAccounts.retrieve(id, options);
+  const owner = user || raw?.user_id;
+  checkAccount(raw, id, owner, active);
+  return raw;
+}
+function selected(state) {
+  const manual = process.env.COMPOSIO_CONNECTED_ACCOUNT_ID?.trim() || "";
+  return { account: state.account || (manual && manual !== state.disconnectedAccountId ? manual : ""), user: state.account ? state.user : process.env.COMPOSIO_USER_ID?.trim() || void 0 };
+}
+async function connectionStatus(c = client(), file = stateUrl) {
+  const state = await loadState(file), config = selected(state);
+  if (state.pending) {
+    try {
+      const raw = await c.client.connectedAccounts.retrieve(state.pending.id, options);
+      if (raw?.status === "ACTIVE") {
+        checkAccount(raw, raw.id, state.pending.user);
+        state.account = raw.id;
+        state.user = state.pending.user;
+        state.authConfig = state.pending.authConfig;
+        delete state.pending;
+        delete state.disconnectedAccountId;
+        await saveState(state, file);
+        return accountResult("connected", "Dropbox is connected and ready to use.");
+      }
+    } catch (e) {
+      if (e.status !== 404 && e.cause?.status !== 404) throw e;
+    }
+    return accountResult("pending", "Finish Dropbox authorization in your browser, then check status again.", { authorization_url: state.pending.url });
+  }
+  if (!config.account) return accountResult("disconnected", "Dropbox is not connected. Ask to connect Dropbox or use Setup.");
+  try {
+    const raw = await verified(c, config.account, config.user, false);
+    if (raw.status === "ACTIVE" && !raw.isDisabled) return accountResult("connected", "Dropbox is connected and ready to use.");
+    return accountResult("error", "Dropbox authorization expired or was revoked. Ask to connect Dropbox again.");
+  } catch (e) {
+    if (e.status === 404 || e.cause?.status === 404) return accountResult("error", "Dropbox connection was removed. Ask to connect Dropbox again.");
+    throw e;
+  }
+}
+async function connectAccount(c = client(), file = stateUrl, open = openAuthorization) {
+  const state = await loadState(file), config = selected(state);
+  if (config.account) {
+    try {
+      const raw = await verified(c, config.account, config.user);
+      if (raw.status === "ACTIVE") return accountResult("connected", "Dropbox is already connected and ready to use.");
+    } catch {
+    }
+  }
+  if (!state.pending) {
+    const user = state.user || `voiceos-${randomUUID2()}`;
+    let authConfig = state.authConfig;
+    if (!authConfig) {
+      const created = await c.authConfigs.create("dropbox", { type: "use_composio_managed_auth", name: "VoiceOS Dropbox", credentials: { scopes: ["files.metadata.read", "files.metadata.write", "files.content.read", "files.content.write", "sharing.read", "sharing.write"] }, toolAccessConfig: { toolsForConnectedAccountCreation: [...approved] } }, options);
+      if (created.toolkit !== "dropbox" || created.authScheme !== "OAUTH2") throw new Error("Created config was not Dropbox OAuth2.");
+      authConfig = created.id;
+    }
+    const checked = await c.authConfigs.get(authConfig, options);
+    if (checked.toolkit?.slug !== "dropbox" || checked.authScheme !== "OAUTH2") throw new Error("Auth config must be Dropbox OAuth2.");
+    const request = await c.connectedAccounts.link(user, authConfig, {}, options);
+    if (!request.id || !request.redirectUrl || new URL(request.redirectUrl).protocol !== "https:") throw new Error("Composio did not return a secure authorization link.");
+    state.pending = { id: request.id, url: request.redirectUrl, user, authConfig };
+    state.authConfig = authConfig;
+    state.user = user;
+    await saveState(state, file);
+  }
+  const pending = state.pending;
+  await open(pending.url);
+  try {
+    const account = await c.connectedAccounts.waitForConnection(pending.id, 9e4);
+    await verified(c, account.id, pending.user);
+    state.account = account.id;
+    delete state.pending;
+    delete state.disconnectedAccountId;
+    await saveState(state, file);
+    return accountResult("connected", "Dropbox authorization verified. Your account is ready to use.");
+  } catch (e) {
+    if (/timed?\s*out|pending/i.test(String(e?.message))) return accountResult("pending", "Finish Dropbox authorization in your browser, then ask for connection status.", { authorization_url: pending.url });
+    throw e;
+  }
+}
+async function disconnectAccount(c = client(), file = stateUrl) {
+  const state = await loadState(file), config = selected(state), id = state.account || config.account;
+  if (state.pending && state.pending.id !== id) {
+    try {
+      const pending = await c.client.connectedAccounts.retrieve(state.pending.id, options);
+      if (pending?.toolkit?.slug && pending.toolkit.slug !== "dropbox") throw new Error("Refusing to disconnect a non-Dropbox connection.");
+      await c.connectedAccounts.delete(state.pending.id, options);
+    } catch (e) {
+      if (e.status !== 404 && e.cause?.status !== 404) throw e;
+    }
+  }
+  if (!id) {
+    delete state.pending;
+    await saveState(state, file);
+    return accountResult("disconnected", "Dropbox is disconnected. Your files were not deleted.");
+  }
+  const raw = await verified(c, id, state.user || config.user, false);
+  const result = await c.connectedAccounts.delete(raw.id, options);
+  if (result?.success === false) throw new Error("Composio did not disconnect Dropbox.");
+  state.disconnectedAccountId = id;
+  delete state.account;
+  delete state.pending;
+  await saveState(state, file);
+  return accountResult("disconnected", "Dropbox was disconnected in Composio. Your files were not deleted.");
+}
+function accountError(error) {
+  return errorMessage(error, false, false);
+}
+
+// source/server.ts
 function createServer2(run = execute) {
   const server = new McpServer({ name: "dropbox", version: INTEGRATION_VERSION });
+  let accountMutation;
   for (const tool of tools) server.registerTool(tool.name, {
     title: tool.title,
     description: `${tool.title} via Composio OAuth2. Use when the user asks to ${tool.use}. Returns provider data including pagination; never infer all pages were read.${responseGuidance(tool)}`,
@@ -999,6 +1168,30 @@ function createServer2(run = execute) {
       const status = /outcome is unknown/i.test(message) ? "unknown" : /request was cancelled/i.test(message) ? "cancelled" : "failed";
       const payload = { status, error: message, _voiceos_glance: failureCard(tool, message, status) };
       return { isError: true, structuredContent: payload, content: [{ type: "text", text: `${tool.title}: ${message}` }] };
+    }
+  });
+  for (const accountTool of accountTools) server.registerTool(accountTool.name, {
+    title: accountTool.title,
+    description: accountTool.description,
+    inputSchema: {},
+    annotations: { readOnlyHint: !accountTool.write, destructiveHint: accountTool.name === "disconnect_account", idempotentHint: accountTool.name === "connection_status", openWorldHint: true }
+  }, async () => {
+    try {
+      let result;
+      if (accountTool.write) {
+        if (accountMutation) throw new Error("Another Dropbox account operation is still running. Wait for it to finish.");
+        const task = accountTool.name === "connect_account" ? connectAccount() : disconnectAccount();
+        accountMutation = task;
+        try {
+          result = await task;
+        } finally {
+          accountMutation = void 0;
+        }
+      } else result = await connectionStatus();
+      return { content: [{ type: "text", text: JSON.stringify(result) }] };
+    } catch (e) {
+      const message = accountError(e);
+      return { isError: true, content: [{ type: "text", text: JSON.stringify({ status: "failed", error: message, _voiceos_glance: { blocks: [{ type: "header", title: accountTool.title, trailing: "Failed" }, { type: "badges", items: [{ text: message.slice(0, 100), tone: "bad" }] }] } }) }] };
     }
   });
   return server;

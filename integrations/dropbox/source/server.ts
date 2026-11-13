@@ -6,8 +6,11 @@ import { execute,errorMessage } from './provider.ts';
 import {startSetup} from './setup.ts';
 import { successCard,failureCard } from './cards.ts';
 import { pathToFileURL } from 'node:url';
+import {accountTools} from './account-catalog.ts';
+import {connectAccount,connectionStatus,disconnectAccount,accountError} from './account.ts';
 export function createServer(run=execute) {
   const server=new McpServer({name:'dropbox',version:INTEGRATION_VERSION});
+  let accountMutation:Promise<any>|undefined;
   for(const tool of tools) server.registerTool(tool.name,{
     title:tool.title,description:`${tool.title} via Composio OAuth2. Use when the user asks to ${tool.use}. Returns provider data including pagination; never infer all pages were read.${responseGuidance(tool)}`,
     inputSchema:tool.schema,
@@ -32,6 +35,16 @@ export function createServer(run=execute) {
       const payload={status,error:message,_voiceos_glance:failureCard(tool,message,status)};
       return {isError:true,structuredContent:payload,content:[{type:'text',text:`${tool.title}: ${message}`}]};
     }
+  });
+  for(const accountTool of accountTools)server.registerTool(accountTool.name,{
+    title:accountTool.title,description:accountTool.description,inputSchema:{},
+    annotations:{readOnlyHint:!accountTool.write,destructiveHint:accountTool.name==='disconnect_account',idempotentHint:accountTool.name==='connection_status',openWorldHint:true},
+  },async()=>{
+    try{let result:any;
+      if(accountTool.write){if(accountMutation)throw new Error('Another Dropbox account operation is still running. Wait for it to finish.');const task=accountTool.name==='connect_account'?connectAccount():disconnectAccount();accountMutation=task;try{result=await task;}finally{accountMutation=undefined;}}
+      else result=await connectionStatus();
+      return {content:[{type:'text',text:JSON.stringify(result)}]};
+    }catch(e){const message=accountError(e);return {isError:true,content:[{type:'text',text:JSON.stringify({status:'failed',error:message,_voiceos_glance:{blocks:[{type:'header',title:accountTool.title,trailing:'Failed'},{type:'badges',items:[{text:message.slice(0,100),tone:'bad'}]}]}})}]};}
   });
   return server;
 }

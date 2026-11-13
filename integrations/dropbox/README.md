@@ -1,8 +1,8 @@
 # Dropbox VoiceOS integration
 
-Version 2.0.15. Build: dropbox-composio-v17-studio-package-parity. Exactly 14 approved Dropbox tools through Composio OAuth2, with write confirmations and green success icons for completed calls. No demo preview targets or placeholder cards.
+Version 2.0.16. Build: dropbox-composio-v18-account-tools. Exactly 14 approved Dropbox actions through Composio OAuth2, plus three account tools: connect, status, and disconnect. The ten acting tools have native Cancel and Confirm cards. No demo preview targets or placeholder cards.
 
-VoiceOS integration share link: https://api.voiceos.com/integration-share/sP1smIT5hsor/page. The November 10 shared-link install in `shared-integrations/sP1smIT5hsor` has version 2.0.15, Composio 0.28.0 and AJV 8.17.1 installed. The portable MCP verification passed with 14 tools. A separate Studio Preview draft still resolves `latest` dependencies; its 0.29.0 startup log does not describe the shared-link install.
+VoiceOS integration share link: https://api.voiceos.com/integration-share/sP1smIT5hsor/page. The last verified shared-link install was 2.0.15 with Composio 0.28.0 and AJV 8.17.1. Version 2.0.16 still needs republishing and a fresh install log. A separate Studio Preview draft previously resolved `latest` dependencies; its 0.29.0 startup log did not describe the shared-link install.
 
 The November 10 Studio previews for 2.0.14 and 2.0.15 logged the correct build markers but installed `@composio/core@0.29.0` and `ajv@8.20.0` from separate draft folders whose packages still declare `latest`. The reviewed and shared packages pin `0.28.0` and `8.17.1`. Keep the Studio draft package synchronized if preview parity matters; a server marker alone does not prove dependency parity. `node scripts/verify-install-log.mjs <log-file>` checks a fresh first-launch log when one is available.
 
@@ -14,7 +14,7 @@ Run npm install at the root and npm install --prefix source. Run npm test for th
 
 ## Account setup
 
-Enter COMPOSIO_API_KEY and the active Dropbox COMPOSIO_CONNECTED_ACCOUNT_ID in VoiceOS Setup. No separate user ID is required: the selected account owner is retrieved from Composio. Never commit API keys, OAuth tokens, connection.json, or catalog snapshots.
+Enter COMPOSIO_API_KEY in VoiceOS Setup, then ask VoiceOS to connect Dropbox. Approve the native confirmation card and complete Composio OAuth2 consent in the opened browser. Ask for Dropbox connection status to verify, or ask to disconnect Dropbox when needed. The status card has no direct tool buttons. For the manual fallback, enter an active COMPOSIO_CONNECTED_ACCOUNT_ID in Setup. No separate user ID is required: the selected account owner is retrieved from Composio. Never commit API keys, OAuth tokens, connection.json, or catalog snapshots.
 
 A local OAuth setup screen is embedded in the portable server. From the integration folder, run `npm run setup` (or `node server.ts --setup`) and open the printed localhost URL. Connect or disconnect through Composio there. After authorization, Check connection displays the active account ID; copy it into VoiceOS Setup with your API key and Reload. The page saves only connection identifiers in the local ignored `connection.json`. The VoiceOS host does not currently launch this page from its Setup panel.
 
@@ -31,7 +31,7 @@ This folder is the canonical Dropbox checkout. See CONSOLIDATION.md for the comp
 After building, reusable maintenance commands are:
 
 - node scripts/deploy-portable.mjs "<installed Dropbox folder>" — backs up and deploys the portable release.
-- node scripts/verify-installed.mjs "<installed Dropbox folder>" — checks startup, version and 14-tool manifest parity. Set DROPBOX_QA_RUNTIME to the bundled Bun executable to verify that runtime.
+- node scripts/verify-installed.mjs "<installed Dropbox folder>" — checks startup, version and 17-tool manifest parity. Set DROPBOX_QA_RUNTIME to the bundled Bun executable to verify that runtime.
 - node scripts/repair-installed-record.mjs — dry-run comparison of the cached installed manifest; --apply requires VoiceOS fully stopped and creates a backup. Credentials and unrelated settings are preserved.
 
 Do not commit generated credential/account state or VoiceOS config backups.
@@ -51,4 +51,4 @@ Version 2.0.6 reads text from .docx documents up to 20 MiB. Ask Read a file norm
 
 ## Current native confirmations and live QA
 
-All eight write actions use native card roots with explicit Cancel and Confirm footer actions and bound editable fields. The complete Windows 2.0.10 manual run passed all 14 tools; 2.0.11 fixed revision pages with no continuation cursor and passed a targeted live test. Version 2.0.15 keeps the OAuth setup page behind --setup and pins Composio 0.28.0 across the release packages and lockfiles. See [live QA evidence](docs/QA-2026-11-10.md) and [remaining VoiceOS host UX work](docs/HOST-UX-GAPS.md). Native Mac QA remains pending. Tool feedback appears as cards and narration; VoiceOS controls any separate native toast. Upload notifications identify phases, not measured byte percentages.
+All eight Dropbox writes and both account mutations use native card roots with explicit Cancel and Confirm footer actions. The complete Windows 2.0.10 manual run passed the 14 Dropbox actions; the three account tools need live QA after 2.0.16 is published. Uploads now accept real local files only under Desktop, Documents, Downloads, Pictures, Movies/Videos, or Music in the user's home folder; move former repository test files to one of those locations before uploading. Upload behavior is a select control, and the original source path is shown in wrapping text. Revision IDs and raw ISO dates remain in model data but not visible result cards. See [live QA evidence](docs/QA-2026-11-10.md). Native Mac QA remains pending. Upload notifications identify phases, not measured byte percentages.

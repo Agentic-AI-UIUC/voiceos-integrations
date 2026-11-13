@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "com.voiceos.generated.dropbox",
-  "version": "2.0.15",
+  "version": "2.0.16",
   "name": "Dropbox",
   "summary": "Find, read, upload, organize, version and share Dropbox files through Composio OAuth2.",
   "supportedPlatforms": [
@@ -41,10 +41,10 @@
     },
     {
       "name": "COMPOSIO_CONNECTED_ACCOUNT_ID",
-      "title": "Dropbox connected account ID",
-      "description": "Required: the actual active Dropbox OAuth2 connection ID from Composio (normally ca_...). This is not a project ID, playground test ID, or user ID. The owner is retrieved automatically.",
+      "title": "Dropbox connected account ID (manual fallback)",
+      "description": "Optional: an active Dropbox OAuth2 connection ID from Composio (normally ca_...). Leave blank when using the Connect Dropbox voice tool. This is not a project, playground, or user ID.",
       "type": "text",
-      "required": true
+      "required": false
     }
   ],
   "tools": [
@@ -143,7 +143,7 @@
     {
       "name": "upload_file",
       "title": "Upload File",
-      "description": "Upload File via Composio OAuth2. Use when the user asks to upload an existing local file to Dropbox; overwrite requires explicit approval. Returns provider data including pagination; never infer all pages were read.",
+      "description": "Upload File via Composio OAuth2. Use when the user asks to upload an existing local file from an allowed home folder to Dropbox; overwrite requires explicit approval. Returns provider data including pagination; never infer all pages were read.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -153,7 +153,7 @@
           "file": {
             "type": "string",
             "minLength": 1,
-            "description": "Full existing local file path, without surrounding quotes or brackets. Supports binary Word/PDF/image files up to 50 MiB; never invent a file reference."
+            "description": "Full existing local file path under your home Desktop, Documents, Downloads, Pictures, Movies, Videos, or Music folder, without surrounding quotes or brackets. Supports binary Word/PDF/image files up to 50 MiB; never invent a file reference."
           },
           "mode": {
             "type": "string",
@@ -186,7 +186,7 @@
               "children": [
                 {
                   "type": "text",
-                  "text": "Add stops if the destination exists. Overwrite replaces its contents. Enter add or overwrite.",
+                  "text": "Add stops if the destination exists. Overwrite replaces its contents.",
                   "color": "muted"
                 },
                 {
@@ -196,16 +196,30 @@
                   "required": true
                 },
                 {
+                  "type": "text",
+                  "text": "Selected source: {{file}}",
+                  "color": "muted"
+                },
+                {
                   "type": "textField",
                   "bind": "{{file}}",
                   "label": "Local source file",
                   "required": true
                 },
                 {
-                  "type": "textField",
+                  "type": "select",
                   "bind": "{{mode}}",
-                  "label": "Upload behavior (add or overwrite)",
-                  "required": false
+                  "label": "Upload behavior",
+                  "options": [
+                    {
+                      "label": "Add (stop if file exists)",
+                      "value": "add"
+                    },
+                    {
+                      "label": "Overwrite existing file",
+                      "value": "overwrite"
+                    }
+                  ]
                 }
               ]
             }
@@ -747,6 +761,119 @@
           ]
         }
       }
+    },
+    {
+      "name": "connect_account",
+      "title": "Connect Dropbox",
+      "description": "Connect Dropbox through Composio OAuth2. Use when the user asks to connect or authorize their Dropbox account. Opens browser consent and verifies the connection; does not change Dropbox files.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "execution": {
+        "mode": "background"
+      },
+      "confirmation": {
+        "schemaVersion": 1,
+        "root": {
+          "type": "card",
+          "title": "Connect Dropbox",
+          "children": [
+            {
+              "type": "stack",
+              "direction": "vertical",
+              "gap": "md",
+              "children": [
+                {
+                  "type": "text",
+                  "text": "Open secure Composio OAuth2 authorization in your browser and connect Dropbox.",
+                  "color": "muted"
+                }
+              ]
+            }
+          ],
+          "footer": [
+            {
+              "type": "actions",
+              "items": [
+                {
+                  "label": "Cancel",
+                  "role": "cancel"
+                },
+                {
+                  "label": "Connect Dropbox",
+                  "role": "confirm",
+                  "color": "accent"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "connection_status",
+      "title": "Dropbox account status",
+      "description": "Check this Dropbox OAuth2 connection. Use when the user asks whether Dropbox is connected or needs reauthorization. Read only; does not start OAuth or change files.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "execution": {
+        "mode": "background"
+      }
+    },
+    {
+      "name": "disconnect_account",
+      "title": "Disconnect Dropbox",
+      "description": "Disconnect the saved Dropbox account in Composio. Use only when the user explicitly asks to disconnect or unlink Dropbox. Does not delete Dropbox files.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "execution": {
+        "mode": "background"
+      },
+      "confirmation": {
+        "schemaVersion": 1,
+        "root": {
+          "type": "card",
+          "title": "Disconnect Dropbox",
+          "children": [
+            {
+              "type": "stack",
+              "direction": "vertical",
+              "gap": "md",
+              "children": [
+                {
+                  "type": "text",
+                  "text": "Disconnect this Dropbox account in Composio. Your Dropbox files will remain.",
+                  "color": "muted"
+                }
+              ]
+            }
+          ],
+          "footer": [
+            {
+              "type": "actions",
+              "items": [
+                {
+                  "label": "Cancel",
+                  "role": "cancel"
+                },
+                {
+                  "label": "Disconnect Dropbox",
+                  "role": "confirm",
+                  "color": "accent"
+                }
+              ]
+            }
+          ]
+        }
+      }
     }
   ],
   "icon": "icon.png",
@@ -756,7 +883,7 @@
     "blocks": [
       {
         "type": "text",
-        "text": "From this integration folder, run npm run setup to open the local Composio OAuth2 Connect/Disconnect page. After authorizing Dropbox, select Check connection and copy the active connected account ID (normally ca_...) into the field below with your Composio API key. Save both fields, then Reload. No separate User ID is required. You can also connect in the Composio dashboard. A pg-test-... playground identifier is not a connected account ID. To disconnect, use the setup page or remove the connection in Composio, then clear these preferences."
+        "text": "Save your Composio API key, then ask VoiceOS to connect Dropbox. Approve the confirmation card and authorize Dropbox in your browser. Ask for Dropbox connection status to verify. You can ask VoiceOS to disconnect Dropbox. Fallback: run npm run setup in this integration folder to use the local Connect/Disconnect page, then copy its active connected account ID (normally ca_...) into Setup and Reload. A pg-test-... identifier is not a connected account ID."
       }
     ]
   }

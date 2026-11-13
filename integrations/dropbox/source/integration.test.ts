@@ -1,7 +1,7 @@
 import { test,after } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync,mkdtempSync,writeFileSync,rmSync } from 'node:fs';
-import {tmpdir} from 'node:os';
+import { readFileSync,mkdtempSync,writeFileSync,rmSync,mkdirSync } from 'node:fs';
+import {homedir} from 'node:os';
 import {join} from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
@@ -10,7 +10,8 @@ import { checkAccount,execute,mapArgs,unwrap,readCollection,errorMessage } from 
 import { createServer } from './server.ts';
 const config={user:'qa',account:'ca_qa'};
 const account={id:'ca_qa',user_id:'qa',toolkit:{slug:'dropbox'},auth_config:{auth_scheme:'OAUTH2'},status:'ACTIVE'};
-const directory=mkdtempSync(join(tmpdir(),'dropbox-boundary-')),localFile=join(directory,'source.docx');writeFileSync(localFile,Buffer.from([80,75,3,4,0,255]));after(()=>rmSync(directory,{recursive:true,force:true}));
+const downloads=join(homedir(),'Downloads');mkdirSync(downloads,{recursive:true});
+const directory=mkdtempSync(join(downloads,'dropbox-boundary-')),localFile=join(directory,'source.docx');writeFileSync(localFile,Buffer.from([80,75,3,4,0,255]));after(()=>rmSync(directory,{recursive:true,force:true}));
 const descriptor={name:'source.docx',mimetype:'application/vnd.openxmlformats-officedocument.wordprocessingml.document',s3key:'staged/test-file'};
 const fileProperty={type:'object',file_uploadable:true,properties:{name:{type:'string'},mimetype:{type:'string'},s3key:{type:'string'}},required:['name','mimetype','s3key']};
 const samples:any={list_files:{path:''},search_files:{query:'report'},get_metadata:{path:'/a'},read_file:{path:'/a'},upload_file:{path:'/a',file:'/tmp/source.txt',mode:'add'},create_folder:{path:'/a'},copy_item:{from_path:'/a',to_path:'/b'},move_item:{from_path:'/a',to_path:'/b'},delete_item:{path:'/a'},list_revisions:{path:'/a'},restore_revision:{path:'/a',rev:'abc'},create_shared_link:{path:'/a'},list_shared_links:{},revoke_shared_link:{url:'https://www.dropbox.com/s/abc/a'}};
@@ -32,12 +33,12 @@ for(const change of [{user_id:'other'},{toolkit:{slug:'excel'}},{status:'EXPIRED
 });
 for(const status of ['EXPIRED','REVOKED'])test(`${status} OAuth account requests reconnection before any tool call`,async()=>{
  const tool=tools.find(t=>t.name==='list_files')!;const {c,calls}=fake(tool,{entries:[]},{account:{...account,status}});
- await assert.rejects(execute(tool,{path:''},c,config),/Reconnect using Setup/);
+ await assert.rejects(execute(tool,{path:''},c,config),/connect Dropbox again/);
  assert.equal(calls.length,0);
 });
 test('provider token revocation requests reconnection without retrying',async()=>{
  const tool=tools.find(t=>t.name==='list_files')!;const {c,calls}=fake(tool,{}, {error:Error('invalid_access_token')});
- await assert.rejects(execute(tool,{path:''},c,config),/Reconnect using Setup/);
+ await assert.rejects(execute(tool,{path:''},c,config),/connect Dropbox again/);
  assert.equal(calls.length,1);
 });
 for(const envelope of [{data:{entries:[]}},{response_data:{entries:[]}},{data:{response_data:{entries:[]}}}])test(`unwrap ${JSON.stringify(envelope)}`,()=>assert.deepEqual(unwrap(envelope),{entries:[]}));
@@ -61,7 +62,7 @@ test('timeout write is unknown and not retried',async()=>{const t=tools.find(t=>
 test('root and unexpected arguments rejected',()=>{for(const path of ['', '/', 'relative','/a/','/a//b'])assert.throws(()=>parseArgs(tools.find(t=>t.name==='delete_item')!,{path}));assert.throws(()=>parseArgs(tools[0],{path:'',team_id:'x'}));});
 test('copy into source rejected',()=>{const t=tools.find(t=>t.name==='copy_item')!;assert.throws(()=>mapArgs(t,{from_path:'/a',to_path:'/a/b'},{type:'object',properties:{from_path:{},to_path:{}}}));});
 test('upload conflict settings explicit',()=>{const t=tools.find(t=>t.name==='upload_file')!;const args=mapArgs(t,{...samples.upload_file,file:descriptor},{type:'object',properties:{path:{},file_to_upload:fileProperty,mode:{},autorename:{},strict_conflict:{}}});assert.deepEqual(args.file_to_upload,descriptor);assert.equal(args.autorename,false);assert.equal(args.strict_conflict,true);});
-test('clear error categories',()=>{for(const [input,match] of [['invalid_access_token',/Reconnect/],['403',/permission/],['413',/size/],['409',/conflict/],['404',/unavailable/]])assert.match(errorMessage(Error(input as string)),match as RegExp);});
+test('clear error categories',()=>{for(const [input,match] of [['invalid_access_token',/connect Dropbox again/],['403',/permission/],['413',/size/],['409',/conflict/],['404',/unavailable/]])assert.match(errorMessage(Error(input as string)),match as RegExp);});
 test('manual account ID resolves non-default owner without user preference',async()=>{const {c,calls}=fake(tools[0],{entries:[]},{account:{...account,user_id:'custom-owner'}});await execute(tools[0],{path:''},c,{user:'',account:config.account});assert.equal(calls[0][1].userId,'custom-owner');});
 test('missing raw owner blocks execution',async()=>{const {c,calls}=fake(tools[0],{entries:[]},{account:{...account,user_id:undefined}});await assert.rejects(execute(tools[0],{path:''},c,{user:'',account:config.account}),/owner/);assert.equal(calls.length,0);});
 test('playground test ID is rejected before provider call',async()=>{const {c,calls}=fake(tools[0],{});c.client.connectedAccounts.retrieve=async()=>{throw Error('Must not call');};await assert.rejects(execute(tools[0],{path:''},c,{user:'',account:'pg-test-example'}),/playground/);assert.equal(calls.length,0);});
@@ -69,7 +70,7 @@ test('MCP discovery, manifest parity, confirmations, real error flag',async()=>{
  const manifest=JSON.parse(readFileSync(new URL('./voiceos.integration.json',import.meta.url),'utf8'));
  const server=createServer(async()=>{throw Error('Provider failed');});const [a,b]=InMemoryTransport.createLinkedPair();
  await server.connect(a);const c=new Client({name:'qa',version:'1'});await c.connect(b);
- try {const listed=await c.listTools();assert.equal(listed.tools.length,14);assert.deepEqual(listed.tools.map(t=>t.name).sort(),manifest.tools.map((t:any)=>t.name).sort());
+ try {const listed=await c.listTools();assert.equal(listed.tools.length,17);assert.equal(tools.length,14);assert.deepEqual(listed.tools.map(t=>t.name).sort(),manifest.tools.map((t:any)=>t.name).sort());
  for(const t of tools){const m=manifest.tools.find((x:any)=>x.name===t.name);assert.equal(!!m.confirmation,t.write);assert.match(m.description,/Use when/);}
  const result=await c.callTool({name:'delete_item',arguments:{path:'/a'}});assert.equal(result.isError,true);
  }finally{await c.close();await server.close();}

@@ -10,7 +10,7 @@ const configUrl=new URL('./connection.json',import.meta.url);
 let selected:{user:string,account:string,authConfig:string}|undefined;
 let pending:any;
 let busy=false;
-try { selected=JSON.parse(await readFile(configUrl,'utf8')); } catch(e:any) {if(e.code!=='ENOENT') throw e;}
+try { const saved=JSON.parse(await readFile(configUrl,'utf8'));if(saved?.account)selected=saved; } catch(e:any) {if(e.code!=='ENOENT') throw e;}
 const html=typeof VOICEOS_SETUP_HTML==='string'?VOICEOS_SETUP_HTML:await readFile(new URL('./setup.html',import.meta.url),'utf8');
 const server=createServer(async(req,res)=>{
   res.setHeader('Cache-Control','no-store');
@@ -61,7 +61,7 @@ const server=createServer(async(req,res)=>{
       checkAccount(raw,selected.account,selected.user,false);
       const result=await c.connectedAccounts.delete(selected.account,options);
       if(result.success===false) throw new Error('Composio did not delete the connection.');
-      await writeFile(configUrl,'null',{mode:0o600});
+      await writeFile(configUrl,JSON.stringify({disconnectedAccountId:selected.account,user:selected.user,authConfig:selected.authConfig},null,2),{mode:0o600});
       selected=undefined;pending=undefined;
       res.end(JSON.stringify({message:'Disconnected from Composio. You can also revoke app access in Dropbox settings. Clear any account ID override in VoiceOS Setup.'}));
     } else if(req.url==='/audit') {
