@@ -14,7 +14,7 @@ const manifest = JSON.parse(readFileSync(join(ROOT, "voiceos.integration.json"),
 const KEY = "offline-monday-key-only";
 const IDENTITY = { userId: "voiceos-monday-test" };
 const ACTIVE = { ...IDENTITY, accountId: "ca_test" };
-const TOOLS = ["connect_account", "connection_status", "disconnect_account", "get_boards", "get_items", "prepare_create_item", "create_item", "prepare_update_item", "update_item_values", "create_update", "prepare_create_board", "create_board", "prepare_archive_board", "archive_board"].sort();
+const TOOLS = ["connect_account", "connection_status", "disconnect_account", "get_boards", "get_items", "prepare_create_item", "create_item", "prepare_update_item", "update_item_values", "create_update", "prepare_create_board", "create_board", "prepare_create_group", "create_group", "prepare_archive_board", "archive_board"].sort();
 const directory = mkdtempSync(join(tmpdir(), "voiceos-monday-tests-"));
 const statePath = join(directory, ".composio-auth.json");
 const scenarioPath = join(directory, "scenario.json");
@@ -98,11 +98,11 @@ describe("account tools contract", () => {
       expect(actual.description).toBe(declared.description);
       expect(actual.inputSchema.properties).toEqual(declared.inputSchema.properties);
       expect(actual.inputSchema.additionalProperties).toBe(false);
-      if (["connection_status", "get_boards", "get_items", "prepare_create_item", "prepare_create_board", "prepare_update_item", "prepare_archive_board"].includes(actual.name)) {
+      if (["connection_status", "get_boards", "get_items", "prepare_create_item", "prepare_create_board", "prepare_update_item", "prepare_create_group", "prepare_archive_board"].includes(actual.name)) {
         expect(declared.confirmation).toBeUndefined();
         expect(declared.uiCallable).toBe(true);
         expect(actual.annotations?.readOnlyHint).toBe(true);
-      } else if (["create_item", "update_item_values", "create_update", "create_board", "archive_board"].includes(actual.name)) {
+      } else if (["create_item", "update_item_values", "create_update", "create_board", "create_group", "archive_board"].includes(actual.name)) {
         if (actual.name === "create_item" || actual.name === "create_board") {
           const item = actual.name === "create_item";
           const root = declared.confirmation.root;
@@ -119,6 +119,14 @@ describe("account tools contract", () => {
           if (!item) expect(root.children[0]).toMatchObject({
             type: "text", text: "{{submission_error}}", visibleIf: "{{submission_error}}", color: "danger",
           });
+        } else if (actual.name === "create_group") {
+          const children = declared.confirmation.root.children;
+          expect(children.map((block: { type: string }) => block.type)).toEqual(["textField", "widget", "stack"]);
+          expect(children[0]).toMatchObject({ bind: "{{group_name}}", label: "Name", required: true });
+          expect(children[1].confirmLabel).toBe("Create group");
+          expect(children[1].html).toContain("<label>Board");
+          expect(children[1].html).toContain("<label>Position");
+          expect(children[2].children).toEqual([{ type: "button", label: "Cancel", role: "cancel" }]);
         } else if (actual.name === "archive_board") {
           const children = declared.confirmation.root.children;
           expect(children.map((block: { type: string }) => block.type)).toEqual(["widget", "stack"]);
@@ -1568,6 +1576,90 @@ describe("reviewed Monday item updates", () => {
     const result = await invoke("update_item_values", args);
     expect(result.isError).toBe(true);
     expect(result.body.error).toContain("Verified changes: Name. Could not verify: Text.");
+    expect(writes()).toHaveLength(1);
+  });
+});
+
+describe("Monday create group confirmation", () => {
+  const board = { id: "123", name: "Roadmap", state: "active", groups: [
+    { id: "incoming", title: "Incoming" }, { id: "planned", title: "Planned" },
+    { id: "archived", title: "Old", archived: true },
+  ] };
+  const writes = () => events().filter(event => JSON.stringify(event.body)?.includes("mutation CreateGroup"));
+  function configure(overrides: Scenario = {}) {
+    scenario({
+      toolDataByAction: { MONDAY_BOARDS: { boards: [board] } },
+      proxyDestination: board,
+      proxyCreatedGroup: { id: "group_qa", title: "QA" },
+      ...overrides,
+    });
+  }
+
+  test.each([
+    ["bottom", "before_at", null],
+    ["top", "after_at", null],
+    ["before:planned", "before_at", "planned"],
+    ["after:incoming", "after_at", "incoming"],
+  ])("creates one group at %s with the confirmed name and position", async (position, method, relativeTo) => {
+    configure();
+    const prepared = await invoke("prepare_create_group", { board_name: "Road", group_name: "Draft name" });
+    expect(prepared.isError).toBe(false);
+    const args = prepared.body.create_group_arguments;
+    expect(args).toMatchObject({ position: "bottom", preview: { board: "Roadmap" } });
+    expect(args.preview.positions.map((choice: { label: string }) => choice.label)).not.toContain("After Old");
+    expect(writes()).toHaveLength(0);
+    const approved = { ...args, group_name: "QA", position };
+    const created = await invoke("create_group", approved);
+    expect(created.isError).toBe(false);
+    expect(created.body).toMatchObject({ id: "group_qa", groupName: "QA", boardName: "Roadmap" });
+    expect(writes()).toHaveLength(1);
+    expect(writes()[0].body).toMatchObject({ body: { variables: { boardId: "123", name: "QA", method, relativeTo } } });
+    expect((await invoke("create_group", approved)).isError).toBe(true);
+    expect(writes()).toHaveLength(1);
+  });
+
+  test("clarifies the board and group reference, then replaces a pending confirmation", async () => {
+    configure({ toolDataByAction: { MONDAY_BOARDS: { boards: [board, { id: "456", name: "Roadmap East" }] } } });
+    const missing = await invoke("prepare_create_group", { group_name: "QA" });
+    expect(missing.body.question).toContain("Which Monday board");
+    const ambiguous = await invoke("prepare_create_group", {
+      replaces_draft_id: missing.body.pending_group.draft_id, board_name: "Road",
+    });
+    expect(ambiguous.body.question).toContain("Which Monday board");
+    const unresolved = await invoke("prepare_create_group", {
+      replaces_draft_id: ambiguous.body.pending_group.draft_id, board_name: "Roadmap",
+      position: { placement: "before", reference_group: "Old" },
+    });
+    expect(unresolved.body.question).toContain("Which group");
+    const resolved = await invoke("prepare_create_group", {
+      replaces_draft_id: unresolved.body.pending_group.draft_id, position: { placement: "after", reference_group: "Planned" },
+    });
+    const args = resolved.body.create_group_arguments;
+    expect(args).toMatchObject({ group_name: "QA", position: "after:planned" });
+    const revised = await invoke("prepare_create_group", { replaces_draft_id: args.draft_id, group_name: "QA Review" });
+    expect(revised.body.create_group_arguments).toMatchObject({ group_name: "QA Review", position: "after:planned" });
+    expect((await invoke("create_group", args)).isError).toBe(true);
+    expect(writes()).toHaveLength(0);
+  });
+
+  test("rejects unreviewed positions and a reference group that disappeared before approval", async () => {
+    configure();
+    const { body } = await invoke("prepare_create_group", { board_id: 123, group_name: "QA" });
+    const args = body.create_group_arguments;
+    expect((await invoke("create_group", { ...args, position: "before:other-board" })).isError).toBe(true);
+    configure({ proxyDestination: { ...board, groups: [] } });
+    const changed = await invoke("create_group", { ...args, position: "after:planned" });
+    expect(changed.body.error).toContain("changed after review");
+    expect(writes()).toHaveLength(0);
+  });
+
+  test("makes one mutation attempt when the outcome is uncertain", async () => {
+    configure({ proxyMutationHttpStatus: 504 });
+    const { body } = await invoke("prepare_create_group", { board_id: 123, group_name: "QA" });
+    const failed = await invoke("create_group", body.create_group_arguments);
+    expect(failed.isError).toBe(true);
+    expect(failed.body.error).toContain("Check Monday.com before retrying");
+    expect((await invoke("create_group", body.create_group_arguments)).isError).toBe(true);
     expect(writes()).toHaveLength(1);
   });
 });

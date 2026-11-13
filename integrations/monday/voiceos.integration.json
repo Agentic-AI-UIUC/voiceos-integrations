@@ -676,6 +676,167 @@
       }
     },
     {
+      "name": "prepare_create_group",
+      "visibility": "agent",
+      "title": "Prepare Monday.com group",
+      "description": "Start here to create an empty group (section) on an existing Monday board. Pass the board name or a verified board ID, the new group name, and any requested position. Position defaults to bottom. For before or after, pass the reference group's name or verified ID in position.reference_group. If the result includes a question, ask it and use pending_group.draft_id as replaces_draft_id when the user answers. To revise the same pending group by voice, pass replaces_draft_id and only the changed fields. For a new request, start a fresh draft. Pass create_group_arguments verbatim to create_group for confirmation. This tool only reads Monday.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "board_id": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "board_name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "group_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "position": {
+            "type": "object",
+            "properties": {
+              "placement": {
+                "type": "string",
+                "enum": [
+                  "top",
+                  "bottom",
+                  "before",
+                  "after"
+                ]
+              },
+              "reference_group": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "placement"
+            ],
+            "additionalProperties": false
+          },
+          "replaces_draft_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "additionalProperties": false
+      },
+      "uiCallable": true,
+      "execution": {
+        "mode": "sync",
+        "estimatedDurationMs": 5000
+      }
+    },
+    {
+      "name": "create_group",
+      "title": "Create Monday.com group",
+      "description": "Use create_group_arguments from prepare_create_group verbatim to show the Create group confirmation. The card shows the board and lets the user edit the group name and position. For a spoken revision, use prepare_create_group with the current draft ID. Approval creates one empty group on the reviewed board. Only report success when the result confirms the group ID. Check Monday before retrying an unconfirmed creation.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "draft_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "group_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "position": {
+            "type": "string",
+            "minLength": 1
+          },
+          "preview": {
+            "type": "object",
+            "properties": {
+              "board": {
+                "type": "string",
+                "minLength": 1
+              },
+              "positions": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "value": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "label": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": [
+                    "value",
+                    "label"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "board",
+              "positions"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "draft_id",
+          "group_name",
+          "position",
+          "preview"
+        ],
+        "additionalProperties": false
+      },
+      "uiCallable": true,
+      "execution": {
+        "mode": "sync",
+        "estimatedDurationMs": 5000
+      },
+      "confirmation": {
+        "schemaVersion": 1,
+        "root": {
+          "type": "card",
+          "title": "Create group",
+          "children": [
+            {
+              "type": "textField",
+              "bind": "{{group_name}}",
+              "label": "Name",
+              "required": true
+            },
+            {
+              "type": "widget",
+              "label": "Board and position",
+              "confirmLabel": "Create group",
+              "height": 96,
+              "html": "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<style>\n:root {\n  --ink: rgba(255,255,255,.88);\n  --muted: rgba(255,255,255,.38);\n  --fill: rgba(255,255,255,.024);\n  --focus-fill: rgba(255,255,255,.052);\n  --divider: rgba(255,255,255,.08);\n  --menu-scheme: dark;\n  font: 12.5px/1.4 system-ui, sans-serif;\n  color: var(--ink);\n}\n:root[data-theme=\"light\"] {\n  --ink: rgba(0,0,0,.88);\n  --muted: rgba(0,0,0,.56);\n  --fill: rgba(0,0,0,.04);\n  --focus-fill: rgba(0,0,0,.07);\n  --divider: rgba(0,0,0,.09);\n  --menu-scheme: light;\n}\n/* Setting the color scheme on the document can give a transparent iframe an opaque canvas. */\nhtml, body { margin: 0; background: transparent; }\nlabel { display: grid; gap: 6px; color: var(--muted); font-size: 11.5px; font-weight: 500; }\n.control { position: relative; display: block; }\n.control::after {\n  content: \"\";\n  position: absolute;\n  top: 50%;\n  right: 12px;\n  width: 5px;\n  height: 5px;\n  border: solid currentColor;\n  border-width: 0 1px 1px 0;\n  transform: translateY(-75%) rotate(45deg);\n  pointer-events: none;\n}\nselect {\n  appearance: none;\n  box-sizing: border-box;\n  width: 100%;\n  padding: 8px 28px 8px 10px;\n  border: 0;\n  border-radius: 10px;\n  background: var(--fill);\n  color: var(--ink);\n  color-scheme: var(--menu-scheme);\n  font: 12.5px/normal system-ui, sans-serif;\n}\nselect:focus { background: var(--focus-fill); }\nselect:focus-visible { outline: 1px solid currentColor; outline-offset: -1px; }\noutput { display: block; margin-bottom: 8px; color: var(--ink); overflow-wrap: anywhere; }\n</style>\n</head>\n<body>\n<label>Board<output></output></label>\n<label>Position<span class=\"control\"><select disabled></select></span></label>\n<script>\nconst board = document.querySelector('output');\nconst position = document.querySelector('select');\nlet height = 0;\nfunction resize() {\n  const next = Math.ceil(document.body.getBoundingClientRect().height);\n  if (next < 1 || height === next) return;\n  height = next;\n  parent.postMessage({ type: 'voiceos:resize', height }, '*');\n}\naddEventListener('message', event => {\n  if (event.source !== parent || event.data?.type !== 'voiceos:init') return;\n  const args = event.data.args ?? {};\n  if (!Array.isArray(args.preview?.positions)) return;\n  document.documentElement.dataset.theme = event.data.theme?.mode === 'light' ? 'light' : 'dark';\n  board.textContent = args.preview.board;\n  position.replaceChildren(...args.preview.positions.map(({ value, label }) => new Option(label, value)));\n  position.value = args.position;\n  position.disabled = false;\n  resize();\n});\nposition.addEventListener('change', () => {\n  parent.postMessage({ type: 'voiceos:updateInput', key: 'position', value: position.value }, '*');\n});\nnew ResizeObserver(resize).observe(document.body);\n</script>\n</body>\n</html>"
+            },
+            {
+              "type": "stack",
+              "direction": "vertical",
+              "align": "start",
+              "children": [
+                {
+                  "type": "button",
+                  "label": "Cancel",
+                  "role": "cancel"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
       "name": "prepare_archive_board",
       "visibility": "agent",
       "title": "Prepare Monday.com board archive",

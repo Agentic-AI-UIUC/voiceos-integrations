@@ -205,6 +205,44 @@ const createBoardDrafts = new Map<string, CreateBoardDraft>();
 const recentlyCreatedBoards = new Map<string, { board: Record<string, unknown>; expires: number }>();
 const prepareCreateBoardDescription = "Start every Monday board creation here. Treat a new request to create a board as a fresh draft, even in the same conversation. For a fresh draft, pass only details the user supplied in that request or explicitly asked to reuse. Omit replaces_draft_id. If the user gives no board name, omit board_name and ask for it using the tool result. Never fill in a board name, description, visibility, or workspace from an earlier unrelated request, a prior confirmation, or a previously created board. In \"create a board and add an item to it\", \"it\" means the new board in this request. Only when the user also requests an item, set item_follow_up to prepare_confirmation and follow_up_item_name to the name they supplied, or set item_follow_up to ask_name if it is missing. If the user explicitly renames the item before this board is created, revise the same pending board draft with only the updated follow_up_item_name and item_follow_up set to prepare_confirmation. Keep board_name and all other board settings. If a Create item confirmation is already active, use prepare_create_item for a name edit. When both the board and item are plausible targets and the user does not specify which, ask which name they mean before changing either. This shows the next step on the board success screen. Item creation still requires its own confirmation. Set item_follow_up to none if the user drops the item request before approving the board. Use replaces_draft_id only when the user edits the same pending board, such as \"change visibility to private\", or directly answers a question about it. Pass the latest draft ID and only the changed fields. Older references to the same pending board resolve to its latest revision. If the result has board_draft_status, follow its message. For unavailable, recover quietly only when the conversation confirms the board is still pending. For created, submitting, or unconfirmed, do not restart board creation. Pass workspace by name, null to switch to the default workspace, or description as an empty string to clear it. New boards default to public visibility, an empty description, and the default workspace. If the result has pending_board, ask its question about the missing name or unresolved workspace. When the user replies to that question or edits that same draft, pass pending_board.draft_id as replaces_draft_id. If the result has create_board_arguments, pass them verbatim to create_board for approval. This tool only reads Monday.";
 const createBoardDescription = "Always show the Create board confirmation, including when the user also requests an item. Use create_board_arguments from the current draft verbatim. For a new create-board request, start with prepare_create_board and use that new draft. The user can edit the name, visibility, description, and workspace. For spoken or typed revisions, use prepare_create_board with the latest draft_id and changed fields. If the result has retry_create_board_arguments, show a fresh Create board confirmation with those arguments verbatim; the card shows Monday's rejection and the user's submitted settings. Wait for the user to edit and approve again. If no retry arguments are returned, report the error and check Monday before considering another create. On success, use item_destination.board_id and item_destination.item_name, when present, for prepare_create_item only if the user also requested an item. Follow the latest item name the user gave. A name edit while the Create item confirmation is active belongs to that item; use prepare_create_item and never reopen this board confirmation for that edit. Omit group_id for the top group unless the user specified a group. If the item name is missing, ask for it and retain this board ID for the reply. Always show a separate Create item confirmation. If the item is cancelled or fails, report that the board was created and the item wasn't confirmed. Resume from item preparation on this board if the user retries. Never create the board again to retry the item.";
+const groupPosition = z.enum(["top", "bottom", "before", "after"]);
+const groupName = () => nonempty().max(255);
+const prepareCreateGroupSchema = z.object({
+  board_id: id().optional(),
+  board_name: nonempty().optional(),
+  group_name: groupName().optional(),
+  position: z.object({ placement: groupPosition, reference_group: nonempty().optional() }).strict().optional(),
+  replaces_draft_id: draftId().optional(),
+}).strict();
+const createGroupSchema = z.object({
+  draft_id: draftId(),
+  group_name: groupName(),
+  position: nonempty(),
+  preview: z.object({
+    board: nonempty(),
+    positions: z.array(z.object({ value: nonempty(), label: nonempty() }).strict()),
+  }).strict(),
+}).strict();
+type CreateGroupInput = z.infer<typeof createGroupSchema>;
+type GroupRequest = Omit<z.infer<typeof prepareCreateGroupSchema>, "replaces_draft_id">;
+type PrepareCreateGroupOutput =
+  | { question: string; pending_group: { draft_id: string } }
+  | { create_group_arguments: CreateGroupInput };
+type GroupPlacement = { method: "before_at" | "after_at"; reference?: { id: string; title: string } };
+type CreateGroupDraft = {
+  accountId: string;
+  expires: number;
+  request: GroupRequest;
+  revising?: boolean;
+  confirmation?: {
+    boardId: string;
+    preview: CreateGroupInput["preview"];
+    positions: Map<string, GroupPlacement>;
+  };
+};
+const createGroupDrafts = new Map<string, CreateGroupDraft>();
+const prepareCreateGroupDescription = "Start here to create an empty group (section) on an existing Monday board. Pass the board name or a verified board ID, the new group name, and any requested position. Position defaults to bottom. For before or after, pass the reference group's name or verified ID in position.reference_group. If the result includes a question, ask it and use pending_group.draft_id as replaces_draft_id when the user answers. To revise the same pending group by voice, pass replaces_draft_id and only the changed fields. For a new request, start a fresh draft. Pass create_group_arguments verbatim to create_group for confirmation. This tool only reads Monday.";
+const createGroupDescription = "Use create_group_arguments from prepare_create_group verbatim to show the Create group confirmation. The card shows the board and lets the user edit the group name and position. For a spoken revision, use prepare_create_group with the current draft ID. Approval creates one empty group on the reviewed board. Only report success when the result confirms the group ID. Check Monday before retrying an unconfirmed creation.";
 const prepareArchiveBoardSchema = z.object({
   board_id: id().optional(),
   board_name: nonempty().optional(),
@@ -969,7 +1007,7 @@ const readItemForUpdateQuery = `query ReviewItem($itemIds: [ID!]!) {
 const saveItemUpdateMutation = `mutation SaveItem($boardId: ID!, $itemId: ID!, $values: JSON!) {
   change_multiple_column_values(board_id: $boardId, item_id: $itemId, column_values: $values) { id }
 }`;
-const readMoveDestinationQuery = `query ItemMoveDestination($boardIds: [ID!]!) {
+const readActiveBoardGroupsQuery = `query ItemMoveDestination($boardIds: [ID!]!) {
   boards(ids: $boardIds) { id name state groups { id title archived deleted } }
 }`;
 const moveItemMutation = `mutation MoveItem($groupId: String!, $itemId: ID!) {
@@ -1033,12 +1071,17 @@ async function readItemForUpdate(accountId: string, itemId: string, boardId?: st
   return { itemName, boardName, boardId: String(board.id), group: record(item.group), columns, values };
 }
 
-async function resolveItemMoveGroup(accountId: string, boardId: string, group: string) {
-  const data = await mondayGraphQL(accountId, readMoveDestinationQuery, { boardIds: [boardId] });
+async function readActiveBoardGroups(accountId: string, boardId: string) {
+  const data = await mondayGraphQL(accountId, readActiveBoardGroupsQuery, { boardIds: [boardId] });
   const board = metadataRows(data.boards).find(row => String(row.id) === boardId && row.state === "active");
   const boardName = displayText(board?.name);
-  if (!boardName) throw new Error("Could not verify the item's active board.");
-  const groups = metadataRows(board?.groups).filter(row => !row.archived && !row.deleted);
+  if (!boardName || !Array.isArray(board?.groups)) throw new Error("Could not verify the active Monday board and its groups.");
+  const groups = metadataRows(board.groups).filter(row => !row.archived && !row.deleted);
+  return { boardName, groups };
+}
+
+async function resolveItemMoveGroup(accountId: string, boardId: string, group: string) {
+  const { boardName, groups } = await readActiveBoardGroups(accountId, boardId);
   const titles = groups.filter(row => displayText(row.title)?.toLowerCase() === group.toLowerCase());
   const selected = groups.find(row => row.id === group) ?? (titles.length === 1 ? titles[0] : undefined);
   const groupName = displayText(selected?.title);
@@ -1502,6 +1545,124 @@ async function prepareCreateBoard(input: z.infer<typeof prepareCreateBoardSchema
   };
   saveDraft({ args, workspaceIds });
   return { message: "Use create_board_arguments to show the confirmation card.", create_board_arguments: args };
+}
+
+const createGroupMutation = `mutation CreateGroup($boardId: ID!, $name: String!, $method: PositionRelative!, $relativeTo: String) {
+  create_group(board_id: $boardId, group_name: $name, position_relative_method: $method, relative_to: $relativeTo) {
+    id title
+  }
+}`;
+
+async function prepareCreateGroup(input: z.infer<typeof prepareCreateGroupSchema>): Promise<PrepareCreateGroupOutput> {
+  const accountId = (await load()).accountId;
+  if (!accountId) throw new Error("Monday.com is not connected. Run Connect Monday.com.");
+  const now = Date.now();
+  for (const [key, draft] of createGroupDrafts) if (draft.expires <= now) createGroupDrafts.delete(key);
+  const { replaces_draft_id: replaces, ...changes } = input;
+  const prior = replaces ? createGroupDrafts.get(replaces) : undefined;
+  if (replaces && (!prior || prior.accountId !== accountId || prior.revising))
+    throw new Error("The group draft changed, expired, or was already used. Prepare a new draft if the group is still pending.");
+  if (changes.board_id !== undefined && changes.board_name !== undefined)
+    throw new Error("Choose the board by name or by ID.");
+  if (changes.position?.reference_group && (changes.position.placement === "top" || changes.position.placement === "bottom"))
+    throw new Error("A reference group is only used with Before or After.");
+  if (prior) prior.revising = true;
+  const request = { ...prior?.request, ...changes };
+  if (changes.board_name !== undefined) delete request.board_id;
+  if (changes.board_id !== undefined) delete request.board_name;
+  if ((changes.board_name !== undefined || changes.board_id !== undefined) && changes.position === undefined) {
+    const position = prior?.request.position;
+    const reference = position && prior?.confirmation?.positions.get(`${position.placement}:${position.reference_group}`)?.reference;
+    if (position && reference) request.position = { ...position, reference_group: reference.title };
+  }
+
+  const draftId = randomUUID();
+  function save(confirmation?: CreateGroupDraft["confirmation"]) {
+    if (replaces) createGroupDrafts.delete(replaces);
+    createGroupDrafts.set(draftId, { accountId: accountId!, expires: Date.now() + 30 * 60_000, request, confirmation });
+  }
+  function ask(question: string): PrepareCreateGroupOutput {
+    save();
+    return { question, pending_group: { draft_id: draftId } };
+  }
+
+  try {
+    if (request.board_id === undefined && !request.board_name)
+      return ask("Which Monday board should I add the group to?");
+    if (!request.group_name) return ask("What should I call the new group?");
+    if (request.board_id === undefined) {
+      const matches = await findBoardsByName(accountId, request.board_name!);
+      if (matches.length !== 1) return ask(`Which Monday board did you mean by “${request.board_name}”? Give its exact name or choose a specific board.`);
+      request.board_id = id().parse(Number(matches[0].id));
+    }
+    const boardId = String(request.board_id);
+    const { boardName, groups } = await readActiveBoardGroups(accountId, boardId);
+    const { placement, reference_group: reference } = request.position ?? { placement: "bottom" };
+    const positions = new Map<string, GroupPlacement>([
+      ["bottom", { method: "before_at" }],
+      ["top", { method: "after_at" }],
+    ]);
+    const options = [{ value: "bottom", label: "Bottom of board" }, { value: "top", label: "Top of board" }];
+    const references = groups.flatMap(group => {
+      const title = displayText(group.title);
+      return typeof group.id === "string" && group.id && title ? [{ id: group.id, title }] : [];
+    });
+    for (const group of references) {
+      for (const direction of ["before", "after"] as const) {
+        const value = `${direction}:${group.id}`;
+        positions.set(value, { method: direction === "before" ? "before_at" : "after_at", reference: group });
+        options.push({ value, label: `${direction === "before" ? "Before" : "After"} ${group.title}` });
+      }
+    }
+    let position: string = placement;
+    if (placement === "before" || placement === "after") {
+      const exact = references.filter(group => reference && matchesName(group.title, reference));
+      const group = references.find(group => group.id === reference) ?? (exact.length === 1 ? exact[0] : undefined);
+      if (!group) return ask(`Which group on “${boardName}” should I place it ${placement}? ${references.length
+        ? `Available groups: ${references.map(group => group.title).join(", ")}.`
+        : "Choose the top or bottom of the board."}`);
+      position = `${placement}:${group.id}`;
+      request.position = { placement, reference_group: group.id };
+    }
+    const preview = { board: boardName, positions: options };
+    save({ boardId, preview, positions });
+    return { create_group_arguments: { draft_id: draftId, group_name: request.group_name, position, preview } };
+  } finally {
+    if (prior) prior.revising = false;
+  }
+}
+
+async function createGroup(input: CreateGroupInput): Promise<WriteOutput & { groupName: string; boardId: string; boardName: string }> {
+  const draft = createGroupDrafts.get(input.draft_id);
+  const reviewed = draft?.confirmation;
+  if (!draft || !reviewed || draft.revising || draft.expires <= Date.now())
+    throw new Error("The group draft changed, expired, or was already used. Review a current confirmation.");
+  const placement = reviewed.positions.get(input.position);
+  if (!placement || !isDeepStrictEqual(input.preview, reviewed.preview))
+    throw new Error("Choose a position from the current Create group confirmation.");
+  createGroupDrafts.delete(input.draft_id);
+
+  const { boardId } = reviewed;
+  const { boardName, groups } = await readActiveBoardGroups(draft.accountId, boardId);
+  const { reference } = placement;
+  if (boardName !== reviewed.preview.board || (reference && !groups.some(group =>
+    group.id === reference.id && displayText(group.title) === reference.title)))
+    throw new Error("The board or reference group changed after review. Prepare the group again.");
+
+  let created;
+  try {
+    const data = await mondayGraphQL(draft.accountId, createGroupMutation, {
+      boardId, name: input.group_name, method: placement.method, relativeTo: reference?.id ?? null,
+    });
+    created = record(data.create_group);
+  } catch (error) {
+    const detail = error instanceof Error ? ` ${error.message}` : "";
+    throw new Error(`Could not confirm group creation.${detail} Check Monday.com before retrying.`);
+  }
+  const groupId = displayText(created?.id);
+  if (!groupId) throw new Error("Monday.com did not return a group ID. Check Monday.com before retrying.");
+  const groupName = displayText(created?.title) ?? input.group_name;
+  return { status: "Group created", message: `Created “${groupName}” on “${boardName}”.`, id: groupId, groupName, boardId, boardName };
 }
 
 async function readBoardById(boardId: number, accountId: string) {
@@ -1989,7 +2150,7 @@ button.addEventListener('click', () => {
 async function feedback(
   title: string,
   extra: ProgressContext,
-  run: () => Promise<Output | ReadOutput | WriteOutput | CreatedBoardOutput | RejectedBoardOutput | PrepareCreateItemOutput | PrepareCreateBoardOutput | PrepareUpdateItemOutput | PrepareArchiveBoardOutput>,
+  run: () => Promise<Output | ReadOutput | WriteOutput | CreatedBoardOutput | RejectedBoardOutput | PrepareCreateItemOutput | PrepareCreateBoardOutput | PrepareUpdateItemOutput | PrepareCreateGroupOutput | PrepareArchiveBoardOutput>,
   notifyResult = false,
   errorTitle?: string,
 ) {
@@ -2003,7 +2164,7 @@ async function feedback(
   const isError = "error" in data;
   await progress(extra, `${title}: ${isError ? "failed" : "finished"}`, true);
   if ("question" in data || "update_item_arguments" in data || "update_item_details" in data || "create_item_arguments" in data || "create_board_arguments" in data || "pending_board" in data ||
-      "board_draft_status" in data || "archive_board_arguments" in data || "board" in data) {
+      "board_draft_status" in data || "create_group_arguments" in data || "archive_board_arguments" in data || "board" in data) {
     return { content: [{ type: "text" as const, text: JSON.stringify(data) }] };
   }
   let notificationQueued = false;
@@ -2231,6 +2392,16 @@ server.registerTool("create_board", {
   title: "Create Monday.com board", description: createBoardDescription, inputSchema: createBoardSchema,
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
 }, async (input, extra) => feedback("Create Monday.com board", extra, () => createBoard(input)));
+
+server.registerTool("prepare_create_group", {
+  title: "Prepare Monday.com group", description: prepareCreateGroupDescription, inputSchema: prepareCreateGroupSchema,
+  annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+}, async (input, extra) => feedback("Prepare Monday.com group", extra, () => prepareCreateGroup(input), false, "Couldn’t prepare Monday group"));
+
+server.registerTool("create_group", {
+  title: "Create Monday.com group", description: createGroupDescription, inputSchema: createGroupSchema,
+  annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+}, async (input, extra) => feedback("Create Monday.com group", extra, () => createGroup(input)));
 
 server.registerTool("prepare_archive_board", {
   title: "Prepare Monday.com board archive", description: prepareArchiveBoardDescription, inputSchema: prepareArchiveBoardSchema,

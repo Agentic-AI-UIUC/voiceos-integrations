@@ -1,6 +1,6 @@
 # Monday.com — 0.1.3
 
-macOS VoiceOS integration using Composio-managed OAuth. This version exposes three account tools, two read tools, and five write tools:
+macOS VoiceOS integration using Composio-managed OAuth. This version exposes three account tools, two read tools, and six write tools:
 
 - **Connect Monday.com** (`connect_account`): open browser authorization and immediately return its pending state and link, or verify a saved active connection.
 - **Monday.com account** (`connection_status`): check connection status (active, pending, disconnected, or expired). Read-only; does not start OAuth.
@@ -36,7 +36,7 @@ Results contain `records` and `pagination`. Board and item-ID reads return `next
 
 Board and item browsing use `MONDAY_BOARDS`, `MONDAY_GET_ITEMS`, and `MONDAY_ITEMS_PAGE` through the Composio SDK using the saved installation identity and connected account, pinned to toolkit version `20261101_00`. Reads verify an active Monday connection first and have a 20-second account-check/execution deadline. Composio failures and Monday GraphQL errors are returned as errors, with reconnect guidance for invalid authorization. Reads never initiate OAuth automatically.
 
-The MCP allowlist contains three account controls, two browsing tools, four read-only preparation tools, and five writes. Delete board and membership changes remain pending.
+The MCP allowlist contains three account controls, two browsing tools, five read-only preparation tools, and six writes. Delete board and membership changes remain pending.
 
 ## Write tools (pass 2)
 
@@ -46,6 +46,8 @@ The MCP allowlist contains three account controls, two browsing tools, four read
 - `update_item_values`: pass the returned `update_item_arguments` verbatim to show the item's current and proposed values on one VoiceOS card. To revise it by voice, call `prepare_update_item` with `replaces_draft_id` and the complete revised set of changes. **Save changes** rechecks the preview and sends one mutation. The result reports which values were verified on the item after saving.
 - To move an item within its board, pass the destination group title or ID in `destination_group` to `prepare_update_item`. The same confirmation shows the current and destination groups and any column edits. VoiceOS saves and verifies column edits first, then attempts and verifies the move.
 - `create_update`: required `item_id` and nonempty `body` to post an update/comment.
+- `prepare_create_group`: pass the destination as `board_name` or a verified `board_id`, and the new group's `group_name`. Placement defaults to the bottom. Pass `position.placement` as `top`, `bottom`, `before`, or `after`, with `position.reference_group` for a relative placement. Use the latest draft ID as `replaces_draft_id` when answering a clarification or revising a draft.
+- `create_group`: use `create_group_arguments` to open the **Create group** card. It shows the destination board and lets the user edit the name and position. Approval creates one empty group using Monday's `create_group` mutation through Composio Proxy Execute. The result includes the confirmed group ID. For an uncertain outcome, check Monday before trying again.
 - `prepare_archive_board`: pass the board name or a verified board ID. If the name matches multiple boards, use the returned choices to clarify which one the user means. Pass `replaces_draft_id` to revise an open confirmation by voice.
 - `archive_board`: pass the returned `archive_board_arguments` to open the **Archive board** card. The board picker preselects the requested board and shows workspace names when available. Approval rechecks the selected board and archives it through Composio Proxy Execute. Check Monday.com before retrying an uncertain outcome.
 - `prepare_create_board`: pass the known `board_name`, `board_kind` (`public`, `private`, or `share`), `description`, and `workspace` name. If the board name is missing or the workspace lookup has no unique match, the result includes a question and a `pending_board.draft_id`. For a follow-up to that question or an edit before approval, pass the latest draft ID as `replaces_draft_id` and the changed fields. Use `workspace: null` to switch to the default workspace.
