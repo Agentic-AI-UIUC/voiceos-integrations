@@ -1,6 +1,6 @@
 # Monday.com — 0.1.3
 
-macOS VoiceOS integration using Composio-managed OAuth. This version exposes three account tools, two read tools, and four write tools:
+macOS VoiceOS integration using Composio-managed OAuth. This version exposes three account tools, two read tools, and five write tools:
 
 - **Connect Monday.com** (`connect_account`): open browser authorization and immediately return its pending state and link, or verify a saved active connection.
 - **Monday.com account** (`connection_status`): check connection status (active, pending, disconnected, or expired). Read-only; does not start OAuth.
@@ -36,7 +36,7 @@ Results contain `records` and `pagination`. Board and item-ID reads return `next
 
 Board and item browsing use `MONDAY_BOARDS`, `MONDAY_GET_ITEMS`, and `MONDAY_ITEMS_PAGE` through the Composio SDK using the saved installation identity and connected account, pinned to toolkit version `20261101_00`. Reads verify an active Monday connection first and have a 20-second account-check/execution deadline. Composio failures and Monday GraphQL errors are returned as errors, with reconnect guidance for invalid authorization. Reads never initiate OAuth automatically.
 
-The MCP allowlist contains three account controls, two browsing tools, three read-only preparation tools, and four writes. Delete board, archive board, and membership changes remain for pass 3.
+The MCP allowlist contains three account controls, two browsing tools, four read-only preparation tools, and five writes. Delete board and membership changes remain pending.
 
 ## Write tools (pass 2)
 
@@ -46,6 +46,8 @@ The MCP allowlist contains three account controls, two browsing tools, three rea
 - `update_item_values`: pass the returned `update_item_arguments` verbatim to show the item's current and proposed values on one VoiceOS card. To revise it by voice, call `prepare_update_item` with `replaces_draft_id` and the complete revised set of changes. **Save changes** rechecks the preview and sends one mutation. The result reports which values were verified on the item after saving.
 - To move an item within its board, pass the destination group title or ID in `destination_group` to `prepare_update_item`. The same confirmation shows the current and destination groups and any column edits. VoiceOS saves and verifies column edits first, then attempts and verifies the move.
 - `create_update`: required `item_id` and nonempty `body` to post an update/comment.
+- `prepare_archive_board`: pass the board name or a verified board ID. If the name matches multiple boards, use the returned choices to clarify which one the user means. Pass `replaces_draft_id` to revise an open confirmation by voice.
+- `archive_board`: pass the returned `archive_board_arguments` to open the **Archive board** card. The board picker preselects the requested board and shows workspace names when available. Approval rechecks the selected board and archives it through Composio Proxy Execute. Check Monday.com before retrying an uncertain outcome.
 - `prepare_create_board`: pass the known `board_name`, `board_kind` (`public`, `private`, or `share`), `description`, and `workspace` name. If the board name is missing or the workspace lookup has no unique match, the result includes a question and a `pending_board.draft_id`. For a follow-up to that question or an edit before approval, pass the latest draft ID as `replaces_draft_id` and the changed fields. Use `workspace: null` to switch to the default workspace.
 - `create_board`: pass the returned `create_board_arguments` to show the VoiceOS confirmation for standalone and chained requests. The user can edit the name, visibility, description, and workspace. Public and the default workspace are preselected when omitted. The default workspace remains available when the connection lacks workspace read access. After approval, the result includes the confirmed ID, name, and board URL when available. VoiceOS shows an **Open board** action when it has a verified link.
 - When Monday definitively rejects the requested visibility, use `retry_create_board_arguments` to show a fresh confirmation with the error and the submitted values. Wait for approval again. For an uncertain outcome, check Monday before another create.
@@ -101,7 +103,7 @@ bun test
 bun run build
 ```
 
-Tests run a disposable copy of the real MCP server with the real Composio SDK. All HTTP and browser calls are intercepted locally; real credentials and installed OAuth state are never loaded. Coverage includes the eleven-tool allowlist and manifest/schema parity, confirmation contracts, OAuth completion/reuse/recovery, concurrent account calls, disconnect revocation/fallback/failures, credential redaction, and notifications. Read coverage includes saved-account/version routing, progress, filters, page/cursor pagination, column-value preservation, invalid inputs, empty and malformed results, GraphQL/HTTP failures, and expired/revoked/disabled connections.
+Tests run a disposable copy of the real MCP server with the real Composio SDK. All HTTP and browser calls are intercepted locally; real credentials and installed OAuth state are never loaded. Coverage includes the tool allowlist and manifest/schema parity, confirmation contracts, OAuth completion/reuse/recovery, concurrent account calls, disconnect revocation/fallback/failures, credential redaction, and notifications. Read coverage includes saved-account/version routing, progress, filters, page/cursor pagination, column-value preservation, invalid inputs, empty and malformed results, GraphQL/HTTP failures, and expired/revoked/disabled connections.
 
 Manual checks in VoiceOS are still required for rendered confirmation/result cards and notifications, and a live Monday login is required to verify real consent. The integration does not claim that offline tests verify provider token refresh.
 

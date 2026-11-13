@@ -133,7 +133,7 @@
       "name": "prepare_create_item",
       "visibility": "agent",
       "title": "Prepare Monday.com item",
-      "description": "Start every Monday item creation here. An explicit item rename, or \"change the name to …\" while the Create item confirmation is active, changes item_name. Pass the new item_name and replaces_draft_id, or revises_item_name with the previous item name. Omit board and group fields unless the user asks to change them. Never use create_board for an item rename. If it is unclear which name the user means, ask whether they mean the board or the item. A follow-up such as 'change the board to voiceos' after a Create item card means change the pending item's destination. For that correction, call this tool with the new board_name and replaces_draft_id. If the pending ID is missing from the context, pass revises_item_name with the exact pending item's name from this conversation. If neither is known, ask which pending item should go on the requested board. Board renaming is unavailable. Omitted group and column arguments are carried over on a revision; ask if a requested value cannot be matched. For a new item, pass item_name and the board the user specified in the request, including a clear reference such as 'that board'. Use board_name or a verified board_id. If the user did not specify a destination, omit both board fields and ask the user to choose. Do not infer a destination from past requests or board lists. If the result is board_choices, ask its question as the final response for that turn and wait for the user to say or type a board name. This is a clarification, so do not open a confirmation yet. A bare board name after that question answers it, even if the reply contains no verb. Call prepare_create_item again with that board_name and pending_item.draft_id as replaces_draft_id, or use revises_item_name with pending_item.item_name if the draft ID is unavailable. Do not list boards or items in response to that choice. Once preparation returns create_item_arguments, call create_item for confirmation. This tool only reads Monday. With a resolved board and without item_name or a revision, it returns groups and columns. Pass optional group_id (ID or title; omit for the top group) and only requested column_values keyed by actual column ID or exact title. Use exact status labels, ISO dates, and Monday person names or IDs. Pass create_item_arguments verbatim to create_item. Never silently drop a requested value.",
+      "description": "Use this tool for item creation or edits to the latest pending Create item confirmation. If the latest confirmation was Archive board, a correction to its board belongs to prepare_archive_board. Start every Monday item creation here. An explicit item rename, or \"change the name to …\" while the Create item confirmation is active, changes item_name. Pass the new item_name and replaces_draft_id, or revises_item_name with the previous item name. Omit board and group fields unless the user asks to change them. Never use create_board for an item rename. If it is unclear which name the user means, ask whether they mean the board or the item. A follow-up such as 'change the board to voiceos' after a Create item card means change the pending item's destination. For that correction, call this tool with the new board_name and replaces_draft_id. If the pending ID is missing from the context, pass revises_item_name with the exact pending item's name from this conversation. If neither is known, ask which pending item should go on the requested board. Board renaming is unavailable. Omitted group and column arguments are carried over on a revision; ask if a requested value cannot be matched. For a new item, pass item_name and the board the user specified in the request, including a clear reference such as 'that board'. Use board_name or a verified board_id. If the user did not specify a destination, omit both board fields and ask the user to choose. Do not infer a destination from past requests or board lists. If the result is board_choices, ask its question as the final response for that turn and wait for the user to say or type a board name. This is a clarification, so do not open a confirmation yet. A bare board name after that question answers it, even if the reply contains no verb. Call prepare_create_item again with that board_name and pending_item.draft_id as replaces_draft_id, or use revises_item_name with pending_item.item_name if the draft ID is unavailable. Do not list boards or items in response to that choice. Once preparation returns create_item_arguments, call create_item for confirmation. This tool only reads Monday. With a resolved board and without item_name or a revision, it returns groups and columns. Pass optional group_id (ID or title; omit for the top group) and only requested column_values keyed by actual column ID or exact title. Use exact status labels, ISO dates, and Monday person names or IDs. Pass create_item_arguments verbatim to create_item. Never silently drop a requested value.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -658,6 +658,118 @@
               "confirmLabel": "Create board",
               "height": 112,
               "html": "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<style>\n:root {\n  --ink: rgba(255,255,255,.88);\n  --muted: rgba(255,255,255,.38);\n  --fill: rgba(255,255,255,.024);\n  --focus-fill: rgba(255,255,255,.052);\n  --divider: rgba(255,255,255,.08);\n  --menu-scheme: dark;\n  font: 12.5px/1.4 system-ui, sans-serif;\n  color: var(--ink);\n}\n:root[data-theme=\"light\"] {\n  --ink: rgba(0,0,0,.88);\n  --muted: rgba(0,0,0,.56);\n  --fill: rgba(0,0,0,.04);\n  --focus-fill: rgba(0,0,0,.07);\n  --divider: rgba(0,0,0,.09);\n  --menu-scheme: light;\n}\n/* Setting the color scheme on the document can give a transparent iframe an opaque canvas. */\nhtml, body { margin: 0; background: transparent; }\nlabel { display: grid; gap: 6px; color: var(--muted); font-size: 11.5px; font-weight: 500; }\n.control { position: relative; display: block; }\n.control::after {\n  content: \"\";\n  position: absolute;\n  top: 50%;\n  right: 12px;\n  width: 5px;\n  height: 5px;\n  border: solid currentColor;\n  border-width: 0 1px 1px 0;\n  transform: translateY(-75%) rotate(45deg);\n  pointer-events: none;\n}\nselect {\n  appearance: none;\n  box-sizing: border-box;\n  width: 100%;\n  padding: 8px 28px 8px 10px;\n  border: 0;\n  border-radius: 10px;\n  background: var(--fill);\n  color: var(--ink);\n  color-scheme: var(--menu-scheme);\n  font: 12.5px/normal system-ui, sans-serif;\n}\nselect:focus { background: var(--focus-fill); }\nselect:focus-visible { outline: 1px solid currentColor; outline-offset: -1px; }\n.fields { display: grid; gap: 8px; }\np { margin: 0; color: var(--muted); font-size: 11.5px; }\n</style>\n</head>\n<body>\n<div class=\"fields\">\n  <label>Visibility<span class=\"control\"><select id=\"board_kind\" disabled>\n    <option value=\"public\">Public</option>\n    <option value=\"private\">Private</option>\n    <option value=\"share\">Shareable</option>\n  </select></span></label>\n  <label>Workspace<span class=\"control\"><select id=\"workspace_choice\" disabled></select></span></label>\n  <p hidden></p>\n</div>\n<script>\nconst visibility = document.querySelector('#board_kind');\nconst workspace = document.querySelector('#workspace_choice');\nconst notice = document.querySelector('p');\nlet height = 0;\nfunction resize() {\n  const next = Math.ceil(document.body.getBoundingClientRect().height);\n  if (next < 1 || height === next) return;\n  height = next;\n  parent.postMessage({ type: 'voiceos:resize', height }, '*');\n}\naddEventListener('message', event => {\n  if (event.source !== parent || event.data?.type !== 'voiceos:init') return;\n  const { board_kind, workspace_choice, workspace_choices, workspace_notice } = event.data.args ?? {};\n  if (!Array.isArray(workspace_choices)) return;\n  document.documentElement.dataset.theme = event.data.theme?.mode === 'light' ? 'light' : 'dark';\n  visibility.value = board_kind ?? 'public';\n  visibility.disabled = false;\n  workspace.replaceChildren(...workspace_choices.map(({ value, label }) => new Option(label, value)));\n  workspace.value = workspace_choice ?? 'default';\n  workspace.disabled = workspace_choices.length < 2;\n  notice.textContent = workspace_notice ?? '';\n  notice.hidden = !workspace_notice;\n  resize();\n});\nfor (const select of [visibility, workspace]) {\n  select.addEventListener('change', () => {\n    parent.postMessage({ type: 'voiceos:updateInput', key: select.id, value: select.value }, '*');\n  });\n}\nnew ResizeObserver(resize).observe(document.body);\n</script>\n</body>\n</html>\n"
+            },
+            {
+              "type": "stack",
+              "direction": "vertical",
+              "align": "start",
+              "children": [
+                {
+                  "type": "button",
+                  "label": "Cancel",
+                  "role": "cancel"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "prepare_archive_board",
+      "visibility": "agent",
+      "title": "Prepare Monday.com board archive",
+      "description": "Start every Monday board archive here, including a correction to the target while the Archive board confirmation is open or immediately after VoiceOS dismisses it for an edit. A short reply such as “I meant the testing one”, “the testing board instead”, or “testing” following that confirmation means archive testing. Keep the archive action from the latest confirmation. Call this tool with the corrected board_name and replaces_draft_id from that confirmation. If its draft ID is missing, use revises_board_name with the exact previous board name from this conversation. Use board_name or a verified board_id for the new target. If the result contains a question, ask it and use any matching_boards to clarify. Pass archive_board_arguments verbatim to archive_board to show a fresh confirmation. This tool only reads Monday.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "board_id": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "board_name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "replaces_draft_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "revises_board_name": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
+      },
+      "uiCallable": true,
+      "execution": {
+        "mode": "sync",
+        "estimatedDurationMs": 5000
+      }
+    },
+    {
+      "name": "archive_board",
+      "title": "Archive Monday.com board",
+      "description": "Show the Archive board confirmation using archive_board_arguments from prepare_archive_board verbatim. The card lets the user change the board before approving. If the user says or types a different board, including “I meant the testing one”, keep the pending archive action. Call prepare_archive_board with the new board and the previous draft ID or exact previous board name, then show a fresh Archive board confirmation. Only approval archives the selected board. Check Monday.com before retrying an unconfirmed archive.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "draft_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "board_choice": {
+            "type": "string",
+            "minLength": 1
+          },
+          "board_choices": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "label": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "value",
+                "label"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "draft_id",
+          "board_choice",
+          "board_choices"
+        ],
+        "additionalProperties": false
+      },
+      "uiCallable": true,
+      "execution": {
+        "mode": "sync",
+        "estimatedDurationMs": 5000
+      },
+      "confirmation": {
+        "schemaVersion": 1,
+        "root": {
+          "type": "card",
+          "title": "Archive board",
+          "children": [
+            {
+              "type": "widget",
+              "label": "Board",
+              "confirmLabel": "Archive board",
+              "height": 54,
+              "html": "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<style>\n:root {\n  --ink: rgba(255,255,255,.88);\n  --muted: rgba(255,255,255,.38);\n  --fill: rgba(255,255,255,.024);\n  --focus-fill: rgba(255,255,255,.052);\n  --divider: rgba(255,255,255,.08);\n  --menu-scheme: dark;\n  font: 12.5px/1.4 system-ui, sans-serif;\n  color: var(--ink);\n}\n:root[data-theme=\"light\"] {\n  --ink: rgba(0,0,0,.88);\n  --muted: rgba(0,0,0,.56);\n  --fill: rgba(0,0,0,.04);\n  --focus-fill: rgba(0,0,0,.07);\n  --divider: rgba(0,0,0,.09);\n  --menu-scheme: light;\n}\n/* Setting the color scheme on the document can give a transparent iframe an opaque canvas. */\nhtml, body { margin: 0; background: transparent; }\nlabel { display: grid; gap: 6px; color: var(--muted); font-size: 11.5px; font-weight: 500; }\n.control { position: relative; display: block; }\n.control::after {\n  content: \"\";\n  position: absolute;\n  top: 50%;\n  right: 12px;\n  width: 5px;\n  height: 5px;\n  border: solid currentColor;\n  border-width: 0 1px 1px 0;\n  transform: translateY(-75%) rotate(45deg);\n  pointer-events: none;\n}\nselect {\n  appearance: none;\n  box-sizing: border-box;\n  width: 100%;\n  padding: 8px 28px 8px 10px;\n  border: 0;\n  border-radius: 10px;\n  background: var(--fill);\n  color: var(--ink);\n  color-scheme: var(--menu-scheme);\n  font: 12.5px/normal system-ui, sans-serif;\n}\nselect:focus { background: var(--focus-fill); }\nselect:focus-visible { outline: 1px solid currentColor; outline-offset: -1px; }\n</style>\n</head>\n<body>\n<label>Board<span class=\"control\"><select id=\"board_choice\" disabled></select></span></label>\n<script>\nconst board = document.querySelector('#board_choice');\nlet height = 0;\nfunction resize() {\n  const next = Math.ceil(document.body.getBoundingClientRect().height);\n  if (next < 1 || height === next) return;\n  height = next;\n  parent.postMessage({ type: 'voiceos:resize', height }, '*');\n}\naddEventListener('message', event => {\n  if (event.source !== parent || event.data?.type !== 'voiceos:init') return;\n  const { board_choice, board_choices } = event.data.args ?? {};\n  if (!Array.isArray(board_choices)) return;\n  document.documentElement.dataset.theme = event.data.theme?.mode === 'light' ? 'light' : 'dark';\n  board.replaceChildren(...board_choices.map(({ value, label }) => new Option(label, value)));\n  board.value = board_choice;\n  board.disabled = false;\n  resize();\n});\nboard.addEventListener('change', () => {\n  parent.postMessage({ type: 'voiceos:updateInput', key: board.id, value: board.value }, '*');\n});\nnew ResizeObserver(resize).observe(document.body);\n</script>\n</body>\n</html>"
             },
             {
               "type": "stack",

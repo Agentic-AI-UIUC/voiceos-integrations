@@ -14,7 +14,7 @@ const manifest = JSON.parse(readFileSync(join(ROOT, "voiceos.integration.json"),
 const KEY = "offline-monday-key-only";
 const IDENTITY = { userId: "voiceos-monday-test" };
 const ACTIVE = { ...IDENTITY, accountId: "ca_test" };
-const TOOLS = ["connect_account", "connection_status", "disconnect_account", "get_boards", "get_items", "prepare_create_item", "create_item", "prepare_update_item", "update_item_values", "create_update", "prepare_create_board", "create_board"].sort();
+const TOOLS = ["connect_account", "connection_status", "disconnect_account", "get_boards", "get_items", "prepare_create_item", "create_item", "prepare_update_item", "update_item_values", "create_update", "prepare_create_board", "create_board", "prepare_archive_board", "archive_board"].sort();
 const directory = mkdtempSync(join(tmpdir(), "voiceos-monday-tests-"));
 const statePath = join(directory, ".composio-auth.json");
 const scenarioPath = join(directory, "scenario.json");
@@ -98,11 +98,11 @@ describe("account tools contract", () => {
       expect(actual.description).toBe(declared.description);
       expect(actual.inputSchema.properties).toEqual(declared.inputSchema.properties);
       expect(actual.inputSchema.additionalProperties).toBe(false);
-      if (["connection_status", "get_boards", "get_items", "prepare_create_item", "prepare_create_board", "prepare_update_item"].includes(actual.name)) {
+      if (["connection_status", "get_boards", "get_items", "prepare_create_item", "prepare_create_board", "prepare_update_item", "prepare_archive_board"].includes(actual.name)) {
         expect(declared.confirmation).toBeUndefined();
         expect(declared.uiCallable).toBe(true);
         expect(actual.annotations?.readOnlyHint).toBe(true);
-      } else if (["create_item", "update_item_values", "create_update", "create_board"].includes(actual.name)) {
+      } else if (["create_item", "update_item_values", "create_update", "create_board", "archive_board"].includes(actual.name)) {
         if (actual.name === "create_item" || actual.name === "create_board") {
           const item = actual.name === "create_item";
           const root = declared.confirmation.root;
@@ -119,6 +119,13 @@ describe("account tools contract", () => {
           if (!item) expect(root.children[0]).toMatchObject({
             type: "text", text: "{{submission_error}}", visibleIf: "{{submission_error}}", color: "danger",
           });
+        } else if (actual.name === "archive_board") {
+          const children = declared.confirmation.root.children;
+          expect(children.map((block: { type: string }) => block.type)).toEqual(["widget", "stack"]);
+          expect(children[0].confirmLabel).toBe("Archive board");
+          expect(children[0].html).toContain('<select id="board_choice"');
+          expect(children[1].children).toEqual([{ type: "button", label: "Cancel", role: "cancel" }]);
+          expect(actual.annotations?.destructiveHint).toBe(true);
         } else if (actual.name === "update_item_values") {
           expect(declared.confirmation.root.children.find((block: { type: string }) => block.type === "widget").confirmLabel).toBe("Save changes");
           expect(declared.confirmation.root.children.at(-1).children).toEqual([{ type: "button", label: "Cancel", role: "cancel" }]);
@@ -1561,6 +1568,105 @@ describe("reviewed Monday item updates", () => {
     const result = await invoke("update_item_values", args);
     expect(result.isError).toBe(true);
     expect(result.body.error).toContain("Verified changes: Name. Could not verify: Text.");
+    expect(writes()).toHaveLength(1);
+  });
+});
+
+describe("Monday archive board confirmation", () => {
+  const roadmap = { id: "123", name: "Roadmap", state: "active", workspace: { id: "1", name: "Product" } };
+  const launch = { id: "6000000456", name: "Launch", state: "active", workspace: { id: "2", name: "Marketing" } };
+  const archived = { id: "789", name: "Old", state: "archived" };
+  const writes = () => events().filter(event => JSON.stringify(event.body)?.includes("mutation ArchiveBoard"));
+  function configure(overrides: Scenario = {}) {
+    scenario({
+      boardPages: { 1: [roadmap, launch, archived] },
+      proxyArchivedBoard: { id: launch.id, state: "archived" },
+      ...overrides,
+    });
+  }
+
+  test("archives the board chosen on the card once, including a choice from a later page", async () => {
+    configure({ boardPages: { 1: [roadmap, ...Array.from({ length: 99 }, (_, i) =>
+      ({ id: String(1000 + i), name: `Board ${i}` }))], 2: [launch, archived] } });
+    const { body } = await invoke("prepare_archive_board", { board_name: "Road" });
+    const args = body.archive_board_arguments;
+    expect(args.board_choice).toBe(roadmap.id);
+    expect(args.board_choices).toContainEqual({ value: launch.id, label: "Launch — Marketing" });
+    expect(args.board_choices).not.toContainEqual({ value: archived.id, label: "Old" });
+    expect(writes()).toHaveLength(0);
+
+    expect((await invoke("archive_board", { ...args, board_choice: "789" })).isError).toBe(true);
+    expect((await invoke("archive_board", { ...args, board_choices: [] })).isError).toBe(true);
+    const approval = { ...args, board_choice: launch.id };
+    const results = await Promise.all([invoke("archive_board", approval), invoke("archive_board", approval)]);
+    expect(results.filter(result => result.isError)).toHaveLength(1);
+    expect(results.find(result => !result.isError)?.body).toMatchObject({
+      id: launch.id, status: "Board archived", message: "Archived “Launch”.",
+    });
+    expect(writes()).toHaveLength(1);
+    expect(writes()[0].body).toMatchObject({
+      body: { query: expect.stringContaining(`archive_board(board_id: ${launch.id})`), variables: {} },
+    });
+    const boardReads = events().filter(event => event.path?.endsWith("/execute/MONDAY_BOARDS"));
+    expect(boardReads.map(event => event.body?.arguments)).toEqual([
+      { state: "active", page: 1, limit: 100 },
+      { state: "active", page: 2, limit: 100 },
+      { state: "active", page: 1, limit: 100 },
+      { state: "active", page: 2, limit: 100 },
+    ]);
+    expect(notifications).toEqual([]);
+  });
+
+  test("clarifies duplicate board names and invalidates a replaced confirmation", async () => {
+    const duplicate = { ...launch, name: roadmap.name };
+    configure({ boardPages: { 1: [roadmap, duplicate] } });
+    expect((await invoke("prepare_archive_board", {})).body.question).toContain("Which Monday board");
+    const ambiguous = await invoke("prepare_archive_board", { board_name: "Roadmap" });
+    expect(ambiguous.body.matching_boards).toEqual([
+      { value: launch.id, label: "Roadmap — Marketing" },
+      { value: roadmap.id, label: "Roadmap — Product" },
+    ]);
+    const { body } = await invoke("prepare_archive_board", { board_id: 123 });
+    const original = body.archive_board_arguments;
+    const revised = await invoke("prepare_archive_board", { board_id: Number(launch.id), replaces_draft_id: original.draft_id });
+    expect(revised.body.archive_board_arguments.board_choice).toBe(launch.id);
+    expect((await invoke("archive_board", original)).isError).toBe(true);
+    expect(writes()).toHaveLength(0);
+  });
+
+  test("rejects a board that is no longer active at approval", async () => {
+    configure();
+    const { body } = await invoke("prepare_archive_board", { board_id: Number(launch.id) });
+    configure({ boardPages: { 1: [roadmap, { ...launch, state: "archived" }] } });
+    const result = await invoke("archive_board", body.archive_board_arguments);
+    expect(result.body.error).toContain("no longer active");
+    expect(writes()).toHaveLength(0);
+  });
+
+  test("replaces the cs173 archive with a testing confirmation when the prior draft ID is missing", async () => {
+    const cs173 = { ...roadmap, name: "cs173" };
+    const testing = { ...launch, name: "testing" };
+    configure({ boardPages: { 1: [cs173, testing] } });
+    const original = await invoke("prepare_archive_board", { board_name: "cs173" });
+    expect(original.body.message).toContain("archive the Monday board “cs173”");
+    const correction = await invoke("prepare_archive_board", { board_name: "testing", revises_board_name: "CS173" });
+    expect(correction.body.message).toContain("archive the Monday board “testing”");
+    expect(correction.body.archive_board_arguments.board_choice).toBe(testing.id);
+    expect((await invoke("archive_board", original.body.archive_board_arguments)).isError).toBe(true);
+    expect(writes()).toHaveLength(0);
+  });
+
+  test.each([
+    { proxyMutationHttpStatus: 504 },
+    { proxyArchivedBoard: { id: launch.id, state: "active" } },
+    { proxyArchivedBoard: { id: "123", state: "archived" } },
+  ])("reports an unconfirmed archive without retrying", async overrides => {
+    configure(overrides);
+    const { body } = await invoke("prepare_archive_board", { board_id: Number(launch.id) });
+    const result = await invoke("archive_board", body.archive_board_arguments);
+    expect(result.isError).toBe(true);
+    expect(result.body.error).toContain("Check Monday.com before retrying");
+    expect((await invoke("archive_board", body.archive_board_arguments)).isError).toBe(true);
     expect(writes()).toHaveLength(1);
   });
 });

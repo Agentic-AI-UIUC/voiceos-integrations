@@ -21,11 +21,13 @@ export type Scenario = {
   proxyMutationData?: Record<string, unknown>;
   proxyItem?: Record<string, unknown>;
   proxyUpdatedItem?: Record<string, unknown>;
+  proxyArchivedBoard?: Record<string, unknown>;
   proxyDestination?: Record<string, unknown>;
   proxyMovedItem?: Record<string, unknown>;
   toolData?: Record<string, unknown>;
   toolDataByAction?: Record<string, Record<string, unknown>>;
   userPages?: Record<number, Record<string, unknown>[]>;
+  boardPages?: Record<number, Record<string, unknown>[]>;
   workspacePages?: Record<number, Record<string, unknown>[]>;
   toolSuccessful?: boolean;
   toolError?: string;
@@ -67,6 +69,12 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
       const query = body?.body?.query ?? "";
       if (query.startsWith("query ItemMoveDestination"))
         return respond({ status: 200, data: { data: { boards: config.proxyDestination ? [config.proxyDestination] : [] } } });
+      if (query.startsWith("mutation ArchiveBoard")) {
+        if (!/archive_board\(board_id: [1-9]\d*\)/.test(query))
+          return respond({ status: 200, data: { errors: [{ message: "Invalid board ID format" }] } });
+        if (config.proxyMutationHttpStatus) return respond({ message: "Write outcome unknown" }, config.proxyMutationHttpStatus);
+        return respond({ status: 200, data: { data: { archive_board: config.proxyArchivedBoard ?? {} } } });
+      }
       if (query.startsWith("mutation MoveItem"))
         return respond({ status: 200, data: config.proxyMovedItem
           ? { data: { move_item_to_group: config.proxyMovedItem } }
@@ -100,7 +108,7 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
           data: config.toolDataByAction?.[execute[1]] ?? config.toolData ?? (execute[1] === "MONDAY_LIST_USERS"
             ? { users: config.userPages?.[body?.arguments?.page] ?? [] }
             : execute[1] === "MONDAY_GET_WORKSPACES" ? { workspaces: config.workspacePages?.[body?.arguments?.page] ?? [] }
-            : execute[1] === "MONDAY_BOARDS" ? { boards: [] }
+            : execute[1] === "MONDAY_BOARDS" ? { boards: config.boardPages?.[body?.arguments?.page] ?? [] }
             : execute[1] === "MONDAY_GET_ITEMS" ? { items: [] } : { items: [], cursor: null }),
         });
     }
