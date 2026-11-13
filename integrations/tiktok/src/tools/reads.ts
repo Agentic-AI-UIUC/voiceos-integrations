@@ -141,24 +141,27 @@ export function videoOf(raw: unknown): VideoSummary | undefined {
   const text = (v: unknown) => (typeof v === "string" && v.trim() ? v : undefined);
   const title = text(r.title);
   const description = text(r.video_description);
-  return compactObject({
-    id,
+  return {
+    ...compactObject({
+      id,
+      title,
+      video_description: description,
+      create_time: num(r.create_time),
+      duration: num(r.duration),
+      width: num(r.width),
+      height: num(r.height),
+      cover_image_url: httpsUrl(r.cover_image_url),
+      share_url: httpsUrl(r.share_url),
+      embed_link: httpsUrl(r.embed_link),
+      view_count: num(r.view_count),
+      like_count: num(r.like_count),
+      comment_count: num(r.comment_count),
+      share_count: num(r.share_count),
+      is_aigc: typeof r.is_aigc === "boolean" ? r.is_aigc : undefined,
+    }),
+    // Set after compactObject, which drops "": a post with no title or description still has a (blank) caption.
     caption: description ?? title ?? "",
-    title,
-    video_description: description,
-    create_time: num(r.create_time),
-    duration: num(r.duration),
-    width: num(r.width),
-    height: num(r.height),
-    cover_image_url: httpsUrl(r.cover_image_url),
-    share_url: httpsUrl(r.share_url),
-    embed_link: httpsUrl(r.embed_link),
-    view_count: num(r.view_count),
-    like_count: num(r.like_count),
-    comment_count: num(r.comment_count),
-    share_count: num(r.share_count),
-    is_aigc: typeof r.is_aigc === "boolean" ? r.is_aigc : undefined,
-  }) as VideoSummary;
+  } as VideoSummary;
 }
 
 /** The model's view of a post: one caption field, plus labels it can say. */
@@ -294,16 +297,20 @@ export function detailsOf(v: VideoSummary, now: number): VideoDetails {
     views !== undefined && views >= 100 && likes !== undefined && comments !== undefined && shares !== undefined
       ? Math.round(((likes + comments + shares) / views) * 10_000) / 10_000
       : undefined;
-  return compactObject({
-    ...v,
-    hashtags: hashtags(v.caption),
-    mentions: mentions(v.caption),
-    // TikTok cuts read-back text at 150 characters.
-    caption_truncated: v.caption.length === 150,
-    posted_label: v.create_time !== undefined ? postedLabel(v.create_time, now) : undefined,
-    aspect: aspect(v.width, v.height),
-    engagement_rate: rate,
-  }) as VideoDetails;
+  return {
+    ...compactObject({
+      ...v,
+      hashtags: hashtags(v.caption),
+      mentions: mentions(v.caption),
+      // TikTok cuts read-back text at 150 characters.
+      caption_truncated: v.caption.length === 150,
+      posted_label: v.create_time !== undefined ? postedLabel(v.create_time, now) : undefined,
+      aspect: aspect(v.width, v.height),
+      engagement_rate: rate,
+    }),
+    // Kept when blank, as in videoOf.
+    caption: v.caption,
+  } as VideoDetails;
 }
 
 export function queryVideos(args: Args, deps: Deps, extra: ToolExtra): Promise<ToolResult> {

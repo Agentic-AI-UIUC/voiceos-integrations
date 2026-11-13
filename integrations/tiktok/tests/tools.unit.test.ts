@@ -616,6 +616,29 @@ describe("reads", () => {
     expect(h.images.asked).toEqual([{ url: VIDEOS[0].cover_image_url, width: 312 }]);
   });
 
+  test("a post with no caption (empty title and description, as TikTok sends one) lists and queries instead of failing", async () => {
+    const h = await harness();
+    const bare = { ...VIDEOS[0], id: "7431000000000000777", title: "", video_description: "" };
+    h.client.responders.TIKTOK_LIST_VIDEOS = () => ({ videos: [VIDEOS[0], bare, VIDEOS[1]], has_more: false });
+    const list = await h.call("list_videos", {});
+    expect(list.j.ok).toBe(true);
+    expect(list.j.count).toBe(3);
+    expect(list.j.videos[1]).toMatchObject({ id: bare.id, view_count: VIDEOS[0].view_count });
+    expect(list.j.videos[1].caption).toBeUndefined();
+    expect(list.blocks).toHaveLength(1);
+    // Alone (the hero card) and through query_videos, one and several.
+    h.client.responders.TIKTOK_LIST_VIDEOS = () => ({ videos: [bare], has_more: false });
+    expect((await h.call("list_videos", {})).j.ok).toBe(true);
+    h.client.responders.TIKTOK_QUERY_VIDEOS = () => ({ videos: [bare] });
+    const one = await h.call("query_videos", { video_ids: [bare.id] });
+    expect(one.j).toMatchObject({ ok: true, count: 1 });
+    expect(one.j.videos[0]).toMatchObject({ id: bare.id });
+    expect(one.j.videos[0].hashtags).toBeUndefined();
+    expect(one.j.videos[0].caption_truncated).toBeUndefined();
+    h.client.responders.TIKTOK_QUERY_VIDEOS = () => ({ videos: [VIDEOS[0], bare] });
+    expect((await h.call("query_videos", { video_ids: [VIDEOS[0].id, bare.id] })).j).toMatchObject({ ok: true, count: 2 });
+  });
+
   test("query_videos for several posts asks for their covers at list size", async () => {
     const h = await harness();
     const card = cardSpy("postsDetailsCard");
