@@ -23,6 +23,7 @@ export type Scenario = {
   proxyUpdatedItem?: Record<string, unknown>;
   proxyCreatedGroup?: Record<string, unknown>;
   proxyArchivedBoard?: Record<string, unknown>;
+  proxyDeletedBoard?: Record<string, unknown>;
   proxyDestination?: Record<string, unknown>;
   proxyMovedItem?: Record<string, unknown>;
   toolData?: Record<string, unknown>;
@@ -79,6 +80,12 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
           return respond({ status: 200, data: { errors: [{ message: "Invalid board ID format" }] } });
         if (config.proxyMutationHttpStatus) return respond({ message: "Write outcome unknown" }, config.proxyMutationHttpStatus);
         return respond({ status: 200, data: { data: { archive_board: config.proxyArchivedBoard ?? {} } } });
+      }
+      if (query.startsWith("mutation DeleteBoard")) {
+        if (!/delete_board\(board_id: [1-9]\d*\)/.test(query))
+          return respond({ status: 200, data: { errors: [{ message: "Invalid board ID format" }] } });
+        if (config.proxyMutationHttpStatus) return respond({ message: "Write outcome unknown" }, config.proxyMutationHttpStatus);
+        return respond({ status: 200, data: { data: { delete_board: config.proxyDeletedBoard ?? {} } } });
       }
       if (query.startsWith("mutation MoveItem"))
         return respond({ status: 200, data: config.proxyMovedItem

@@ -14,7 +14,7 @@ const manifest = JSON.parse(readFileSync(join(ROOT, "voiceos.integration.json"),
 const KEY = "offline-monday-key-only";
 const IDENTITY = { userId: "voiceos-monday-test" };
 const ACTIVE = { ...IDENTITY, accountId: "ca_test" };
-const TOOLS = ["connect_account", "connection_status", "disconnect_account", "get_boards", "get_items", "prepare_create_item", "create_item", "prepare_update_item", "update_item_values", "create_update", "prepare_create_board", "create_board", "prepare_create_group", "create_group", "prepare_archive_board", "archive_board"].sort();
+const TOOLS = ["connect_account", "connection_status", "disconnect_account", "get_boards", "get_items", "prepare_create_item", "create_item", "prepare_update_item", "update_item_values", "create_update", "prepare_create_board", "create_board", "prepare_create_group", "create_group", "prepare_archive_board", "archive_board", "prepare_delete_board", "delete_board"].sort();
 const directory = mkdtempSync(join(tmpdir(), "voiceos-monday-tests-"));
 const statePath = join(directory, ".composio-auth.json");
 const scenarioPath = join(directory, "scenario.json");
@@ -98,11 +98,11 @@ describe("account tools contract", () => {
       expect(actual.description).toBe(declared.description);
       expect(actual.inputSchema.properties).toEqual(declared.inputSchema.properties);
       expect(actual.inputSchema.additionalProperties).toBe(false);
-      if (["connection_status", "get_boards", "get_items", "prepare_create_item", "prepare_create_board", "prepare_update_item", "prepare_create_group", "prepare_archive_board"].includes(actual.name)) {
+      if (["connection_status", "get_boards", "get_items", "prepare_create_item", "prepare_create_board", "prepare_update_item", "prepare_create_group", "prepare_archive_board", "prepare_delete_board"].includes(actual.name)) {
         expect(declared.confirmation).toBeUndefined();
         expect(declared.uiCallable).toBe(true);
         expect(actual.annotations?.readOnlyHint).toBe(true);
-      } else if (["create_item", "update_item_values", "create_update", "create_board", "create_group", "archive_board"].includes(actual.name)) {
+      } else if (["create_item", "update_item_values", "create_update", "create_board", "create_group", "archive_board", "delete_board"].includes(actual.name)) {
         if (actual.name === "create_item" || actual.name === "create_board") {
           const item = actual.name === "create_item";
           const root = declared.confirmation.root;
@@ -127,12 +127,15 @@ describe("account tools contract", () => {
           expect(children[1].html).toContain("<label>Board");
           expect(children[1].html).toContain("<label>Position");
           expect(children[2].children).toEqual([{ type: "button", label: "Cancel", role: "cancel" }]);
-        } else if (actual.name === "archive_board") {
+        } else if (actual.name === "archive_board" || actual.name === "delete_board") {
           const children = declared.confirmation.root.children;
-          expect(children.map((block: { type: string }) => block.type)).toEqual(["widget", "stack"]);
-          expect(children[0].confirmLabel).toBe("Archive board");
-          expect(children[0].html).toContain('<select id="board_choice"');
-          expect(children[1].children).toEqual([{ type: "button", label: "Cancel", role: "cancel" }]);
+          const deleting = actual.name === "delete_board";
+          expect(children.map((block: { type: string }) => block.type)).toEqual(deleting ? ["text", "widget", "stack"] : ["widget", "stack"]);
+          if (deleting) expect(children[0].text).toContain("recovered for 30 days");
+          const widget = children.at(-2);
+          expect(widget.confirmLabel).toBe(deleting ? "Delete board" : "Archive board");
+          expect(widget.html).toContain('<select id="board_choice"');
+          expect(children.at(-1).children).toEqual([{ type: "button", label: "Cancel", role: "cancel" }]);
           expect(actual.annotations?.destructiveHint).toBe(true);
         } else if (actual.name === "update_item_values") {
           expect(declared.confirmation.root.children.find((block: { type: string }) => block.type === "widget").confirmLabel).toBe("Save changes");
@@ -150,7 +153,7 @@ describe("account tools contract", () => {
     }
   });
   test("rejects unknown tools and unexpected account arguments", async () => {
-    expect((await invoke("delete_board", { board_id: 1 })).isError).toBe(true);
+    expect((await invoke("purge_board", { board_id: 1 })).isError).toBe(true);
     expect((await invoke("connect_account", { accountId: "someone-else" })).isError).toBe(true);
     expect((await invoke("connection_status", { extra: true })).isError).toBe(true);
     expect(events()).toEqual([]);
@@ -1759,6 +1762,69 @@ describe("Monday archive board confirmation", () => {
     expect(result.isError).toBe(true);
     expect(result.body.error).toContain("Check Monday.com before retrying");
     expect((await invoke("archive_board", body.archive_board_arguments)).isError).toBe(true);
+    expect(writes()).toHaveLength(1);
+  });
+});
+
+describe("Monday delete board confirmation", () => {
+  const roadmap = { id: "123", name: "Roadmap", state: "active", workspace: { name: "Product" } };
+  const testing = { id: "6000000456", name: "Testing", state: "active", workspace: { name: "Engineering" } };
+  const writes = () => events().filter(event => JSON.stringify(event.body)?.includes("mutation DeleteBoard"));
+  function configure(overrides: Scenario = {}) {
+    scenario({ boardPages: { 1: [roadmap, testing] }, proxyDeletedBoard: { id: testing.id }, ...overrides });
+  }
+
+  test("deletes the board selected at approval and rejects duplicate approval", async () => {
+    configure();
+    const prepared = await invoke("prepare_delete_board", { board_name: "Roadmap" });
+    const args = prepared.body.delete_board_arguments;
+    expect(args.board_choice).toBe(roadmap.id);
+    expect(args.board_choices).toContainEqual({ value: testing.id, label: "Testing — Engineering" });
+    expect(writes()).toHaveLength(0);
+
+    expect((await invoke("delete_board", { ...args, board_choice: "789" })).isError).toBe(true);
+    const approval = { ...args, board_choice: testing.id };
+    const results = await Promise.all([invoke("delete_board", approval), invoke("delete_board", approval)]);
+    expect(results.filter(result => result.isError)).toHaveLength(1);
+    expect(results.find(result => !result.isError)?.body).toMatchObject({
+      status: "Board deleted", message: "Moved “Testing” to Monday.com Trash.", id: testing.id,
+    });
+    expect(writes()).toHaveLength(1);
+    expect(writes()[0].body).toMatchObject({
+      body: { query: expect.stringContaining(`delete_board(board_id: ${testing.id}) { id }`), variables: {} },
+    });
+  });
+
+  test("keeps archive and delete drafts separate and replaces the original delete confirmation on correction", async () => {
+    configure();
+    const archive = (await invoke("prepare_archive_board", { board_name: "Roadmap" })).body.archive_board_arguments;
+    const original = (await invoke("prepare_delete_board", { board_name: "Roadmap" })).body.delete_board_arguments;
+    expect((await invoke("delete_board", archive)).isError).toBe(true);
+    expect((await invoke("archive_board", original)).isError).toBe(true);
+    expect((await invoke("prepare_delete_board", {
+      board_name: "Testing", replaces_draft_id: archive.draft_id,
+    })).isError).toBe(true);
+    const revised = await invoke("prepare_delete_board", { board_name: "Testing", revises_board_name: "Roadmap" });
+    expect(revised.body.delete_board_arguments.board_choice).toBe(testing.id);
+    expect((await invoke("delete_board", original)).isError).toBe(true);
+    expect(writes()).toHaveLength(0);
+  });
+
+  test("stops if the selected board changes before approval", async () => {
+    configure();
+    const { body } = await invoke("prepare_delete_board", { board_name: "Testing" });
+    configure({ boardPages: { 1: [roadmap, { ...testing, name: "Renamed" }] } });
+    expect((await invoke("delete_board", body.delete_board_arguments)).body.error).toContain("selected board changed");
+    expect(writes()).toHaveLength(0);
+  });
+
+  test("reports a mismatched deletion response and consumes the confirmation", async () => {
+    configure({ proxyDeletedBoard: { id: roadmap.id } });
+    const { body } = await invoke("prepare_delete_board", { board_name: "Testing" });
+    const result = await invoke("delete_board", body.delete_board_arguments);
+    expect(result.isError).toBe(true);
+    expect(result.body.error).toContain("did not confirm the selected board was deleted");
+    expect((await invoke("delete_board", body.delete_board_arguments)).isError).toBe(true);
     expect(writes()).toHaveLength(1);
   });
 });

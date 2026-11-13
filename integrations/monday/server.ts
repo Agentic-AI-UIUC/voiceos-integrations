@@ -113,7 +113,7 @@ type PrepareCreateItemOutput = {
   board?: { name: string; groups: Record<string, unknown>[]; columns: Record<string, unknown>[] };
 };
 const createItemDrafts = new Map<string, CreateItemDraft>();
-const prepareCreateItemDescription = "Use this tool for item creation or edits to the latest pending Create item confirmation. If the latest confirmation was Archive board, a correction to its board belongs to prepare_archive_board. Start every Monday item creation here. An explicit item rename, or \"change the name to …\" while the Create item confirmation is active, changes item_name. Pass the new item_name and replaces_draft_id, or revises_item_name with the previous item name. Omit board and group fields unless the user asks to change them. Never use create_board for an item rename. If it is unclear which name the user means, ask whether they mean the board or the item. A follow-up such as 'change the board to voiceos' after a Create item card means change the pending item's destination. For that correction, call this tool with the new board_name and replaces_draft_id. If the pending ID is missing from the context, pass revises_item_name with the exact pending item's name from this conversation. If neither is known, ask which pending item should go on the requested board. Board renaming is unavailable. Omitted group and column arguments are carried over on a revision; ask if a requested value cannot be matched. For a new item, pass item_name and the board the user specified in the request, including a clear reference such as 'that board'. Use board_name or a verified board_id. If the user did not specify a destination, omit both board fields and ask the user to choose. Do not infer a destination from past requests or board lists. If the result is board_choices, ask its question as the final response for that turn and wait for the user to say or type a board name. This is a clarification, so do not open a confirmation yet. A bare board name after that question answers it, even if the reply contains no verb. Call prepare_create_item again with that board_name and pending_item.draft_id as replaces_draft_id, or use revises_item_name with pending_item.item_name if the draft ID is unavailable. Do not list boards or items in response to that choice. Once preparation returns create_item_arguments, call create_item for confirmation. This tool only reads Monday. With a resolved board and without item_name or a revision, it returns groups and columns. Pass optional group_id (ID or title; omit for the top group) and only requested column_values keyed by actual column ID or exact title. Use exact status labels, ISO dates, and Monday person names or IDs. Pass create_item_arguments verbatim to create_item. Never silently drop a requested value.";
+const prepareCreateItemDescription = "Use this tool for item creation or edits to the latest pending Create item confirmation. A correction to the board on an Archive board or Delete board confirmation belongs to prepare_archive_board or prepare_delete_board, respectively. Start every Monday item creation here. An explicit item rename, or \"change the name to …\" while the Create item confirmation is active, changes item_name. Pass the new item_name and replaces_draft_id, or revises_item_name with the previous item name. Omit board and group fields unless the user asks to change them. Never use create_board for an item rename. If it is unclear which name the user means, ask whether they mean the board or the item. A follow-up such as 'change the board to voiceos' after a Create item card means change the pending item's destination. For that correction, call this tool with the new board_name and replaces_draft_id. If the pending ID is missing from the context, pass revises_item_name with the exact pending item's name from this conversation. If neither is known, ask which pending item should go on the requested board. Board renaming is unavailable. Omitted group and column arguments are carried over on a revision; ask if a requested value cannot be matched. For a new item, pass item_name and the board the user specified in the request, including a clear reference such as 'that board'. Use board_name or a verified board_id. If the user did not specify a destination, omit both board fields and ask the user to choose. Do not infer a destination from past requests or board lists. If the result is board_choices, ask its question as the final response for that turn and wait for the user to say or type a board name. This is a clarification, so do not open a confirmation yet. A bare board name after that question answers it, even if the reply contains no verb. Call prepare_create_item again with that board_name and pending_item.draft_id as replaces_draft_id, or use revises_item_name with pending_item.item_name if the draft ID is unavailable. Do not list boards or items in response to that choice. Once preparation returns create_item_arguments, call create_item for confirmation. This tool only reads Monday. With a resolved board and without item_name or a revision, it returns groups and columns. Pass optional group_id (ID or title; omit for the top group) and only requested column_values keyed by actual column ID or exact title. Use exact status labels, ISO dates, and Monday person names or IDs. Pass create_item_arguments verbatim to create_item. Never silently drop a requested value.";
 const createItemDescription = "Use create_item_arguments from prepare_create_item verbatim. For a spoken or typed item rename, or a name edit while this card is active, call prepare_create_item with the pending item draft ID and new item_name. Keep the destination and other values. The confirmation lets the user edit the item name and choose a group on the selected board. Approval creates the item in the selected group. Never say an item was created unless the result confirms its ID. For a voice revision such as 'change the board to voiceos', call prepare_create_item with the new board_name and replaces_draft_id or the pending item's exact name in revises_item_name. Ask about any previously requested value with no clear match. Board renaming is unavailable. Do not retry a write automatically.";
 const prepareUpdateItemSchema = z.object({
   board_id: id().optional(),
@@ -243,31 +243,39 @@ type CreateGroupDraft = {
 const createGroupDrafts = new Map<string, CreateGroupDraft>();
 const prepareCreateGroupDescription = "Start here to create an empty group (section) on an existing Monday board. Pass the board name or a verified board ID, the new group name, and any requested position. Position defaults to bottom. For before or after, pass the reference group's name or verified ID in position.reference_group. If the result includes a question, ask it and use pending_group.draft_id as replaces_draft_id when the user answers. To revise the same pending group by voice, pass replaces_draft_id and only the changed fields. For a new request, start a fresh draft. Pass create_group_arguments verbatim to create_group for confirmation. This tool only reads Monday.";
 const createGroupDescription = "Use create_group_arguments from prepare_create_group verbatim to show the Create group confirmation. The card shows the board and lets the user edit the group name and position. For a spoken revision, use prepare_create_group with the current draft ID. Approval creates one empty group on the reviewed board. Only report success when the result confirms the group ID. Check Monday before retrying an unconfirmed creation.";
-const prepareArchiveBoardSchema = z.object({
+const prepareBoardActionSchema = z.object({
   board_id: id().optional(),
   board_name: nonempty().optional(),
   replaces_draft_id: draftId().optional(),
   revises_board_name: nonempty().optional(),
 }).strict();
-const archiveBoardSchema = z.object({
+const boardActionSchema = z.object({
   draft_id: draftId(),
   board_choice: nonempty(),
   board_choices: z.array(z.object({ value: nonempty(), label: nonempty() }).strict()),
 }).strict();
-type ArchiveBoardInput = z.infer<typeof archiveBoardSchema>;
-type ArchiveBoardTarget = { id: string; name: string; workspaceId: string; workspaceName: string };
-type PrepareArchiveBoardOutput =
-  | { question: string; matching_boards?: ArchiveBoardInput["board_choices"] }
-  | { message: string; archive_board_arguments: ArchiveBoardInput };
-const archiveBoardDrafts = new Map<string, {
+type BoardActionInput = z.infer<typeof boardActionSchema>;
+type BoardActionTarget = { id: string; name: string; workspaceId: string; workspaceName: string };
+type BoardAction = "archive" | "delete";
+type PrepareBoardActionOutput =
+  | { question: string; matching_boards?: BoardActionInput["board_choices"] }
+  | { message: string; archive_board_arguments: BoardActionInput }
+  | { message: string; delete_board_arguments: BoardActionInput };
+type BoardActionDraft = {
   accountId: string;
   expires: number;
-  initialBoard: ArchiveBoardTarget;
-  boards: Map<string, ArchiveBoardTarget>;
-  choices: ArchiveBoardInput["board_choices"];
-}>();
+  initialBoard: BoardActionTarget;
+  boards: Map<string, BoardActionTarget>;
+  choices: BoardActionInput["board_choices"];
+};
+const boardActionDrafts: Record<BoardAction, Map<string, BoardActionDraft>> = {
+  archive: new Map(),
+  delete: new Map(),
+};
 const prepareArchiveBoardDescription = "Start every Monday board archive here, including a correction to the target while the Archive board confirmation is open or immediately after VoiceOS dismisses it for an edit. A short reply such as “I meant the testing one”, “the testing board instead”, or “testing” following that confirmation means archive testing. Keep the archive action from the latest confirmation. Call this tool with the corrected board_name and replaces_draft_id from that confirmation. If its draft ID is missing, use revises_board_name with the exact previous board name from this conversation. Use board_name or a verified board_id for the new target. If the result contains a question, ask it and use any matching_boards to clarify. Pass archive_board_arguments verbatim to archive_board to show a fresh confirmation. This tool only reads Monday.";
 const archiveBoardDescription = "Show the Archive board confirmation using archive_board_arguments from prepare_archive_board verbatim. The card lets the user change the board before approving. If the user says or types a different board, including “I meant the testing one”, keep the pending archive action. Call prepare_archive_board with the new board and the previous draft ID or exact previous board name, then show a fresh Archive board confirmation. Only approval archives the selected board. Check Monday.com before retrying an unconfirmed archive.";
+const prepareDeleteBoardDescription = "Start here when the user asks to delete a Monday board or corrects the target of a pending Delete board confirmation. A short reply such as “I meant the testing one” after that card changes the board to testing and keeps the delete action. Pass the new board_name or verified board_id. For a correction, pass replaces_draft_id from the Delete board confirmation, or use revises_board_name with its exact previous board name if the ID is missing. If the result contains a question, ask it and use matching_boards to clarify. Pass delete_board_arguments verbatim to delete_board to show a fresh confirmation. This tool only reads Monday.";
+const deleteBoardDescription = "Show the Delete board confirmation using delete_board_arguments from prepare_delete_board verbatim. The user can change the board on the card. For a spoken or typed board correction, call prepare_delete_board and show a fresh Delete board confirmation. Approval moves the selected board to Monday.com Trash, where it can be recovered for 30 days. Report success only when Monday confirms deletion. Check Monday.com before retrying an unconfirmed deletion.";
 const getBoardsSchema = z
   .object({
     ids: ids().optional(),
@@ -1670,7 +1678,7 @@ async function readBoardById(boardId: number, accountId: string) {
   return records(data.boards).find(board => String(board.id) === String(boardId));
 }
 
-function archiveBoardTarget(board: Record<string, unknown>): ArchiveBoardTarget | undefined {
+function boardActionTarget(board: Record<string, unknown>): BoardActionTarget | undefined {
   const boardId = String(board.id);
   const name = displayText(board.name);
   if (!/^[1-9]\d*$/.test(boardId) || !id().safeParse(Number(boardId)).success || !name ||
@@ -1683,29 +1691,30 @@ function archiveBoardTarget(board: Record<string, unknown>): ArchiveBoardTarget 
   };
 }
 
-async function prepareArchiveBoard(input: z.infer<typeof prepareArchiveBoardSchema>): Promise<PrepareArchiveBoardOutput> {
+async function prepareBoardAction(action: BoardAction, input: z.infer<typeof prepareBoardActionSchema>): Promise<PrepareBoardActionOutput> {
   const { board_id: boardId, board_name: boardName, revises_board_name: previousBoard } = input;
   let replaces = input.replaces_draft_id;
+  const drafts = boardActionDrafts[action];
   if (boardId !== undefined && boardName) throw new Error("Choose the board by name or by ID.");
-  if (replaces && previousBoard) throw new Error("Identify the pending archive by draft ID or previous board name.");
-  if (boardId === undefined && !boardName) return { question: "Which Monday board should I archive?" };
+  if (replaces && previousBoard) throw new Error(`Identify the pending ${action} by draft ID or previous board name.`);
+  if (boardId === undefined && !boardName) return { question: `Which Monday board should I ${action}?` };
   const accountId = (await load()).accountId;
   if (!accountId) throw new Error("Monday.com is not connected. Run Connect Monday.com.");
   const now = Date.now();
-  for (const [key, draft] of archiveBoardDrafts) if (draft.expires <= now) archiveBoardDrafts.delete(key);
+  for (const [key, draft] of drafts) if (draft.expires <= now) drafts.delete(key);
   if (previousBoard) {
-    const candidates = [...archiveBoardDrafts].filter(([, draft]) =>
+    const candidates = [...drafts].filter(([, draft]) =>
       draft.accountId === accountId && matchesName(draft.initialBoard.name, previousBoard));
     if (candidates.length !== 1)
-      return { question: "Which board should I archive? Please restate the archive request with the exact board name." };
+      return { question: `Which board should I ${action}? Please restate the request with the exact board name.` };
     replaces = candidates[0][0];
   }
-  const prior = replaces ? archiveBoardDrafts.get(replaces) : undefined;
+  const prior = replaces ? drafts.get(replaces) : undefined;
   if (replaces && prior?.accountId !== accountId)
-    throw new Error("The archive draft changed, expired, or was already used. Prepare a new confirmation.");
+    throw new Error(`The ${action} draft changed, expired, or was already used. Prepare a new confirmation.`);
 
   const boards = (await listActiveBoards(accountId)).flatMap(board => {
-    const target = archiveBoardTarget(board);
+    const target = boardActionTarget(board);
     return target ? [target] : [];
   });
   const matches = boardName ? matchingBoards(boards, boardName) : boards.filter(board => board.id === String(boardId));
@@ -1718,61 +1727,71 @@ async function prepareArchiveBoard(input: z.infer<typeof prepareArchiveBoardSche
   })).sort((a, b) => a.label.localeCompare(b.label));
 
   if (replaces) {
-    if (archiveBoardDrafts.get(replaces) !== prior || prior!.expires <= Date.now())
-      throw new Error("The archive draft changed, expired, or was already used. Prepare a new confirmation.");
-    archiveBoardDrafts.delete(replaces);
+    if (drafts.get(replaces) !== prior || prior!.expires <= Date.now())
+      throw new Error(`The ${action} draft changed, expired, or was already used. Prepare a new confirmation.`);
+    drafts.delete(replaces);
   }
-  if (!matches.length) return { question: "I couldn't find that active Monday board. Which board should I archive?" };
+  if (!matches.length) return { question: `I couldn't find that active Monday board. Which board should I ${action}?` };
   if (matches.length > 1) {
     const matchingIds = new Set(matches.map(board => board.id));
     return {
-      question: `More than one active Monday board matches “${boardName}”. Which one should I archive?`,
+      question: `More than one active Monday board matches “${boardName}”. Which one should I ${action}?`,
       matching_boards: choices.filter(choice => matchingIds.has(choice.value)),
     };
   }
   const draftId = randomUUID();
   const selected = matches[0];
-  archiveBoardDrafts.set(draftId, {
+  drafts.set(draftId, {
     accountId, expires: Date.now() + 30 * 60_000, initialBoard: selected,
     boards: new Map(boards.map(board => [board.id, board])), choices,
   });
-  return {
-    message: `Pending action: archive the Monday board “${selected.name}”. A correction to the board changes this archive target and requires a new Archive board confirmation.`,
-    archive_board_arguments: { draft_id: draftId, board_choice: selected.id, board_choices: choices },
-  };
+  const label = action === "archive" ? "Archive board" : "Delete board";
+  const message = `Pending action: ${action} the Monday board “${selected.name}”. A correction to the board requires a new ${label} confirmation.`;
+  const args = { draft_id: draftId, board_choice: selected.id, board_choices: choices };
+  return action === "archive" ? { message, archive_board_arguments: args } : { message, delete_board_arguments: args };
 }
 
-async function archiveBoard(input: ArchiveBoardInput): Promise<WriteOutput> {
-  const draft = archiveBoardDrafts.get(input.draft_id);
+async function executeBoardAction(action: BoardAction, input: BoardActionInput): Promise<WriteOutput> {
+  const drafts = boardActionDrafts[action];
+  const draft = drafts.get(input.draft_id);
   if (!draft || draft.expires <= Date.now())
-    throw new Error("The archive draft changed, expired, or was already used. Review a current confirmation.");
+    throw new Error(`The ${action} draft changed, expired, or was already used. Review a current confirmation.`);
   const selected = draft.boards.get(input.board_choice);
+  const label = action === "archive" ? "Archive board" : "Delete board";
   if (!selected || !isDeepStrictEqual(input.board_choices, draft.choices))
-    throw new Error("Choose a board from the current Archive board confirmation.");
-  archiveBoardDrafts.delete(input.draft_id);
+    throw new Error(`Choose a board from the current ${label} confirmation.`);
+  drafts.delete(input.draft_id);
 
   // The ID came from the prepared board list and was validated as decimal digits.
   // Use the same active-board listing that resolved the target before confirmation.
   const current = await listActiveBoards(draft.accountId).catch(error => {
-    throw new Error(`Could not verify the board before archiving. ${sanitizedError(error)}`);
+    throw new Error(`Could not verify the board before the ${action} action. ${sanitizedError(error)}`);
   });
   const board = current.find(row => String(row.id) === selected.id);
-  if (!board || !isDeepStrictEqual(archiveBoardTarget(board), selected))
-    throw new Error("The selected board changed or is no longer active. Prepare the archive again.");
+  if (!board || !isDeepStrictEqual(boardActionTarget(board), selected))
+    throw new Error(`The selected board changed or is no longer active. Prepare the ${action} again.`);
 
-  let archived;
+  const archive = action === "archive";
+  const field = archive ? "archive_board" : "delete_board";
+  const operation = archive ? "ArchiveBoard" : "DeleteBoard";
+  const pastTense = archive ? "archived" : "deleted";
+  let result;
   try {
-    const data = await mondayGraphQL(draft.accountId, `mutation ArchiveBoard {
-      archive_board(board_id: ${selected.id}) { id state }
+    const data = await mondayGraphQL(draft.accountId, `mutation ${operation} {
+      ${field}(board_id: ${selected.id}) { ${archive ? "id state" : "id"} }
     }`, {});
-    archived = record(data.archive_board);
+    result = record(data[field]);
   } catch (error) {
     const detail = sanitizedError(error).replace(new RegExp(`\\b${selected.id}\\b`, "g"), "the selected board");
-    throw new Error(`Could not confirm that the board was archived. ${detail} Check Monday.com before retrying.`);
+    throw new Error(`Could not confirm that the board was ${pastTense}. ${detail} Check Monday.com before retrying.`);
   }
-  if (String(archived?.id) !== selected.id || archived?.state !== "archived")
-    throw new Error("Monday.com did not confirm the selected board was archived. Check Monday.com before retrying.");
-  return { status: "Board archived", message: `Archived “${selected.name}”.`, id: selected.id };
+  if (String(result?.id) !== selected.id || (archive && result?.state !== "archived"))
+    throw new Error(`Monday.com did not confirm the selected board was ${pastTense}. Check Monday.com before retrying.`);
+  return {
+    status: archive ? "Board archived" : "Board deleted",
+    message: archive ? `Archived “${selected.name}”.` : `Moved “${selected.name}” to Monday.com Trash.`,
+    id: selected.id,
+  };
 }
 
 function safeBoardUrl(value: unknown, boardId?: string): string | undefined {
@@ -2150,7 +2169,7 @@ button.addEventListener('click', () => {
 async function feedback(
   title: string,
   extra: ProgressContext,
-  run: () => Promise<Output | ReadOutput | WriteOutput | CreatedBoardOutput | RejectedBoardOutput | PrepareCreateItemOutput | PrepareCreateBoardOutput | PrepareUpdateItemOutput | PrepareCreateGroupOutput | PrepareArchiveBoardOutput>,
+  run: () => Promise<Output | ReadOutput | WriteOutput | CreatedBoardOutput | RejectedBoardOutput | PrepareCreateItemOutput | PrepareCreateBoardOutput | PrepareUpdateItemOutput | PrepareCreateGroupOutput | PrepareBoardActionOutput>,
   notifyResult = false,
   errorTitle?: string,
 ) {
@@ -2164,7 +2183,7 @@ async function feedback(
   const isError = "error" in data;
   await progress(extra, `${title}: ${isError ? "failed" : "finished"}`, true);
   if ("question" in data || "update_item_arguments" in data || "update_item_details" in data || "create_item_arguments" in data || "create_board_arguments" in data || "pending_board" in data ||
-      "board_draft_status" in data || "create_group_arguments" in data || "archive_board_arguments" in data || "board" in data) {
+      "board_draft_status" in data || "create_group_arguments" in data || "archive_board_arguments" in data || "delete_board_arguments" in data || "board" in data) {
     return { content: [{ type: "text" as const, text: JSON.stringify(data) }] };
   }
   let notificationQueued = false;
@@ -2404,13 +2423,23 @@ server.registerTool("create_group", {
 }, async (input, extra) => feedback("Create Monday.com group", extra, () => createGroup(input)));
 
 server.registerTool("prepare_archive_board", {
-  title: "Prepare Monday.com board archive", description: prepareArchiveBoardDescription, inputSchema: prepareArchiveBoardSchema,
+  title: "Prepare Monday.com board archive", description: prepareArchiveBoardDescription, inputSchema: prepareBoardActionSchema,
   annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
-}, async (input, extra) => feedback("Prepare Monday.com board archive", extra, () => prepareArchiveBoard(input)));
+}, async (input, extra) => feedback("Prepare Monday.com board archive", extra, () => prepareBoardAction("archive", input)));
 
 server.registerTool("archive_board", {
-  title: "Archive Monday.com board", description: archiveBoardDescription, inputSchema: archiveBoardSchema,
+  title: "Archive Monday.com board", description: archiveBoardDescription, inputSchema: boardActionSchema,
   annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
-}, async (input, extra) => feedback("Archive Monday.com board", extra, () => archiveBoard(input)));
+}, async (input, extra) => feedback("Archive Monday.com board", extra, () => executeBoardAction("archive", input)));
+
+server.registerTool("prepare_delete_board", {
+  title: "Prepare Monday.com board deletion", description: prepareDeleteBoardDescription, inputSchema: prepareBoardActionSchema,
+  annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+}, async (input, extra) => feedback("Prepare Monday.com board deletion", extra, () => prepareBoardAction("delete", input)));
+
+server.registerTool("delete_board", {
+  title: "Delete Monday.com board", description: deleteBoardDescription, inputSchema: boardActionSchema,
+  annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+}, async (input, extra) => feedback("Delete Monday.com board", extra, () => executeBoardAction("delete", input)));
 
 await server.connect(new StdioServerTransport());

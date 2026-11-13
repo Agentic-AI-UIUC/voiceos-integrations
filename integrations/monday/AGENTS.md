@@ -103,7 +103,8 @@ This guide records the programmatic refresh actually used for Monday.
    `get_items`, `prepare_create_item`, `create_item`, `prepare_update_item`,
    `update_item_values`, `create_update`,
    `prepare_create_board`, `create_board`, `prepare_create_group`, `create_group`,
-   `prepare_archive_board`, and `archive_board`. Tool discovery needs no Composio key and makes no provider calls.
+   `prepare_archive_board`, `archive_board`, `prepare_delete_board`, and `delete_board`.
+   Tool discovery needs no Composio key and makes no provider calls.
    Update that expected list as subsequent passes add approved tools.
 
 6. **Tell the user immediately when the refresh is ready**, then let them test:
