@@ -1,0 +1,21 @@
+// TikTok media relay (plan §4.4). Deploy from this folder: npx -y wrangler@4 deploy
+// The bearer token is a secret (wrangler secret put RELAY_TOKEN), never a var.
+{
+  "$schema": "https://unpkg.com/wrangler@4.158.0/config-schema.json",
+  "name": "tiktok-media-relay",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "workers_dev": true,
+  "preview_urls": false,
+  // Workers Logs would store every request URL, and a public image URL is the capability. Keep it off.
+  "observability": { "enabled": false },
+  "durable_objects": {
+    "bindings": [{ "name": "BATCHES", "class_name": "Batch" }]
+  },
+  // SQLite-backed Durable Objects work on the Workers Free plan.
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Batch"] }],
+  "vars": {
+    // TikTok URL-property signature file(s), served at /<name> and /p/<name>.
+    "TIKTOK_VERIFICATION": {}
+  }
+}
