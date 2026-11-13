@@ -5,14 +5,18 @@ import { isDeepStrictEqual } from 'node:util';
 import { approved, VERSION, type Tool } from './catalog.ts';
 import {uploadField,stageLocalFile} from './upload.ts';
 import {readDocumentContent} from './read-content.ts';
+import {connectionStateUrl,legacyConnectionStateUrl} from './connection-state.ts';
 export const client = (key = process.env.COMPOSIO_API_KEY) => {
   if (!key?.trim()) throw new Error('Set COMPOSIO_API_KEY in VoiceOS Setup.');
   return new Composio({apiKey:key.trim(),baseUrl:'https://backend.composio.dev',disableVersionCheck:true,logLevel:'error'});
 };
 export function connection() {
   let saved:any={};
-  try {saved=JSON.parse(readFileSync(new URL('./connection.json',import.meta.url),'utf8'))||{};}
-  catch(e:any) {if(e.code!=='ENOENT') throw new Error('Saved Dropbox connection is unreadable. Reconnect using Setup.');}
+  try {saved=JSON.parse(readFileSync(connectionStateUrl(),'utf8'))||{};}
+  catch(e:any) {if(e.code!=='ENOENT') throw new Error('Saved Dropbox connection is unreadable. Reconnect using Setup.');
+    try {saved=JSON.parse(readFileSync(legacyConnectionStateUrl(),'utf8'))||{};}
+    catch(legacy:any){if(legacy.code!=='ENOENT')throw new Error('Saved Dropbox connection is unreadable. Reconnect using Setup.');}
+  }
   const manual=process.env.COMPOSIO_CONNECTED_ACCOUNT_ID?.trim()||'';
   const account=saved.account||(manual&&manual!==saved.disconnectedAccountId?manual:'');
   return {user:saved.account?saved.user||'':process.env.COMPOSIO_USER_ID?.trim()||'',account};
@@ -80,7 +84,7 @@ export function errorMessage(error:any,write=false,started=false,action?:Tool['n
 }
 export async function execute(tool:Tool,input:Record<string,any>,c:any=client(),config=connection(),notify: (message:string)=>Promise<void>=async()=>{},externalSignal?:AbortSignal) {
   if(!approved.has(tool.slug)) throw new Error('Unapproved Dropbox action.');
-  if(!config.account) throw new Error('Save the active Dropbox connected account ID in VoiceOS Setup, then Reload.');
+  if(!config.account) throw new Error('Dropbox is not connected. Ask VoiceOS to connect Dropbox, or save an active connected account ID in Setup and reload.');
   if(config.account.startsWith('pg-test-')) throw new Error('This is a Composio playground test ID, not a Dropbox connected account ID. Use the active Dropbox connection ID (normally ca_...) from Composio.');
   let started=false;
   const deadline=AbortSignal.timeout(45000);

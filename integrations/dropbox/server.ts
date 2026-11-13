@@ -411,8 +411,8 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 // source/catalog.ts
 import { z } from "zod";
 var VERSION = "20261101_00";
-var BUILD = "dropbox-composio-v21-oauth-config-fix";
-var INTEGRATION_VERSION = "2.0.19";
+var BUILD = "dropbox-composio-v22-persistent-connection-compact-upload";
+var INTEGRATION_VERSION = "2.0.20";
 var path = z.string().refine((p) => p === "" || p.startsWith("/") && !p.endsWith("/") && !p.includes("//") && !/[\u0000-\u001f]/.test(p) && !p.split("/").some((s) => s === "." || s === ".."), "Use an absolute Dropbox path without control characters, dot segments, or a trailing slash");
 var item = path.refine((p) => p.length > 1, "A file or folder path is required; root is protected");
 var text = z.string().min(1);
@@ -666,6 +666,18 @@ async function readDocumentContent(data, path2, signal, notify = async () => {
   return { ...data, download: data.content, content: text2, extracted_text: text2, extraction: { format: "docx", status: "completed", character_count: text2.length, empty: text2.length === 0 } };
 }
 
+// source/connection-state.ts
+import { createHash } from "node:crypto";
+import { homedir as homedir2 } from "node:os";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+function connectionStateUrl(platform = process.platform, home = homedir2(), appData = process.env.APPDATA, key = process.env.COMPOSIO_API_KEY) {
+  const base = platform === "win32" ? appData || join(home, "AppData", "Roaming") : platform === "darwin" ? join(home, "Library", "Application Support") : process.env.XDG_STATE_HOME || join(home, ".local", "state");
+  const project = createHash("sha256").update((key || "").trim()).digest("hex").slice(0, 24);
+  return pathToFileURL(join(base, "VoiceOS", "dropbox-composio", `connection-${project}.json`));
+}
+var legacyConnectionStateUrl = () => new URL("./connection.json", import.meta.url);
+
 // source/provider.ts
 var client = (key = process.env.COMPOSIO_API_KEY) => {
   if (!key?.trim()) throw new Error("Set COMPOSIO_API_KEY in VoiceOS Setup.");
@@ -674,9 +686,14 @@ var client = (key = process.env.COMPOSIO_API_KEY) => {
 function connection() {
   let saved = {};
   try {
-    saved = JSON.parse(readFileSync(new URL("./connection.json", import.meta.url), "utf8")) || {};
+    saved = JSON.parse(readFileSync(connectionStateUrl(), "utf8")) || {};
   } catch (e) {
     if (e.code !== "ENOENT") throw new Error("Saved Dropbox connection is unreadable. Reconnect using Setup.");
+    try {
+      saved = JSON.parse(readFileSync(legacyConnectionStateUrl(), "utf8")) || {};
+    } catch (legacy) {
+      if (legacy.code !== "ENOENT") throw new Error("Saved Dropbox connection is unreadable. Reconnect using Setup.");
+    }
   }
   const manual = process.env.COMPOSIO_CONNECTED_ACCOUNT_ID?.trim() || "";
   const account = saved.account || (manual && manual !== saved.disconnectedAccountId ? manual : "");
@@ -759,7 +776,7 @@ function errorMessage(error, write = false, started = false, action) {
 async function execute(tool, input, c = client(), config = connection(), notify = async () => {
 }, externalSignal) {
   if (!approved.has(tool.slug)) throw new Error("Unapproved Dropbox action.");
-  if (!config.account) throw new Error("Save the active Dropbox connected account ID in VoiceOS Setup, then Reload.");
+  if (!config.account) throw new Error("Dropbox is not connected. Ask VoiceOS to connect Dropbox, or save an active connected account ID in Setup and reload.");
   if (config.account.startsWith("pg-test-")) throw new Error("This is a Composio playground test ID, not a Dropbox connected account ID. Use the active Dropbox connection ID (normally ca_...) from Composio.");
   let started = false;
   const deadline = AbortSignal.timeout(45e3);
@@ -1000,7 +1017,7 @@ function failureCard(tool, message, status = "failed") {
 }
 
 // source/server.ts
-import { pathToFileURL } from "node:url";
+import { pathToFileURL as pathToFileURL2 } from "node:url";
 
 // source/account-catalog.ts
 var accountTools = [
@@ -1012,18 +1029,27 @@ var accountTools = [
 // source/account.ts
 import { randomUUID as randomUUID2 } from "node:crypto";
 import { execFile } from "node:child_process";
-import { readFile as readFile2, writeFile as writeFile2 } from "node:fs/promises";
-var stateUrl = new URL("./connection.json", import.meta.url);
+import { readFile as readFile2, writeFile as writeFile2, mkdir } from "node:fs/promises";
+import { dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 var accountRequestOptions = () => ({ signal: AbortSignal.timeout(25e3), maxRetries: 0 });
-async function loadState(file = stateUrl) {
+async function loadState(file = connectionStateUrl()) {
   try {
     return JSON.parse(await readFile2(file, "utf8")) || {};
   } catch (e) {
-    if (e.code === "ENOENT") return {};
+    if (e.code === "ENOENT") {
+      if (file.href !== connectionStateUrl().href) return {};
+      try {
+        return JSON.parse(await readFile2(legacyConnectionStateUrl(), "utf8")) || {};
+      } catch (legacy) {
+        if (legacy.code === "ENOENT") return {};
+      }
+    }
     throw new Error("Saved Dropbox connection is unreadable. Reconnect using Setup.");
   }
 }
-async function saveState(state, file = stateUrl) {
+async function saveState(state, file = connectionStateUrl()) {
+  await mkdir(dirname(fileURLToPath(file)), { recursive: true, mode: 448 });
   await writeFile2(file, JSON.stringify(state, null, 2), { mode: 384 });
 }
 function openAuthorization(url) {
@@ -1047,7 +1073,7 @@ function selected(state) {
   const manual = process.env.COMPOSIO_CONNECTED_ACCOUNT_ID?.trim() || "";
   return { account: state.account || (manual && manual !== state.disconnectedAccountId ? manual : ""), user: state.account ? state.user : process.env.COMPOSIO_USER_ID?.trim() || void 0 };
 }
-async function connectionStatus(c = client(), file = stateUrl) {
+async function connectionStatus(c = client(), file = connectionStateUrl()) {
   const state = await loadState(file), config = selected(state);
   if (state.pending) {
     try {
@@ -1077,7 +1103,7 @@ async function connectionStatus(c = client(), file = stateUrl) {
     throw e;
   }
 }
-async function connectAccount(c = client(), file = stateUrl, open = openAuthorization) {
+async function connectAccount(c = client(), file = connectionStateUrl(), open = openAuthorization) {
   const state = await loadState(file), config = selected(state);
   if (config.account) {
     try {
@@ -1118,7 +1144,7 @@ async function connectAccount(c = client(), file = stateUrl, open = openAuthoriz
     throw e;
   }
 }
-async function disconnectAccount(c = client(), file = stateUrl) {
+async function disconnectAccount(c = client(), file = connectionStateUrl()) {
   const state = await loadState(file), config = selected(state), id = state.account || config.account;
   if (state.pending && state.pending.id !== id) {
     try {
@@ -1216,7 +1242,7 @@ function createServer2(run = execute) {
   });
   return server;
 }
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL2(process.argv[1]).href) {
   if (process.argv.includes("--setup")) await startSetup();
   else {
     console.error(`[dropbox] Loaded ${BUILD}; version ${INTEGRATION_VERSION}; 14 approved tools`);

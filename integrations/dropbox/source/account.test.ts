@@ -8,6 +8,29 @@ import {accountError,accountRequestOptions,connectAccount,connectionStatus,disco
 import {accountTools,accountConfirmation} from './account-catalog.ts';
 import {approved} from './catalog.ts';
 import {dropboxManagedAuthConfig} from './account-config.ts';
+import {connectionStateUrl} from './connection-state.ts';
+import {connection} from './provider.ts';
+
+test('OAuth state survives an integration folder replacement and has Windows and Mac data paths',async()=>{
+ const dir=await mkdtemp(join(tmpdir(),'dropbox-persist-'));
+ const originalKey=process.env.COMPOSIO_API_KEY,originalAppData=process.env.APPDATA,originalManual=process.env.COMPOSIO_CONNECTED_ACCOUNT_ID;
+ try{
+  process.env.COMPOSIO_API_KEY='test-project-key';process.env.APPDATA=dir;delete process.env.COMPOSIO_CONNECTED_ACCOUNT_ID;
+  const win=connectionStateUrl('win32',dir,dir,'test-project-key');
+  const mac=connectionStateUrl('darwin',dir,undefined,'test-project-key');
+  assert.match(win.pathname,/VoiceOS\/dropbox-composio\/connection-/);
+  assert.match(mac.pathname,/Library\/Application%20Support\/VoiceOS\/dropbox-composio\/connection-/);
+  const {saveState}=await import('./account.ts');
+  await saveState({account:'ca_saved',user:'voiceos-qa'},win);
+  assert.deepEqual(connection(),{account:'ca_saved',user:'voiceos-qa'});
+  assert.equal((await loadState(win)).account,'ca_saved');
+ }finally{
+  if(originalKey===undefined)delete process.env.COMPOSIO_API_KEY;else process.env.COMPOSIO_API_KEY=originalKey;
+  if(originalAppData===undefined)delete process.env.APPDATA;else process.env.APPDATA=originalAppData;
+  if(originalManual===undefined)delete process.env.COMPOSIO_CONNECTED_ACCOUNT_ID;else process.env.COMPOSIO_CONNECTED_ACCOUNT_ID=originalManual;
+  await rm(dir,{recursive:true,force:true});
+ }
+});
 
 test('managed OAuth config uses one permission strategy and limits execution to approved tools',()=>{
  const config=dropboxManagedAuthConfig();

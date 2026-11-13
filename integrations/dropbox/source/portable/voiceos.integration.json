@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "com.voiceos.generated.dropbox",
-  "version": "2.0.19",
+  "version": "2.0.20",
   "name": "Dropbox",
   "summary": "Find, read, upload, organize, version and share Dropbox files through Composio OAuth2.",
   "supportedPlatforms": [
@@ -182,7 +182,7 @@
             {
               "type": "stack",
               "direction": "vertical",
-              "gap": "md",
+              "gap": "sm",
               "children": [
                 {
                   "type": "text",
@@ -196,30 +196,16 @@
                   "required": true
                 },
                 {
-                  "type": "text",
-                  "text": "Selected source: {{file}}",
-                  "color": "muted"
-                },
-                {
                   "type": "textField",
                   "bind": "{{file}}",
-                  "label": "Local source file",
+                  "label": "Local file",
                   "required": true
                 },
                 {
-                  "type": "select",
+                  "type": "textField",
                   "bind": "{{mode}}",
-                  "label": "Upload behavior",
-                  "options": [
-                    {
-                      "label": "Add (stop if file exists)",
-                      "value": "add"
-                    },
-                    {
-                      "label": "Overwrite existing file",
-                      "value": "overwrite"
-                    }
-                  ]
+                  "label": "Mode: add or overwrite",
+                  "required": true
                 }
               ]
             }

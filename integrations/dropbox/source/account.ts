@@ -1,16 +1,18 @@
 import {randomUUID} from 'node:crypto';
 import {execFile} from 'node:child_process';
-import {readFile,writeFile} from 'node:fs/promises';
+import {readFile,writeFile,mkdir} from 'node:fs/promises';
+import {dirname} from 'node:path';
+import {fileURLToPath} from 'node:url';
 import {client,checkAccount,errorMessage} from './provider.ts';
 import {dropboxManagedAuthConfig} from './account-config.ts';
+import {connectionStateUrl,legacyConnectionStateUrl} from './connection-state.ts';
 
 type State={user?:string;account?:string;authConfig?:string;pending?:{id:string;url:string;user:string;authConfig:string};disconnectedAccountId?:string};
-const stateUrl=new URL('./connection.json',import.meta.url);
 // Abort signals have a fixed deadline. Create one for each request so an
 // account action still works after the MCP server has been idle.
 export const accountRequestOptions=()=>({signal:AbortSignal.timeout(25000),maxRetries:0});
-export async function loadState(file:URL=stateUrl):Promise<State>{try{return JSON.parse(await readFile(file,'utf8'))||{};}catch(e:any){if(e.code==='ENOENT')return {};throw new Error('Saved Dropbox connection is unreadable. Reconnect using Setup.');}}
-export async function saveState(state:State,file:URL=stateUrl){await writeFile(file,JSON.stringify(state,null,2),{mode:0o600});}
+export async function loadState(file:URL=connectionStateUrl()):Promise<State>{try{return JSON.parse(await readFile(file,'utf8'))||{};}catch(e:any){if(e.code==='ENOENT'){if(file.href!==connectionStateUrl().href)return {};try{return JSON.parse(await readFile(legacyConnectionStateUrl(),'utf8'))||{};}catch(legacy:any){if(legacy.code==='ENOENT')return {};}}throw new Error('Saved Dropbox connection is unreadable. Reconnect using Setup.');}}
+export async function saveState(state:State,file:URL=connectionStateUrl()){await mkdir(dirname(fileURLToPath(file)),{recursive:true,mode:0o700});await writeFile(file,JSON.stringify(state,null,2),{mode:0o600});}
 export function openAuthorization(url:string):Promise<void>{
  const target=new URL(url);if(target.protocol!=='https:')throw new Error('Composio returned an insecure authorization URL.');
  const command=process.platform==='win32'?'rundll32.exe':process.platform==='darwin'?'/usr/bin/open':'xdg-open';
@@ -23,7 +25,7 @@ function accountResult(status:string,message:string,extra:Record<string,unknown>
 }
 async function verified(c:any,id:string,user?:string,active=true){const raw=await c.client.connectedAccounts.retrieve(id,accountRequestOptions());const owner=user||raw?.user_id;checkAccount(raw,id,owner,active);return raw;}
 function selected(state:State){const manual=process.env.COMPOSIO_CONNECTED_ACCOUNT_ID?.trim()||'';return {account:state.account||(manual&&manual!==state.disconnectedAccountId?manual:''),user:state.account?state.user:process.env.COMPOSIO_USER_ID?.trim()||undefined};}
-export async function connectionStatus(c:any=client(),file:URL=stateUrl){
+export async function connectionStatus(c:any=client(),file:URL=connectionStateUrl()){
  const state=await loadState(file),config=selected(state);
  if(state.pending){
   try{const raw=await c.client.connectedAccounts.retrieve(state.pending.id,accountRequestOptions());if(raw?.status==='ACTIVE'){
@@ -39,7 +41,7 @@ export async function connectionStatus(c:any=client(),file:URL=stateUrl){
   return accountResult('error','Dropbox authorization expired or was revoked. Ask to connect Dropbox again.');
  }catch(e:any){if(e.status===404||e.cause?.status===404)return accountResult('error','Dropbox connection was removed. Ask to connect Dropbox again.');throw e;}
 }
-export async function connectAccount(c:any=client(),file:URL=stateUrl,open=openAuthorization){
+export async function connectAccount(c:any=client(),file:URL=connectionStateUrl(),open=openAuthorization){
  const state=await loadState(file),config=selected(state);
  if(config.account){try{const raw=await verified(c,config.account,config.user);if(raw.status==='ACTIVE')return accountResult('connected','Dropbox is already connected and ready to use.');}catch{/* Continue with fresh authorization. */}}
  if(!state.pending){
@@ -62,7 +64,7 @@ export async function connectAccount(c:any=client(),file:URL=stateUrl,open=openA
   return accountResult('connected','Dropbox authorization verified. Your account is ready to use.');
  }catch(e:any){if(/timed?\s*out|pending/i.test(String(e?.message)))return accountResult('pending','Finish Dropbox authorization in your browser, then ask for connection status.',{authorization_url:pending.url});throw e;}
 }
-export async function disconnectAccount(c:any=client(),file:URL=stateUrl){
+export async function disconnectAccount(c:any=client(),file:URL=connectionStateUrl()){
  const state=await loadState(file),config=selected(state),id=state.account||config.account;
  if(state.pending&&state.pending.id!==id){
   try{const pending=await c.client.connectedAccounts.retrieve(state.pending.id,accountRequestOptions());if(pending?.toolkit?.slug&&pending.toolkit.slug!=='dropbox')throw new Error('Refusing to disconnect a non-Dropbox connection.');await c.connectedAccounts.delete(state.pending.id,accountRequestOptions());}
