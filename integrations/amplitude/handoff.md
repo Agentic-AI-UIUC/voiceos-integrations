@@ -18,6 +18,22 @@ No other Composio action is called anywhere. `tests/server.test.ts` checks this 
 
 **Get dashboard is out of scope.** The ticket listed it, but Composio's Amplitude toolkit has no dashboard or chart action (its 54 actions were checked), so it can't be built on Composio.
 
+## Screenshots
+
+The integration's glance cards in the VoiceOS notch, from v1.0.0 against a test project.
+
+| `get_event_segmentation` | `get_funnel` |
+|---|---|
+| ![Events card: 22 voiceos_page_view events from Nov 9 to Nov 14, busiest Nov 11, with a trend line](ui_images/event-segmentation.png) | ![Funnel card: 50% of 6 users went from voiceos_page_view to voiceos_purchase, with 6, 5 and 3 users per step](ui_images/funnel.png) |
+
+| `get_retention` | `get_user_activity` |
+|---|---|
+| ![Retention card: 100% of 6 new users came back 1 day later, with rows for days 1, 2, 3 and 9](ui_images/retention.png) | ![User card: voiceos-test-1 found from the dictated phrase "Voice OS Test 1", with the latest events](ui_images/user-activity.png) |
+
+`export_cohort` on a free Amplitude plan, which can't export cohort members:
+
+![Cohort export card explaining that exporting cohorts needs a Growth or Enterprise plan and that the cohort has 3 users](ui_images/cohort-export-plan-error.png)
+
 ## Setup
 
 1. Create a Composio API key at platform.composio.dev -> API Keys, in a Platform workspace (not For You).
@@ -82,4 +98,3 @@ E2E_EVENTS="Page View,Sign Up" E2E_USER=some-user-id bun tests/e2e.ts
 - Composio offers no hourly segmentation (see above).
 - **`export_cohort`'s file download is untested live.** The test project is on Amplitude's free plan, and cohort downloads need Growth or Enterprise (see above). After `AMPLITUDE_DOWNLOAD_COHORT_FILE`, the server fetches the file from the link Composio returns. That link points to a file-storage host, not `backend.composio.dev`, and its host hasn't been seen yet. If VoiceOS enforces `permissions.domains`, that host may need adding, as OneDrive's manifest lists Composio's temporary file-storage host. Check the host on a paid project before adding it; don't guess one. Until then, if the file can't be read, the tool still reports the cohort's listed size and says the sample is missing.
 - Some VoiceOS builds don't re-read a changed manifest after install. See `AGENTS.md` for how to load one.
-- Screenshots are to be added.
