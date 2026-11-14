@@ -79,6 +79,6 @@ E2E_EVENTS="Page View,Sign Up" E2E_USER=some-user-id bun tests/e2e.ts
 - Windows is listed as supported and uses the same generated `run.cmd` launcher as the other integrations, but it hasn't been run on Windows yet.
 - The EU region sets the EU API base URL on the connected account, but it hasn't been tested against an EU project.
 - Composio offers no hourly segmentation (see above).
-- Cohort export downloads need an Amplitude Growth or Enterprise plan, so the download step is untested live (see above).
+- **`export_cohort`'s file download is untested live.** The test project is on Amplitude's free plan, and cohort downloads need Growth or Enterprise (see above). After `AMPLITUDE_DOWNLOAD_COHORT_FILE`, the server fetches the file from the link Composio returns. That link points to a file-storage host, not `backend.composio.dev`, and its host hasn't been seen yet. If VoiceOS enforces `permissions.domains`, that host may need adding, as OneDrive's manifest lists Composio's temporary file-storage host. Check the host on a paid project before adding it; don't guess one. Until then, if the file can't be read, the tool still reports the cohort's listed size and says the sample is missing.
 - Some VoiceOS builds don't re-read a changed manifest after install. See `AGENTS.md` for how to load one.
 - Screenshots are to be added.
