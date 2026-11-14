@@ -411,8 +411,8 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 // source/catalog.ts
 import { z } from "zod";
 var VERSION = "20261101_00";
-var BUILD = "dropbox-composio-v22-persistent-connection-compact-upload";
-var INTEGRATION_VERSION = "2.0.20";
+var BUILD = "dropbox-composio-v23-compact-upload-select";
+var INTEGRATION_VERSION = "2.0.21";
 var path = z.string().refine((p) => p === "" || p.startsWith("/") && !p.endsWith("/") && !p.includes("//") && !/[\u0000-\u001f]/.test(p) && !p.split("/").some((s) => s === "." || s === ".."), "Use an absolute Dropbox path without control characters, dot segments, or a trailing slash");
 var item = path.refine((p) => p.length > 1, "A file or folder path is required; root is protected");
 var text = z.string().min(1);
