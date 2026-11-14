@@ -22,7 +22,7 @@ test('OAuth state survives an integration folder replacement and has Windows and
   assert.match(mac.pathname,/Library\/Application%20Support\/VoiceOS\/dropbox-composio\/connection-/);
   const {saveState}=await import('./account.ts');
   await saveState({account:'ca_saved',user:'voiceos-qa'},win);
-  assert.deepEqual(connection(),{account:'ca_saved',user:'voiceos-qa'});
+  assert.deepEqual(connection(win),{account:'ca_saved',user:'voiceos-qa'});
   assert.equal((await loadState(win)).account,'ca_saved');
  }finally{
   if(originalKey===undefined)delete process.env.COMPOSIO_API_KEY;else process.env.COMPOSIO_API_KEY=originalKey;

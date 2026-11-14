@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "com.voiceos.generated.dropbox",
-  "version": "2.0.22",
+  "version": "2.0.23",
   "name": "Dropbox",
   "summary": "Find, read, upload, organize, version and share Dropbox files through Composio OAuth2.",
   "supportedPlatforms": [
@@ -199,24 +199,22 @@
                 {
                   "type": "widget",
                   "label": "Upload behavior",
+                  "confirmLabel": "Upload File",
                   "height": 60,
-                  "html": "<!doctype html><html><head><meta charset=\"utf-8\"><style>\n*{box-sizing:border-box}html,body{margin:0;background:transparent;color:#f5f5f5;font:12px system-ui,-apple-system,\"Segoe UI\",sans-serif}\n.label{color:#a9a9ae;margin:0 0 6px}.choices{display:flex;gap:8px}\nbutton{flex:1;min-width:0;height:34px;border:1px solid #555860;border-radius:9px;background:#25262a;color:#f5f5f5;font:600 12px system-ui,-apple-system,\"Segoe UI\",sans-serif;cursor:pointer}\nbutton[aria-pressed=\"true\"]{border-color:#70a6ff;background:#164a8d;color:#fff}button:focus-visible{outline:2px solid #9ac3ff;outline-offset:2px}\n</style></head><body><div class=\"label\">Upload behavior</div><div class=\"choices\"><button type=\"button\" data-mode=\"add\" aria-pressed=\"true\">Add (no replace)</button><button type=\"button\" data-mode=\"overwrite\" aria-pressed=\"false\">Overwrite</button></div><script>\nconst buttons=[...document.querySelectorAll('[data-mode]')];\nfunction show(mode){for(const button of buttons)button.setAttribute('aria-pressed',String(button.dataset.mode===mode));}\nwindow.addEventListener('message',event=>{if(event.data?.type==='voiceos:init')show(event.data.args?.mode==='overwrite'?'overwrite':'add');});\nfor(const button of buttons)button.addEventListener('click',()=>{show(button.dataset.mode);parent.postMessage({type:'voiceos:updateInput',key:'mode',value:button.dataset.mode},'*');});\n</script></body></html>"
-                }
-              ]
-            }
-          ],
-          "footer": [
-            {
-              "type": "actions",
-              "items": [
-                {
-                  "label": "Cancel",
-                  "role": "cancel"
+                  "html": "<!doctype html><html><head><meta charset=\"utf-8\"><style>\n*{box-sizing:border-box}html,body{margin:0;background:transparent;color:#f5f5f5;font:12px system-ui,-apple-system,\"Segoe UI\",sans-serif;color-scheme:dark}\nlabel{display:block;color:#a9a9ae;margin:0 0 6px}.select-wrap{position:relative}\n.select-wrap::after{content:\"\";position:absolute;right:12px;top:13px;width:7px;height:7px;border-right:1.5px solid #bbb;border-bottom:1.5px solid #bbb;transform:rotate(45deg);pointer-events:none}\nselect{width:100%;height:35px;padding:0 30px 0 10px;border:1px solid #555860;border-radius:9px;background:#25262a;color:#fff;appearance:none;font:600 12px system-ui,-apple-system,\"Segoe UI\",sans-serif;cursor:pointer}\nselect:focus-visible{outline:2px solid #9ac3ff;outline-offset:2px}option{background:#25262a;color:#fff}\n</style></head><body><label for=\"mode\">Upload behavior</label><div class=\"select-wrap\"><select id=\"mode\" aria-label=\"Upload behavior\"><option value=\"add\">Add (no replace)</option><option value=\"overwrite\">Overwrite</option></select></div><script>\nconst mode=document.getElementById('mode');\nwindow.addEventListener('message',event=>{if(event.data?.type==='voiceos:init')mode.value=event.data.args?.mode==='overwrite'?'overwrite':'add';});\nmode.addEventListener('change',()=>parent.postMessage({type:'voiceos:updateInput',key:'mode',value:mode.value},'*'));\n</script></body></html>"
                 },
                 {
-                  "label": "Upload File",
-                  "role": "confirm",
-                  "color": "accent"
+                  "type": "stack",
+                  "direction": "horizontal",
+                  "gap": "sm",
+                  "align": "start",
+                  "children": [
+                    {
+                      "type": "button",
+                      "label": "Cancel",
+                      "role": "cancel"
+                    }
+                  ]
                 }
               ]
             }

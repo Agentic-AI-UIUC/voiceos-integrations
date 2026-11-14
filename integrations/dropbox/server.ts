@@ -411,8 +411,8 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 // source/catalog.ts
 import { z } from "zod";
 var VERSION = "20261101_00";
-var BUILD = "dropbox-composio-v24-visible-upload-choices";
-var INTEGRATION_VERSION = "2.0.22";
+var BUILD = "dropbox-composio-v25-upload-select-and-ci";
+var INTEGRATION_VERSION = "2.0.23";
 var path = z.string().refine((p) => p === "" || p.startsWith("/") && !p.endsWith("/") && !p.includes("//") && !/[\u0000-\u001f]/.test(p) && !p.split("/").some((s) => s === "." || s === ".."), "Use an absolute Dropbox path without control characters, dot segments, or a trailing slash");
 var item = path.refine((p) => p.length > 1, "A file or folder path is required; root is protected");
 var text = z.string().min(1);
@@ -683,10 +683,10 @@ var client = (key = process.env.COMPOSIO_API_KEY) => {
   if (!key?.trim()) throw new Error("Set COMPOSIO_API_KEY in VoiceOS Setup.");
   return new Composio({ apiKey: key.trim(), baseUrl: "https://backend.composio.dev", disableVersionCheck: true, logLevel: "error" });
 };
-function connection() {
+function connection(stateUrl = connectionStateUrl()) {
   let saved = {};
   try {
-    saved = JSON.parse(readFileSync(connectionStateUrl(), "utf8")) || {};
+    saved = JSON.parse(readFileSync(stateUrl, "utf8")) || {};
   } catch (e) {
     if (e.code !== "ENOENT") throw new Error("Saved Dropbox connection is unreadable. Reconnect using Setup.");
     try {

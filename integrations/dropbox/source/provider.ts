@@ -10,9 +10,9 @@ export const client = (key = process.env.COMPOSIO_API_KEY) => {
   if (!key?.trim()) throw new Error('Set COMPOSIO_API_KEY in VoiceOS Setup.');
   return new Composio({apiKey:key.trim(),baseUrl:'https://backend.composio.dev',disableVersionCheck:true,logLevel:'error'});
 };
-export function connection() {
+export function connection(stateUrl=connectionStateUrl()) {
   let saved:any={};
-  try {saved=JSON.parse(readFileSync(connectionStateUrl(),'utf8'))||{};}
+  try {saved=JSON.parse(readFileSync(stateUrl,'utf8'))||{};}
   catch(e:any) {if(e.code!=='ENOENT') throw new Error('Saved Dropbox connection is unreadable. Reconnect using Setup.');
     try {saved=JSON.parse(readFileSync(legacyConnectionStateUrl(),'utf8'))||{};}
     catch(legacy:any){if(legacy.code!=='ENOENT')throw new Error('Saved Dropbox connection is unreadable. Reconnect using Setup.');}
