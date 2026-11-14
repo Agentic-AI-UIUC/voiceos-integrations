@@ -2,7 +2,6 @@ import type {Tool} from './catalog.ts';
 import {safeSharedUrl} from './link-controls.ts';
 export function responseGuidance(tool:Tool){
  if(tool.name==='create_shared_link'||tool.name==='list_shared_links')return ' Shared links are already available through the card Open/Copy controls. Use the returned summary for a brief reply; do not rebuild the URL or print it in a second formatted response. Reuse the exact returned URL for revocation. Never repeat a completed write because narration formatting failed.';
- if(tool.name==='list_revisions')return ' The card shows exact revision IDs. If the user asks for a revision ID, quote the exact rev value from the returned entry, identify it by its timestamp, and do not infer an ID from a date.';
  if('collection' in tool)return ' The card already shows the returned items. Keep default narration brief and do not repeat the entire list unless the user explicitly asks for those details.';
  return '';
 }
