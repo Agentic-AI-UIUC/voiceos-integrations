@@ -691,7 +691,7 @@ function publicProps(props: unknown): Record<string, unknown> {
   return Object.fromEntries(Object.entries(props as Record<string, unknown>).filter(([k]) => !PRIVATE_KEY.test(k)));
 }
 
-// Speech splits IDs into words ("voiceos-test-1" is heard as "User Voice OS Test 1"). When the exact text
+// Dictation splits IDs into words ("voiceos-test-1" comes out as "User Voice OS Test 1"). When the exact text
 // finds no one, try the words lowercased and rejoined with "-", "_" or nothing, after dropping a leading
 // "user"/"device"/"ID". Capped so a miss costs at most a few quick lookups.
 const MAX_SPOKEN_VARIANTS = 16;
