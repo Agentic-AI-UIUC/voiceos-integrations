@@ -1,0 +1,258 @@
+{
+  "schemaVersion": 1,
+  "id": "com.voiceos.generated.amplitude-analytics",
+  "version": "1.0.0",
+  "name": "Amplitude",
+  "summary": "Amplitude by voice: event trends, funnels, retention, user activity, and cohort exports.",
+  "icon": "icon.png",
+  "supportedPlatforms": [
+    "darwin",
+    "win32"
+  ],
+  "publisher": {
+    "id": "pub_user",
+    "name": "Made in VoiceOS"
+  },
+  "runtime": {
+    "kind": "local-mcp",
+    "command": "/bin/zsh",
+    "args": [
+      "run.sh"
+    ]
+  },
+  "permissions": [
+    {
+      "kind": "network",
+      "domains": [
+        "backend.composio.dev"
+      ]
+    }
+  ],
+  "preferences": [
+    {
+      "name": "COMPOSIO_API_KEY",
+      "title": "Composio API key",
+      "description": "Your Composio API key from platform.composio.dev -> API Keys. Use a Platform workspace, not For You.",
+      "type": "password",
+      "required": true
+    },
+    {
+      "name": "AMPLITUDE_API_KEY",
+      "title": "Amplitude API key",
+      "description": "Amplitude: Settings -> Projects -> your project -> API keys. Copy the API key.",
+      "type": "password",
+      "required": true
+    },
+    {
+      "name": "AMPLITUDE_SECRET_KEY",
+      "title": "Amplitude secret key",
+      "description": "Same page as the API key: Settings -> Projects -> your project -> API keys. Copy the secret key.",
+      "type": "password",
+      "required": true
+    },
+    {
+      "name": "AMPLITUDE_REGION",
+      "title": "Amplitude region",
+      "description": "Where your Amplitude data is hosted: US or EU.",
+      "type": "select",
+      "required": false,
+      "default": "us",
+      "options": [
+        {
+          "label": "US (amplitude.com)",
+          "value": "us"
+        },
+        {
+          "label": "EU (analytics.eu.amplitude.com)",
+          "value": "eu"
+        }
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "name": "get_event_segmentation",
+      "title": "Event segmentation",
+      "description": "Count an Amplitude event over time: unique users, total events, % of daily active users, or average per user, bucketed by day, week, month, or 5-minute realtime, optionally grouped by a property. Use when the user asks how many times an event happened, how many users did something, or for an event's trend in Amplitude.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "event_type": {
+            "type": "string",
+            "description": "Exact event name (case-sensitive), or '_all' for any event, '_active' for any active event."
+          },
+          "metric": {
+            "type": "string",
+            "enum": [
+              "uniques",
+              "totals",
+              "pct_dau",
+              "average"
+            ],
+            "description": "'uniques' (unique users, default), 'totals' (event count), 'pct_dau' (% of daily active users), or 'average' (events per user)."
+          },
+          "interval": {
+            "type": "string",
+            "enum": [
+              "daily",
+              "weekly",
+              "monthly",
+              "realtime"
+            ],
+            "description": "Bucket size. Default 'daily'. 'realtime' is 5-minute buckets for the last day or two."
+          },
+          "group_by": {
+            "type": "string",
+            "description": "Optional property to group by, e.g. 'platform' or 'country'. Prefix custom user properties with 'gp:'."
+          },
+          "days": {
+            "type": "number",
+            "description": "Number of past days to cover, ending today (UTC). Ignored when start_date is given."
+          },
+          "start_date": {
+            "type": "string",
+            "description": "Optional start date, YYYY-MM-DD or YYYYMMDD."
+          },
+          "end_date": {
+            "type": "string",
+            "description": "Optional end date, YYYY-MM-DD or YYYYMMDD. Default today (UTC)."
+          }
+        },
+        "required": [
+          "event_type"
+        ]
+      }
+    },
+    {
+      "name": "get_funnel",
+      "title": "Get funnel",
+      "description": "Run an Amplitude conversion funnel over 2 to 4 events in order and return how many users reached each step, the conversion rates, and the average time between steps. Use when the user asks about conversion, drop-off, or a funnel between events in Amplitude.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "steps": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "2 to 4 exact event names in funnel order, e.g. ['Page View', 'Sign Up']."
+          },
+          "conversion_window_days": {
+            "type": "number",
+            "description": "Days a user has to complete the funnel (1-90, default 30)."
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "ordered",
+              "unordered",
+              "sequential"
+            ],
+            "description": "'ordered' (default): steps in this order, other events allowed between; 'sequential': no other events between steps; 'unordered': any order."
+          },
+          "days": {
+            "type": "number",
+            "description": "Number of past days to cover, ending today (UTC). Ignored when start_date is given."
+          },
+          "start_date": {
+            "type": "string",
+            "description": "Optional start date, YYYY-MM-DD or YYYYMMDD."
+          },
+          "end_date": {
+            "type": "string",
+            "description": "Optional end date, YYYY-MM-DD or YYYYMMDD. Default today (UTC)."
+          }
+        },
+        "required": [
+          "steps"
+        ]
+      }
+    },
+    {
+      "name": "get_retention",
+      "title": "Get retention",
+      "description": "Calculate Amplitude retention: of the users who did a starting event, how many came back and did a return event in each later day, week, or month. Use when the user asks about retention, churn, stickiness, or whether users come back.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "start_event": {
+            "type": "string",
+            "description": "Event that puts a user into a cohort. Default '_new' (new users); '_active' means any active user; otherwise an exact event name."
+          },
+          "return_event": {
+            "type": "string",
+            "description": "Event that counts as coming back. Default '_all' (any event); otherwise an exact event name."
+          },
+          "interval": {
+            "type": "string",
+            "enum": [
+              "daily",
+              "weekly",
+              "monthly"
+            ],
+            "description": "Retention period. Default 'daily'."
+          },
+          "retention_mode": {
+            "type": "string",
+            "enum": [
+              "n-day",
+              "rolling"
+            ],
+            "description": "'n-day' (default): came back exactly in that period; 'rolling': came back in that period or later."
+          },
+          "days": {
+            "type": "number",
+            "description": "Number of past days to cover, ending today (UTC). Ignored when start_date is given."
+          },
+          "start_date": {
+            "type": "string",
+            "description": "Optional start date, YYYY-MM-DD or YYYYMMDD."
+          },
+          "end_date": {
+            "type": "string",
+            "description": "Optional end date, YYYY-MM-DD or YYYYMMDD. Default today (UTC)."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_user_activity",
+      "title": "Get user activity",
+      "description": "Look up one Amplitude user by their user ID or device ID (not email, unless email is their user ID) and return their profile summary and most recent events. Location and device details are left out. Use when the user asks what a specific user did or when they were last seen.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "user": {
+            "type": "string",
+            "description": "The user's Amplitude user ID or device ID, or their numeric Amplitude ID."
+          },
+          "limit": {
+            "type": "number",
+            "description": "Number of recent events to return (1-50, default 10)."
+          }
+        },
+        "required": [
+          "user"
+        ]
+      }
+    },
+    {
+      "name": "export_cohort",
+      "title": "Export cohort",
+      "description": "Export an Amplitude cohort by name or ID and return its size and a short sample of members. Only cohorts marked discoverable in Amplitude can be exported. Use when the user asks who is in a cohort, how big a cohort is, or to export or pull a cohort's members.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "cohort": {
+            "type": "string",
+            "description": "Cohort name or ID, e.g. 'Power users' or 'a1b2c3d4'. Leave blank to list the cohorts."
+          },
+          "request_id": {
+            "type": "string",
+            "description": "Request ID from an earlier export that was still processing; resumes it instead of starting over."
+          }
+        }
+      }
+    }
+  ]
+}
