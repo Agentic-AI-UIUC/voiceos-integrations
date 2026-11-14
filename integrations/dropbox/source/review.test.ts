@@ -4,10 +4,27 @@ import {tools,parseArgs} from './catalog.ts';
 import {execute,unwrap,readCollection,mapArgs,errorMessage} from './provider.ts';
 import {successCard} from './cards.ts';
 import {confirmationCard} from './confirmation.ts';
+import {uploadModeControl} from './upload-mode-control.ts';
+import {existsSync,mkdtempSync,writeFileSync,rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {pathToFileURL} from 'node:url';
+import {execFileSync} from 'node:child_process';
 test('all eight native confirmations bind every editable argument and have one Cancel and Confirm',()=>{
  const writes=tools.filter(t=>t.write);assert.equal(writes.length,8);
- for(const tool of writes){const card=confirmationCard(tool);assert.equal(card.root.type,'card');const fields=card.root.children[0].children.filter(c=>c.type==='textField'||c.type==='select');assert.deepEqual(fields.map(f=>f.bind),Object.keys(tool.schema).map(k=>'{{'+k+'}}'));const actions=card.root.footer.flatMap(f=>f.items);assert.deepEqual(actions.map(a=>a.role),['cancel','confirm']);assert.doesNotMatch(JSON.stringify(card),/voiceos:invokeTool|<script|confirmLabel/);if(tool.name==='upload_file'){const mode=fields.find(f=>f.bind==='{{mode}}') as any;assert.equal(mode.type,'select');assert.deepEqual(mode.options,[{label:'Add',value:'add'},{label:'Overwrite',value:'overwrite'}]);assert.equal(card.root.children[0].gap,'sm');assert.doesNotMatch(JSON.stringify(card),/Selected source/);}else assert.ok(fields.every(f=>f.type==='textField'));}
+ for(const tool of writes){const card=confirmationCard(tool);assert.equal(card.root.type,'card');const fields=card.root.children[0].children.filter(c=>c.type==='textField'||c.type==='select'||c.type==='widget');const actions=card.root.footer.flatMap(f=>f.items);assert.deepEqual(actions.map(a=>a.role),['cancel','confirm']);assert.doesNotMatch(JSON.stringify(card),/voiceos:invokeTool|confirmLabel|"type":"select"/);if(tool.name==='upload_file'){assert.deepEqual(fields.map(f=>f.type),['textField','textField','widget']);assert.deepEqual(fields.slice(0,2).map(f=>f.bind),['{{path}}','{{file}}']);const mode=fields[2] as any;assert.equal(mode.height,60);assert.match(mode.html,/Add \(no replace\)/);assert.match(mode.html,/Overwrite/);assert.match(mode.html,/voiceos:updateInput/);assert.match(mode.html,/key:'mode'/);assert.equal(card.root.children[0].gap,'sm');assert.equal(card.root.children[0].children.length,3);assert.doesNotMatch(JSON.stringify(card),/Selected source/);}else {assert.deepEqual(fields.map(f=>f.bind),Object.keys(tool.schema).map(k=>'{{'+k+'}}'));assert.ok(fields.every(f=>f.type==='textField'));}}
  for(const tool of tools.filter(t=>!t.write))assert.throws(()=>confirmationCard(tool),/Read-only/);
+});
+
+const chrome=[process.env.CHROME_BIN,'C:/Program Files/Google/Chrome/Application/chrome.exe','/Applications/Google Chrome.app/Contents/MacOS/Google Chrome','/usr/bin/chromium','/usr/bin/google-chrome'].find(p=>p&&existsSync(p));
+test('upload choices remain readable and send the exact staged mode',{skip:!chrome,timeout:30000},()=>{
+ const dir=mkdtempSync(join(tmpdir(),'dropbox-upload-mode-'));
+ try{
+  const html=`<!doctype html><body><script>window.messages=[];window.addEventListener('message',e=>{if(e.data?.type==='voiceos:updateInput')window.messages.push(e.data)});(async()=>{const frame=document.createElement('iframe');frame.style.cssText='width:300px;height:60px;border:0';frame.srcdoc=${JSON.stringify(uploadModeControl.html).replace(/</g,'\\u003c')};document.body.append(frame);await new Promise(r=>frame.onload=r);const d=frame.contentDocument,w=frame.contentWindow;w.postMessage({type:'voiceos:init',args:{mode:'overwrite'}},'*');await new Promise(r=>setTimeout(r,50));const buttons=[...d.querySelectorAll('[data-mode]')];const initial=buttons[1].getAttribute('aria-pressed')==='true';buttons[0].click();buttons[1].click();await new Promise(r=>setTimeout(r,50));const style=w.getComputedStyle(buttons[1]);const result={initial,labels:buttons.map(b=>b.textContent),values:window.messages.map(m=>m.value),keys:window.messages.map(m=>m.key),visible:buttons.every(b=>b.getBoundingClientRect().width>0&&b.getBoundingClientRect().height>0),fits:d.documentElement.scrollHeight<=60&&d.documentElement.scrollWidth<=300,color:style.color,background:style.backgroundColor};document.body.dataset.report=btoa(JSON.stringify(result));})().catch(e=>document.body.dataset.failure=String(e));</script>`;
+  const file=join(dir,'test.html');writeFileSync(file,html);
+  const output=execFileSync(chrome!,['--headless=new','--no-first-run','--disable-gpu','--disable-background-networking','--disable-extensions','--user-data-dir='+join(dir,'profile'),'--allow-file-access-from-files','--virtual-time-budget=3000','--dump-dom',pathToFileURL(file).href],{encoding:'utf8',maxBuffer:2*1024*1024,timeout:20000,windowsHide:true,stdio:['ignore','pipe','pipe']});
+  const encoded=/data-report="([^"]+)"/.exec(output)?.[1];assert.ok(encoded,output.slice(-700));const result=JSON.parse(Buffer.from(encoded,'base64').toString());assert.equal(result.initial,true);assert.deepEqual(result.labels,['Add (no replace)','Overwrite']);assert.deepEqual(result.values,['add','overwrite']);assert.deepEqual(result.keys,['mode','mode']);assert.equal(result.visible,true);assert.equal(result.fits,true);assert.notEqual(result.color,result.background);
+ }finally{rmSync(dir,{recursive:true,force:true});}
 });
 
 test('result cards retain 30 returned rows without exposing raw revision identifiers',()=>{
