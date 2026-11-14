@@ -147,10 +147,14 @@ describe("account tools contract", () => {
           expect(declared.confirmation.root.children.at(-1).children).toEqual([{ type: "button", label: "Cancel", role: "cancel" }]);
         } else if (actual.name.endsWith("_comment")) {
           const root = declared.confirmation.root;
-          expect(root.footer[0].items.map((item: { role: string }) => item.role)).toEqual(["cancel", "confirm"]);
+          expect(root.footer).toBeUndefined();
+          expect(root.children.find((block: { type: string }) => block.type === "widget").confirmLabel).toBe(root.title);
+          expect(root.children.at(-1).children).toEqual([{ type: "button", label: "Cancel", role: "cancel" }]);
+          if (actual.name !== "delete_comment")
+            expect(root.children).toContainEqual(expect.objectContaining({ type: "textField", bind: "{{body}}", multiline: true }));
           expect(actual.annotations?.destructiveHint).toBe(actual.name === "delete_comment");
           if (actual.name === "delete_comment")
-            expect(root.children).toContainEqual({ type: "text", text: "This permanently deletes the comment from Monday.com.", color: "danger" });
+            expect(root.children).toContainEqual({ type: "text", text: "This permanently deletes the update from Monday.com.", color: "danger" });
         } else {
           expect(declared.confirmation).toBeUndefined();
         }
@@ -2022,6 +2026,9 @@ describe("Monday comments", () => {
       item_id: 456, itemName: "Launch", pagination: { page: 1, limit: 1, nextPage: 2 },
       records: [{ id: 900, text: own.text_body, author: "Dario", replies: [{ id: 901, author: "Sam", text: "Thanks" }] }],
     });
+    expect(first.body._voiceos_glance.blocks[1].data.rows[0]).toEqual({
+      text: own.text_body, date: expect.stringMatching(/Nov \d+, 2026/), author: "Dario",
+    });
     const second = await invoke("get_comments", { item_id: first.body.item_id, page: 2, limit: 1 });
     expect(second.body.records[0].text).toBe("Second page");
     expect(commentReads().map(call => (call.body?.body as { variables: unknown }).variables)).toEqual([
@@ -2098,14 +2105,14 @@ describe("Monday comments", () => {
     const draft = await invoke("prepare_comment", { operation: "create", item_id: 456, comment_text: "Launch date", body });
     const args = draft.body.create_comment_arguments;
     expect(args).toMatchObject({ body, parent: own.text_body });
-    expect((await invoke("create_comment", { ...args, body: "Different text" })).isError).toBe(true);
+    expect((await invoke("create_comment", { ...args, item: "Different item" })).isError).toBe(true);
     expect(calls("MONDAY_CREATE_UPDATE")).toEqual([]);
-    expect((await invoke("create_comment", top.body.create_comment_arguments)).body.id).toBe("910");
+    expect((await invoke("create_comment", { ...top.body.create_comment_arguments, body: "Typed edit" })).body.id).toBe("910");
     expect((await invoke("create_comment", args)).body.message).toBe("Posted reply.");
     expect((await invoke("create_comment", args)).isError).toBe(true);
     const html = "Ready &lt;today&gt; &amp; tomorrow<br>Next step";
     expect(calls("MONDAY_CREATE_UPDATE").map(call => call.body?.arguments)).toEqual([
-      { item_id: 456, body: html }, { item_id: 456, body: html, parent_id: 900 },
+      { item_id: 456, body: "Typed edit" }, { item_id: 456, body: html, parent_id: 900 },
     ]);
   });
 
@@ -2155,8 +2162,8 @@ describe("Monday comments", () => {
       operation: "edit", item_id: 456, comment_id: 900, body: "Launch date is Tuesday",
     });
     expect(edit).toMatchObject({ old_body: own.text_body, body: "Launch date is Tuesday" });
-    expect((await invoke("edit_comment", edit)).body.id).toBe("900");
-    expect(calls("MONDAY_EDIT_UPDATE")[0].body?.arguments).toEqual({ id: 900, body: "Launch date is Tuesday" });
+    expect((await invoke("edit_comment", { ...edit, body: "Typed revision" })).body.id).toBe("900");
+    expect(calls("MONDAY_EDIT_UPDATE")[0].body?.arguments).toEqual({ id: 900, body: "Typed revision" });
 
     const prepareDelete = async () => (await invoke("prepare_comment", { operation: "delete", item_id: 456, comment_id: 900 })).body.delete_comment_arguments;
     const stale = await prepareDelete();
@@ -2171,6 +2178,7 @@ describe("Monday comments", () => {
 
     const approved = await prepareDelete();
     expect(approved).toMatchObject({ author: poster.name, item: "Launch · Roadmap", old_body: own.text_body });
+    expect(approved.posted_date).toMatch(/Nov \d+, 2026/);
     expect(approved.reply_warning).toContain("1 reply");
     expect(calls("MONDAY_DELETE_UPDATE")).toEqual([]);
     expect((await invoke("delete_comment", approved)).body).toMatchObject({ id: "900" });
