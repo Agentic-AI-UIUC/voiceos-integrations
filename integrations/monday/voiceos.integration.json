@@ -7,7 +7,7 @@
   "description": "Link Monday.com, browse boards/items, create items/boards/comments, and update item columns through Composio. Board and item actions show progress and result cards. Desktop notifications are reserved for connecting and disconnecting Monday.com.",
   "icon": "icon.svg",
   "categories": ["Productivity"],
-  "supportedPlatforms": ["darwin"],
+  "supportedPlatforms": ["darwin", "win32"],
   "publisher": { "id": "pub_user", "name": "Made in VoiceOS" },
   "runtime": { "kind": "local-mcp", "command": "/bin/zsh", "args": ["run.sh"] },
   "permissions": [

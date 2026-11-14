@@ -4,6 +4,7 @@ import { Composio } from "@composio/core";
 import { z } from "zod";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { platform } from "node:os";
 import { readFile, writeFile, rename } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { setTimeout as delay } from "node:timers/promises";
@@ -2758,14 +2759,7 @@ async function connect(): Promise<Output> {
   }
   state.pending = { id: request.id, url: request.redirectUrl };
   await save(state);
-  await new Promise<void>((resolve, reject) => {
-    execFile(
-      "/usr/bin/open",
-      [state.pending!.url],
-      { timeout: 8000, signal },
-      (error) => (error ? reject(error) : resolve()),
-    );
-  });
+  await openBrowser(request.redirectUrl, signal);
   startBackgroundConnectWatcher(request.id);
   return {
     connected: false,
@@ -2937,6 +2931,26 @@ async function feedback(
   };
 }
 
+function openBrowser(url: string, signal?: AbortSignal) {
+  return new Promise<void>((resolve, reject) => {
+    const onOpened = (error: Error | null) => error ? reject(error) : resolve();
+    if (platform() === "win32") {
+      // Pass the URL as data so query parameters aren't parsed as PowerShell code.
+      execFile("powershell.exe", [
+        "-NoProfile", "-NonInteractive", "-Command",
+        "Start-Process -FilePath $env:MONDAY_BROWSER_URL -ErrorAction Stop",
+      ], {
+        env: { ...process.env, MONDAY_BROWSER_URL: url },
+        windowsHide: true,
+        timeout: 8000,
+        signal,
+      }, onOpened);
+    } else {
+      execFile("/usr/bin/open", [url], { timeout: 8000, signal }, onOpened);
+    }
+  });
+}
+
 server.server.setRequestHandler(z.object({
   method: z.literal("voiceos/reminders/action"),
   params: z.object({
@@ -2947,9 +2961,7 @@ server.server.setRequestHandler(z.object({
 }), async ({ params }) => {
   const url = params.actionId === "open_board" ? safeBoardUrl(params.data.url) : undefined;
   if (!url) throw new Error("Invalid Monday.com board link.");
-  await new Promise<void>((resolve, reject) => {
-    execFile("/usr/bin/open", [url], { timeout: 8000 }, error => error ? reject(error) : resolve());
-  });
+  await openBrowser(url);
   return { ok: true };
 });
 
