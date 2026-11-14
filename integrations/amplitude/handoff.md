@@ -52,8 +52,7 @@ These were checked against a real Amplitude project, not taken from the docs.
 - **Unknown events** come back as Amplitude `event_type_not_found`. The tool turns that into "Amplitude has no event named X in this project".
 - **Lookback limit.** Amplitude rejects dates older than the plan allows ("Date too far back"; one year on the test plan). The error is passed through as is.
 - **Cohorts must be discoverable.** `AMPLITUDE_LIST_COHORTS` only returns cohorts marked discoverable in Amplitude. A private cohort doesn't appear, and the tool says how to make it discoverable.
-- **Cohort download needs a paid plan.** On the free test project, `AMPLITUDE_GET_COHORT` returned Amplitude 403 "Unauthorized Request for Cohort Download", even for a discoverable cohort. Calling Amplitude's `/api/5/cohorts/request` directly with the same key pair gave the same 403, so the limit is Amplitude's, not Composio's. Amplitude documents its Cohort Download API for Growth and Enterprise plans. The tool explains this when it gets the 403.
-- **Cohort download link.** `AMPLITUDE_DOWNLOAD_COHORT_FILE` returns a short-lived file link, which is fetched straight away. Only the row count, column names and 3 sample rows are returned. If the link can't be read, the tool still reports the cohort's listed size and says the sample is missing. Because of the plan limit above, this step and the host of the file link haven't been checked live.
+- **Cohort download needs a paid plan.** On the free test project, `AMPLITUDE_GET_COHORT` returned Amplitude 403 "Unauthorized Request for Cohort Download", even for a discoverable cohort. Calling Amplitude's `/api/5/cohorts/request` directly with the same keys gave the same 403, so the limit is Amplitude's, not Composio's. Amplitude documents cohort downloads for Growth and Enterprise plans.
 
 ## Privacy
 
@@ -71,7 +70,7 @@ The live run used a test Amplitude project seeded with 46 synthetic events (6 us
 | `get_user_activity` | 12 events, no location or device fields | Unknown user: found false | Limit 0 rejected |
 | `export_cohort` | Discoverable cohort listed and resolved by name; download blocked by the plan's 403, shown as a clear error | No cohorts listed (before one was made discoverable) | Unknown cohort and invalid request ID rejected |
 
-The live run passed 23 of 24 checks. The export download was skipped because of the plan limit, and nothing failed. The polling, download, CSV sampling and private-column filtering are covered by the offline tests. `bun test` runs 45 offline checks.
+The live run passed 23 of 24 checks, with the cohort download skipped because of the plan limit. `bun test` runs 45 offline checks, which also cover export polling, download, CSV sampling and column filtering.
 
 ## How to test
 
@@ -96,5 +95,5 @@ E2E_EVENTS="Page View,Sign Up" E2E_USER=some-user-id bun tests/e2e.ts
 - Windows is listed as supported and uses the same generated `run.cmd` launcher as the other integrations, but it hasn't been run on Windows yet.
 - The EU region sets the EU API base URL on the connected account, but it hasn't been tested against an EU project.
 - Composio offers no hourly segmentation (see above).
-- **`export_cohort`'s file download is untested live.** The test project is on Amplitude's free plan, and cohort downloads need Growth or Enterprise (see above). After `AMPLITUDE_DOWNLOAD_COHORT_FILE`, the server fetches the file from the link Composio returns. That link points to a file-storage host, not `backend.composio.dev`, and its host hasn't been seen yet. If VoiceOS enforces `permissions.domains`, that host may need adding, as OneDrive's manifest lists Composio's temporary file-storage host. Check the host on a paid project before adding it; don't guess one. Until then, if the file can't be read, the tool still reports the cohort's listed size and says the sample is missing.
+- **The cohort file download is untested live**, because it needs a paid plan (see above). The server fetches the file from a short-lived link Composio returns, on a storage host other than `backend.composio.dev` that hasn't been seen yet. If VoiceOS enforces `permissions.domains`, add that host once it's confirmed on a paid project, as OneDrive does for Composio's file storage; don't guess it. Until then, a failed fetch still returns the cohort's listed size and says the sample is missing.
 - Some VoiceOS builds don't re-read a changed manifest after install. See `AGENTS.md` for how to load one.
