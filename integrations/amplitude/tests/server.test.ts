@@ -282,6 +282,25 @@ describe("get_user_activity", () => {
     expect(lastArguments("AMPLITUDE_GET_USER_ACTIVITY").user).toBe("101");
   });
 
+  test("finds a user whose ID was split into words by speech", async () => {
+    const { isError, body, html } = await run("get_user_activity", { user: "User Voice OS Test 1" });
+    expect(isError).toBe(false);
+    expect(body).toMatchObject({ found: true, heard: "User Voice OS Test 1", matched_as: "voiceos-test-1" });
+    expect(html).toContain("Heard &quot;User Voice OS Test 1&quot;");
+    const lookups = calls().filter((c) => c.path.endsWith("AMPLITUDE_FIND_USER")).slice(-17);
+    expect(lookups.length).toBeLessThanOrEqual(17);
+  });
+
+  test("gives up on a spoken ID after a capped number of spellings", async () => {
+    const before = calls().filter((c) => c.path.endsWith("AMPLITUDE_FIND_USER")).length;
+    const { isError, body } = await run("get_user_activity", { user: "Ghost Person Number Two" });
+    expect(isError).toBe(false);
+    expect(body.found).toBe(false);
+    expect(body.also_tried.length).toBeGreaterThan(0);
+    expect(calls().filter((c) => c.path.endsWith("AMPLITUDE_FIND_USER")).length - before).toBe(1 + body.also_tried.length);
+    expect(body.also_tried.length).toBeLessThanOrEqual(16);
+  });
+
   test("reports an unknown user as not found, not an error", async () => {
     const { isError, body } = await run("get_user_activity", { user: "ghost" });
     expect(isError).toBe(false);
@@ -341,8 +360,7 @@ describe("export_cohort", () => {
   test("explains Amplitude's 403 on export", async () => {
     const { isError, body } = await run("export_cohort", { cohort: "Locked" });
     expect(isError).toBe(true);
-    expect(body.error).toContain("Unauthorized Reqeust for Cohort Download");
-    expect(body.error).toContain("Growth or Enterprise plan");
+    expect(body.error).toBe('Amplitude won\'t export the members of "Locked". Exporting cohorts through its API needs a Growth or Enterprise plan. Amplitude\'s cohort list shows it has 2 users. (Amplitude 403: Unauthorized Request for Cohort Download)');
   });
 
   test("reports the listed size when the file link can't be read", async () => {

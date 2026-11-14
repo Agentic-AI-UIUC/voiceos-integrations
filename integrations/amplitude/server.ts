@@ -691,6 +691,28 @@ function publicProps(props: unknown): Record<string, unknown> {
   return Object.fromEntries(Object.entries(props as Record<string, unknown>).filter(([k]) => !PRIVATE_KEY.test(k)));
 }
 
+// Speech splits IDs into words ("voiceos-test-1" is heard as "User Voice OS Test 1"). When the exact text
+// finds no one, try the words lowercased and rejoined with "-", "_" or nothing, after dropping a leading
+// "user"/"device"/"ID". Capped so a miss costs at most a few quick lookups.
+const MAX_SPOKEN_VARIANTS = 16;
+const SPOKEN_BATCH = 4; // Amplitude allows 5 concurrent Dashboard API requests
+function spokenIdVariants(input: string): string[] {
+  let words = input.toLowerCase().split(/\s+/).filter(Boolean);
+  while (words.length > 1 && ["user", "device", "id", "the"].includes(words[0])) words = words.slice(1);
+  if (words.length < 2) return words.length === 1 && words[0] !== input ? [words[0]] : [];
+  // Most likely first: speech splits brand-like words ("voiceos" → "voice os"), so short letter fragments
+  // rejoin the word before them, and the rest are hyphenated.
+  const merged = words.reduce<string[]>((acc, w) => (acc.length && /^[a-z]{1,2}$/.test(w) ? [...acc.slice(0, -1), acc[acc.length - 1] + w] : [...acc, w]), []);
+  const variants = [merged.join("-"), words.join("-"), words.join(""), words.join("_")];
+  if (words.length <= 5) {
+    // Every mix of "-" and "" between words, e.g. voice|os|test|1 → "voiceos-test-1".
+    for (let mask = 0; mask < 1 << (words.length - 1); mask++) {
+      variants.push(words.reduce((acc, w, i) => (i === 0 ? w : acc + (mask & (1 << (i - 1)) ? "-" : "") + w), ""));
+    }
+  }
+  return [...new Set(variants)].filter((v) => v !== input).slice(0, MAX_SPOKEN_VARIANTS);
+}
+
 function summarizeUser(u: any, amplitudeId: number) {
   return {
     user_id: u?.user_id ?? null,
@@ -737,23 +759,41 @@ server.registerTool(
 
     const found = await executeComposioAction(ctx, "AMPLITUDE_FIND_USER", { user });
     if (!found.ok) return errorResult(EYEBROW, found.error || "Failed to search for the user.");
-    const matches: any[] = Array.isArray(found.data?.matches) ? found.data.matches : [];
-    const candidates = matches.map((m) => ({ user_id: m.user_id ?? null, amplitude_id: Number(m.amplitude_id) }));
+    const toCandidate = (m: any) => ({ user_id: m.user_id ?? null, amplitude_id: Number(m.amplitude_id) });
+    let candidates = (Array.isArray(found.data?.matches) ? found.data.matches : []).map(toCandidate);
+
+    // Spoken-ID fallback: only exact user/device ID hits count, never prefix matches of a guessed spelling.
+    let matchedAs: string | null = null;
+    const variants = candidates.length === 0 ? spokenIdVariants(user) : [];
+    for (let i = 0; i < variants.length && candidates.length === 0; i += SPOKEN_BATCH) {
+      const batch = variants.slice(i, i + SPOKEN_BATCH);
+      const results = await Promise.all(batch.map((v) => executeComposioAction(ctx, "AMPLITUDE_FIND_USER", { user: v })));
+      const failed = results.find((r) => !r.ok);
+      if (failed) return errorResult(EYEBROW, failed.error || "Failed to search for the user.");
+      results.forEach((r, k) => {
+        if (r.data?.type !== "match_user_or_device_id") return;
+        const hits = (Array.isArray(r.data?.matches) ? r.data.matches : []).map(toCandidate);
+        if (hits.length && !matchedAs) matchedAs = batch[k];
+        for (const h of hits) if (!candidates.some((c: any) => c.amplitude_id === h.amplitude_id)) candidates.push(h);
+      });
+    }
+    const heard = matchedAs ? { heard: user, matched_as: matchedAs } : {};
 
     if (candidates.length === 0) {
-      return glanceResult({ query: user, found: false, matches: [] }, [
+      const tried = variants.length ? ` I also tried ${variants.length} spellings without spaces.` : "";
+      return glanceResult({ query: user, found: false, matches: [], ...(variants.length ? { also_tried: variants } : {}) }, [
         vHeader({ title: "User" }),
-        vHeadline("No match", `No Amplitude user has the user ID or device ID "${user}". Amplitude can't search by email unless email is the user ID.`, { small: true }),
+        vHeadline("No match", `No Amplitude user has the user ID or device ID "${user}".${tried} Amplitude can't search by email unless email is the user ID.`, { small: true }),
       ]);
     }
     // A prefix search can return several users; an exact user ID match among them is unambiguous.
-    const exact = candidates.filter((c) => c.user_id === user);
+    const exact = candidates.filter((c: any) => c.user_id === user || (matchedAs && c.user_id === matchedAs));
     const target = candidates.length === 1 ? candidates[0] : exact.length === 1 ? exact[0] : null;
     if (!target) {
-      return glanceResult({ query: user, found: false, multiple_matches: true, matches: candidates }, [
+      return glanceResult({ query: user, ...heard, found: false, multiple_matches: true, matches: candidates }, [
         vHeader({ title: "Users", trailing: `${candidates.length} matches` }),
         vHeadline("Which one?", `Several users match "${user}". Say the full user ID.`, { small: true }),
-        vList(candidates.map((c) => ({ title: c.user_id || "(no user ID)", trailing: `ID ${c.amplitude_id}` }))),
+        vList(candidates.map((c: any) => ({ title: c.user_id || "(no user ID)", trailing: `ID ${c.amplitude_id}` }))),
       ]);
     }
 
@@ -762,11 +802,12 @@ server.registerTool(
     const profile = summarizeUser(res.data?.userData, target.amplitude_id);
     const events = (Array.isArray(res.data?.events) ? res.data.events : []).slice(0, limit).map(summarizeEvent);
 
-    return glanceResult({ query: user, found: true, user: profile, events }, [
+    return glanceResult({ query: user, ...heard, found: true, user: profile, events }, [
       vHeader({ title: "User", trailing: `${formatNumber(profile.total_events)} events in total` }),
       vHeadline(
         profile.user_id || `Amplitude ID ${profile.amplitude_id}`,
-        [profile.last_seen && `Last seen ${shortDate(profile.last_seen)}`, profile.first_seen && `first seen ${shortDate(profile.first_seen)}`].filter(Boolean).join(", ") +
+        (matchedAs ? `Heard "${user}". ` : "") +
+          [profile.last_seen && `Last seen ${shortDate(profile.last_seen)}`, profile.first_seen && `first seen ${shortDate(profile.first_seen)}`].filter(Boolean).join(", ") +
           (events.length ? `. Latest ${events.length === 1 ? "event" : `${events.length} events`}, times in UTC:` : ". No events recorded."),
         { small: true }
       ),
@@ -889,9 +930,15 @@ server.registerTool(
       cohort = hits[0];
       const req = await executeComposioAction(ctx, "AMPLITUDE_GET_COHORT", { cohort_id: cohort!.id });
       if (!req.ok) {
-        // Verified live: a Starter-plan project gets this 403 even for a discoverable cohort.
-        const hint = /\b403\b/.test(req.error ?? "") ? " Amplitude's cohort download API needs a Growth or Enterprise plan, and the cohort must be discoverable." : "";
-        return errorResult(EYEBROW, `${req.error || "Failed to start the cohort export."}${hint}`);
+        // Verified live: a free-plan project gets this 403 even for a discoverable cohort.
+        if (/\b403\b/.test(req.error ?? "")) {
+          const size = cohort!.size === null ? "" : ` Amplitude's cohort list shows it has ${formatNumber(cohort!.size)} ${cohort!.size === 1 ? "user" : "users"}.`;
+          return errorResult(
+            EYEBROW,
+            `Amplitude won't export the members of "${cohort!.name}". Exporting cohorts through its API needs a Growth or Enterprise plan.${size} (Amplitude 403: Unauthorized Request for Cohort Download)`
+          );
+        }
+        return errorResult(EYEBROW, req.error || "Failed to start the cohort export.");
       }
       requestId = String(req.data?.request_id ?? "");
       if (!requestId) return errorResult(EYEBROW, "Amplitude accepted the export but returned no request ID.");
