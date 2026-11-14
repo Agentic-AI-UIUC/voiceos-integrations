@@ -103,6 +103,14 @@ describe("account tools contract", () => {
         expect(declared.uiCallable).toBe(true);
         expect(actual.annotations?.readOnlyHint).toBe(true);
       } else if (["create_item", "update_item_values", "create_comment", "edit_comment", "delete_comment", "create_board", "create_group", "archive_board", "delete_board", "manage_users"].includes(actual.name)) {
+        const card = declared.confirmation.root;
+        // Publishing rejects action blocks anywhere in a widget confirmation.
+        const collectBlocks = (nodes: { type: string; children?: unknown[]; height?: number }[]): typeof nodes =>
+          nodes.flatMap(node => [node, ...collectBlocks((node.children ?? []) as typeof nodes)]);
+        const cardBlocks = collectBlocks(card.children);
+        expect(card.footer).toBeUndefined();
+        expect(cardBlocks.some(block => block.type === "button" || block.type === "actions")).toBe(false);
+        expect(cardBlocks.filter(block => block.type === "widget").every(block => (block.height ?? 0) >= 60)).toBe(true);
         if (actual.name === "create_item" || actual.name === "create_board") {
           const item = actual.name === "create_item";
           const root = declared.confirmation.root;
@@ -114,42 +122,37 @@ describe("account tools contract", () => {
           const widget = root.children.find((block: { type: string }) => block.type === "widget");
           expect(widget.confirmLabel).toBe(item ? "Create item" : "Create board");
           expect(widget.visibleIf).toBeUndefined();
-          expect(root.children.at(-1).children).toEqual([{ type: "button", label: "Cancel", role: "cancel" }]);
           expect(declared.visibility).toBeUndefined();
           if (!item) expect(root.children[0]).toMatchObject({
             type: "text", text: "{{submission_error}}", visibleIf: "{{submission_error}}", color: "danger",
           });
         } else if (actual.name === "create_group") {
           const children = declared.confirmation.root.children;
-          expect(children.map((block: { type: string }) => block.type)).toEqual(["textField", "widget", "stack"]);
+          expect(children.map((block: { type: string }) => block.type)).toEqual(["textField", "widget"]);
           expect(children[0]).toMatchObject({ bind: "{{group_name}}", label: "Name", required: true });
           expect(children[1].confirmLabel).toBe("Create group");
           expect(children[1].html).toContain("<label>Board");
           expect(children[1].html).toContain("<label>Position");
-          expect(children[2].children).toEqual([{ type: "button", label: "Cancel", role: "cancel" }]);
         } else if (actual.name === "archive_board" || actual.name === "delete_board") {
           const children = declared.confirmation.root.children;
           const deleting = actual.name === "delete_board";
-          expect(children.map((block: { type: string }) => block.type)).toEqual(deleting ? ["text", "widget", "stack"] : ["widget", "stack"]);
+          expect(children.map((block: { type: string }) => block.type)).toEqual(deleting ? ["text", "widget"] : ["widget"]);
           if (deleting) expect(children[0].text).toContain("recovered for 30 days");
-          const widget = children.at(-2);
+          const widget = children.at(-1);
           expect(widget.confirmLabel).toBe(deleting ? "Delete board" : "Archive board");
           expect(widget.html).toContain('<select id="board_choice"');
-          expect(children.at(-1).children).toEqual([{ type: "button", label: "Cancel", role: "cancel" }]);
           expect(actual.annotations?.destructiveHint).toBe(true);
         } else if (actual.name === "manage_users") {
-          const { children, footer } = declared.confirmation.root;
+          const { children } = declared.confirmation.root;
           expect(children[0].html).toContain('id="warnings"');
-          expect(footer[0].items.map((item: { role: string }) => item.role)).toEqual(["cancel", "confirm"]);
+          expect(children[0].confirmLabel).toBe("Apply change");
           expect(actual.annotations?.destructiveHint).toBe(true);
         } else if (actual.name === "update_item_values") {
           expect(declared.confirmation.root.children.find((block: { type: string }) => block.type === "widget").confirmLabel).toBe("Save changes");
-          expect(declared.confirmation.root.children.at(-1).children).toEqual([{ type: "button", label: "Cancel", role: "cancel" }]);
         } else if (actual.name.endsWith("_comment")) {
           const root = declared.confirmation.root;
           expect(root.footer).toBeUndefined();
           expect(root.children.find((block: { type: string }) => block.type === "widget").confirmLabel).toBe(root.title);
-          expect(root.children.at(-1).children).toEqual([{ type: "button", label: "Cancel", role: "cancel" }]);
           if (actual.name !== "delete_comment")
             expect(root.children).toContainEqual(expect.objectContaining({ type: "textField", bind: "{{body}}", multiline: true }));
           expect(actual.annotations?.destructiveHint).toBe(actual.name === "delete_comment");
@@ -163,7 +166,7 @@ describe("account tools contract", () => {
         expect(actual.inputSchema.required).toEqual(declared.inputSchema.required);
       } else {
         expect(declared.confirmation.root.footer[0].items.map((item: { role: string }) => item.role).sort()).toEqual(["cancel", "confirm"]);
-        expect(declared.execution.mode).toBe(actual.name === "connect_account" ? "sync" : "background");
+        expect(declared.execution.mode).toBe("sync");
       }
     }
   });
@@ -517,6 +520,22 @@ describe("connection status", () => {
 });
 
 describe("OAuth connection", () => {
+  test("the pending card can detect approval and save the connection through connection_status", async () => {
+    state(IDENTITY);
+    scenario({ accountStatus: "INITIATED" });
+    const started = await invoke("connect_account");
+    expect(started.body.notificationQueued).toBe(false);
+    const [card] = started.body._voiceos_glance.blocks;
+    expect(card).toMatchObject({ type: "widget", label: "Monday.com connection status" });
+    expect(card.html).toContain('type: "voiceos:invokeTool", name: "connection_status"');
+    expect((await invoke("connection_status")).body.status).toBe("Authorization pending");
+    scenario({ accountStatus: "ACTIVE" });
+    const verified = await invoke("connection_status");
+    expect(verified.body).toMatchObject({ connected: true, status: "Connected" });
+    expect(saved()).toEqual({ ...IDENTITY, accountId: "ca_pending" });
+    expect(browsers()).toHaveLength(1);
+  });
+
   test("reuses a verified active saved connection without browser authorization", async () => {
     const result = await invoke("connect_account");
     expect(result.isError).toBe(false);
@@ -697,12 +716,13 @@ describe("disconnect and feedback", () => {
     expect((await invoke("disconnect_account")).isError).toBe(true);
     expect(saved()).toEqual(ACTIVE);
   });
-  test("success and failure emit notifications; display failure does not change success", async () => {
+  test("connect can notify and disconnect returns its error directly", async () => {
     expect((await invoke("connect_account")).body.notificationQueued).toBe(true);
     scenario({ revokeHttpStatus: 403 });
-    expect((await invoke("disconnect_account")).isError).toBe(true);
-    expect(notifications).toHaveLength(2);
-    expect(notifications[1].message).toContain("Test revocation unavailable");
+    const failed = await invoke("disconnect_account");
+    expect(failed.isError).toBe(true);
+    expect(failed.body.error).toContain("Test revocation unavailable");
+    expect(notifications).toHaveLength(1);
     expect(notifications.every(notification => !notification.speak)).toBe(true);
     rejectNotification = true;
     const result = await invoke("connect_account");
@@ -727,7 +747,7 @@ test("new authorization returns an actionable pending result without waiting for
   if (!block || block.type !== "text") throw new Error("Missing text result");
   const body = JSON.parse(block.text);
   expect(body).toMatchObject({ connected: false, status: "Authorization pending", authorizationUrl: "https://example.invalid/monday-consent" });
-  expect(body.message).toContain("Connect again");
+  expect(body.message).toContain("This card checks for approval while open");
   expect(saved().pending.id).toBe("ca_pending");
   expect(events().filter(event => /\/connected_accounts\//.test(event.path ?? ""))).toEqual([]);
   expect(manifest.tools.find((tool: { name: string }) => tool.name === "connect_account").execution.mode).toBe("sync");

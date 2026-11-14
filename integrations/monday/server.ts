@@ -450,9 +450,10 @@ function startBackgroundConnectWatcher(connectionId: string) {
         const savedAccount = await api().connectedAccounts.get(connectionId, {
           signal: AbortSignal.timeout(5000),
         });
+        if (controller.signal.aborted) break;
         if (savedAccount?.status === "ACTIVE" && !savedAccount.isDisabled) {
           const state = await load();
-          if (state.pending?.id === connectionId) {
+          if (!controller.signal.aborted && state.pending?.id === connectionId) {
             state.accountId = connectionId;
             delete state.pending;
             await save(state);
@@ -2766,7 +2767,7 @@ async function connect(): Promise<Output> {
     status: "Authorization pending",
     authorizationUrl: state.pending.url,
     message:
-      "Monday.com authorization opened in your browser. Finish approval there, then run Connect again to verify the connection. If Monday says ‘App is not installed’, ask an admin to install Composio's Monday app using the README link.",
+      "Monday.com authorization opened in your browser. Finish approval there. This card checks for approval while open. If Monday says ‘App is not installed’, ask an admin to install Composio's Monday app using the README link.",
   };
 }
 
@@ -2868,6 +2869,83 @@ button.addEventListener('click', () => {
 });
 </script>`;
 
+function pendingAccountCard(message: string) {
+  const initialMessage = JSON.stringify(message).replace(/</g, "\\u003c");
+  const html = `<!doctype html><html><meta charset="utf-8">
+  <style>
+    :root{color-scheme:dark;--ink:#fff;--muted:#bbb}
+    :root[data-theme=light]{color-scheme:light;--ink:#161616;--muted:#515151}
+    *{box-sizing:border-box}
+    body{margin:0;padding:14px;color:var(--ink);font:14px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+    header{display:flex;justify-content:space-between;gap:12px;font-weight:600}
+    p{margin:8px 0;color:var(--muted)}
+  </style>
+  <header><span>Monday.com</span><span id="status">Authorization pending</span></header>
+  <p id="message" role="status" aria-live="polite"></p>
+  <script>(() => {
+    const status = document.getElementById("status");
+    const message = document.getElementById("message");
+    const deadline = Date.now() + 180000;
+    let canInvoke = false;
+    let requestId;
+    let requestTimeout;
+    let timer;
+    let finished = false;
+    message.textContent = ${initialMessage};
+
+    function checkStatus() {
+      clearTimeout(timer);
+      if (!canInvoke || finished || document.hidden || requestId) return;
+      if (Date.now() >= deadline) {
+        message.textContent = "Ask VoiceOS to check your Monday.com connection.";
+        return;
+      }
+      requestId = Array.from(crypto.getRandomValues(new Uint32Array(4))).join("_");
+      requestTimeout = setTimeout(() => {
+        requestId = undefined;
+        checkStatus();
+      }, 15000);
+      parent.postMessage({ type: "voiceos:invokeTool", name: "connection_status", args: {}, requestId }, "*");
+    }
+
+    document.addEventListener("visibilitychange", checkStatus);
+    window.addEventListener("focus", checkStatus);
+
+    addEventListener("message", ({ source, data }) => {
+      if (source !== parent || !data) return;
+      if (data.type === "voiceos:init") {
+        canInvoke = !!data.capabilities?.invokeTool;
+        document.documentElement.dataset.theme = data.theme?.mode ?? "dark";
+        if (canInvoke) checkStatus();
+        else if (!finished) message.textContent = "After approving in your browser, ask VoiceOS to check your Monday.com connection.";
+        return;
+      }
+      if (!requestId || data.type !== "voiceos:toolResult" || data.requestId !== requestId ||
+          !["completed", "failed", "cancelled", "unknown"].includes(data.status)) return;
+      clearTimeout(requestTimeout);
+      requestId = undefined;
+      const block = data.result?.content?.find(item => item.type === "text");
+      let result;
+      try { if (block) result = JSON.parse(block.text); } catch {}
+      if (typeof result?.connected === "boolean" && typeof result.status === "string") {
+        finished = !["Authorization pending", "INITIATED", "INITIALIZING", "PENDING"].includes(result.status);
+        if (finished) {
+          status.textContent = result.status;
+          message.textContent = result.message;
+        }
+      }
+      if (!finished) timer = setTimeout(checkStatus, 5000);
+    });
+
+    new ResizeObserver(() => {
+      if (!document.hidden && document.documentElement.offsetWidth) {
+        parent.postMessage({ type: "voiceos:resize", height: Math.ceil(document.documentElement.getBoundingClientRect().height) }, "*");
+      }
+    }).observe(document.documentElement);
+  })()</script></html>`;
+  return { type: "widget", html, height: 100, label: "Monday.com connection status" };
+}
+
 async function feedback(
   title: string,
   extra: ProgressContext,
@@ -2892,7 +2970,7 @@ async function feedback(
   let notificationQueued = false;
   const boardUrl = "url" in data ? data.url : null;
   const itemFollowUp = "item_follow_up" in data ? data.item_follow_up : undefined;
-  if (notifyResult) {
+  if (notifyResult && !("status" in data && data.status === "Authorization pending")) {
     if (
       await notify(
         `Monday.com — ${title}: ${"error" in data ? data.error : data.message}`,
@@ -2912,7 +2990,8 @@ async function feedback(
           ...data,
           notificationQueued,
           _voiceos_glance: {
-            blocks: "records" in data ? readGlance(data) : [
+            blocks: "records" in data ? readGlance(data)
+              : "connected" in data && data.status === "Authorization pending" ? [pendingAccountCard(data.message)] : [
               {
                 type: "header",
                 title: "status" in data && data.status === "Request blocked" ? data.status : resultTitle,
@@ -2970,7 +3049,7 @@ server.registerTool(
   {
     title: "Connect Monday.com",
     description:
-      "Connect Monday.com through Composio OAuth. Use when asked to connect, authorize, reconnect, or verify the saved Monday.com connection. Verify an active saved account; otherwise open browser authorization and immediately return pending with its link. After browser approval, run Connect again to verify. Only report connected when connected=true; no background sidebar result is scheduled.",
+      "Connect Monday.com through Composio OAuth. Use when asked to connect, authorize, reconnect, or verify the saved Monday.com connection. Verify an active saved account; otherwise open browser authorization and immediately return pending with its link. The pending card checks for browser approval. Use connection_status to check again without opening another tab. Only report connected when connected=true.",
     inputSchema: z.object({}).strict(),
     annotations: {
       readOnlyHint: false,
@@ -3014,11 +3093,22 @@ server.registerTool(
         const saved = state.pending?.id ?? state.accountId;
         const acc = saved ? await account(saved) : undefined;
         const connected = acc?.status === "ACTIVE" && !acc.isDisabled;
+        if (connected && state.pending?.id === acc.id && !disconnecting) {
+          const current = await load();
+          if (current.pending?.id === acc.id && !disconnecting) {
+            stopBackgroundConnectWatcher();
+            current.accountId = acc.id;
+            delete current.pending;
+            await save(current);
+          }
+        }
+        const waitingForApproval = state.pending && acc && !acc.isDisabled &&
+          ["INITIATED", "INITIALIZING", "PENDING"].includes(acc.status);
         const status = connected
           ? "Connected"
           : acc?.isDisabled
             ? "Disabled"
-            : (acc?.status ?? "Disconnected");
+            : waitingForApproval ? "Authorization pending" : (acc?.status ?? "Disconnected");
         const message = connected
           ? "Monday.com is connected and ready to use."
           : status === "EXPIRED"
@@ -3027,7 +3117,9 @@ server.registerTool(
               ? "Your Monday.com authorization was revoked. Connect again to authorize."
               : ["INITIATED", "INITIALIZING", "PENDING"].includes(status)
                 ? "Finish authorizing Monday.com in your browser, then refresh."
-                : "Monday.com is disconnected. Connect to authorize in your browser.";
+                : status === "Authorization pending"
+                  ? "Finish authorizing Monday.com in your browser. This card checks for approval while open."
+                  : "Monday.com is disconnected. Connect to authorize in your browser.";
         return { connected: Boolean(connected), status, message };
       },
       false,
@@ -3058,7 +3150,7 @@ server.registerTool(
           disconnecting = undefined;
         });
       return await disconnecting;
-    }, true),
+    }),
 );
 
 server.registerTool(
@@ -3096,7 +3188,7 @@ server.registerTool(
 );
 
 server.registerTool("prepare_create_item", {
-  title: "Prepare Monday.com item", description: prepareCreateItemDescription, inputSchema: prepareCreateItemSchema,
+  title: "Prepare item creation (internal)", description: prepareCreateItemDescription, inputSchema: prepareCreateItemSchema,
   annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
 }, async (input, extra) => feedback("Preparing item confirmation", extra, () => prepareCreateItem(input), false, "Couldn’t prepare Monday item"));
 
@@ -3106,7 +3198,7 @@ server.registerTool("create_item", {
 }, async (input, extra) => feedback("Create Monday.com item", extra, () => createItem(input)));
 
 server.registerTool("prepare_update_item", {
-  title: "Prepare Monday.com item update", description: prepareUpdateItemDescription, inputSchema: prepareUpdateItemSchema,
+  title: "Prepare item update (internal)", description: prepareUpdateItemDescription, inputSchema: prepareUpdateItemSchema,
   annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
 }, async (input, extra) => feedback("Preparing item changes", extra, () => prepareUpdateItem(input), false, "Couldn’t prepare item changes"));
 
@@ -3121,7 +3213,7 @@ server.registerTool("get_comments", {
 }, async (input, extra) => feedback("Getting Monday.com comments", extra, () => getComments(input)));
 
 server.registerTool("prepare_comment", {
-  title: "Prepare Monday.com comment", description: prepareCommentDescription, inputSchema: prepareCommentSchema,
+  title: "Prepare update or comment (internal)", description: prepareCommentDescription, inputSchema: prepareCommentSchema,
   annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
 }, async (input, extra) => feedback("Preparing comment confirmation", extra, () => prepareComment(input)));
 
@@ -3137,7 +3229,7 @@ for (const { operation, title, description, inputSchema } of [
 }
 
 server.registerTool("prepare_create_board", {
-  title: "Prepare Monday.com board", description: prepareCreateBoardDescription, inputSchema: prepareCreateBoardSchema,
+  title: "Prepare board creation (internal)", description: prepareCreateBoardDescription, inputSchema: prepareCreateBoardSchema,
   annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
 }, async (input, extra) => feedback("Prepare Monday.com board", extra, () => prepareCreateBoard(input), false, "Couldn’t prepare Monday board"));
 
@@ -3147,7 +3239,7 @@ server.registerTool("create_board", {
 }, async (input, extra) => feedback("Create Monday.com board", extra, () => createBoard(input)));
 
 server.registerTool("prepare_create_group", {
-  title: "Prepare Monday.com group", description: prepareCreateGroupDescription, inputSchema: prepareCreateGroupSchema,
+  title: "Prepare group creation (internal)", description: prepareCreateGroupDescription, inputSchema: prepareCreateGroupSchema,
   annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
 }, async (input, extra) => feedback("Prepare Monday.com group", extra, () => prepareCreateGroup(input), false, "Couldn’t prepare Monday group"));
 
@@ -3157,7 +3249,7 @@ server.registerTool("create_group", {
 }, async (input, extra) => feedback("Create Monday.com group", extra, () => createGroup(input)));
 
 server.registerTool("prepare_archive_board", {
-  title: "Prepare Monday.com board archive", description: prepareArchiveBoardDescription, inputSchema: prepareBoardActionSchema,
+  title: "Prepare board archive (internal)", description: prepareArchiveBoardDescription, inputSchema: prepareBoardActionSchema,
   annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
 }, async (input, extra) => feedback("Prepare Monday.com board archive", extra, () => prepareBoardAction("archive", input)));
 
@@ -3167,7 +3259,7 @@ server.registerTool("archive_board", {
 }, async (input, extra) => feedback("Archive Monday.com board", extra, () => executeBoardAction("archive", input)));
 
 server.registerTool("prepare_delete_board", {
-  title: "Prepare Monday.com board deletion", description: prepareDeleteBoardDescription, inputSchema: prepareBoardActionSchema,
+  title: "Prepare board deletion (internal)", description: prepareDeleteBoardDescription, inputSchema: prepareBoardActionSchema,
   annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
 }, async (input, extra) => feedback("Prepare Monday.com board deletion", extra, () => prepareBoardAction("delete", input)));
 
@@ -3183,7 +3275,7 @@ server.registerTool("list_board_members", {
 }, async (input, extra) => feedback("List Monday.com board members", extra, () => listBoardMembers(input)));
 
 server.registerTool("prepare_manage_users", {
-  title: "Prepare Monday.com board membership change", description: "Start here for explicit requests to add existing Monday users to a board or remove direct subscribers from a board. Pass the board name and each person by name or email. Use role owner only for people the user explicitly asked to make board owners. Use me for a requested self-removal. If a question is returned, ask it, then retry with all clarified inputs. Pass board_id only to select a board the user confirmed from matching_boards. For a correction to a pending card, include replaces_draft_id and the complete corrected request. Pass manage_users_arguments verbatim to manage_users for confirmation. Read only.",
+  title: "Prepare board membership change (internal)", description: "Start here for explicit requests to add existing Monday users to a board or remove direct subscribers from a board. Pass the board name and each person by name or email. Use role owner only for people the user explicitly asked to make board owners. Use me for a requested self-removal. If a question is returned, ask it, then retry with all clarified inputs. Pass board_id only to select a board the user confirmed from matching_boards. For a correction to a pending card, include replaces_draft_id and the complete corrected request. Pass manage_users_arguments verbatim to manage_users for confirmation. Read only.",
   inputSchema: prepareManageUsersSchema,
   annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
 }, async (input, extra) => feedback("Prepare Monday.com board membership change", extra, () => prepareManageUsers(input)));
