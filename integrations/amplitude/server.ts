@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { createHash } from "node:crypto";
-import { renderCustom, renderWidget, vHeader, vList, vStats, vSpark, vNote, markHtml, esc } from "./widgetKit.ts";
+import { renderCustom, renderWidget, vHeader, vList, vSpark, markHtml, esc, clip, textEms } from "./widgetKit.ts";
 import type { Block, RowItem } from "./widgetKit.ts";
 
 const server = new McpServer({ name: "amplitude", version: "1.0.0" });
@@ -247,6 +247,23 @@ function errorResult(eyebrow: string, err: string) {
   };
 }
 
+// Every card follows one layout: a single-line header (what + when), one headline answer with a plain-English
+// caption, then at most one supporting chart or list. The kit has no headline block, so this one reuses its
+// tokens (ink colors, tabular numbers) and reports its own height the way kit blocks do.
+// 12.5px text on the kit's 358px content column. vNote uses 28.6; 26 leaves room for wide glyphs so a
+// caption never wraps onto a line the card didn't make room for.
+const CAPTION_EMS_PER_LINE = 26;
+function vHeadline(value: string, caption: string, o: { small?: boolean } = {}): Block {
+  const size = o.small ? 18 : 30;
+  const lines = caption ? Math.max(1, Math.ceil(textEms(caption) / CAPTION_EMS_PER_LINE)) : 0;
+  const html =
+    `<div style="padding-top:2px">` +
+    `<div class="k-num" style="font-size:${size}px;font-weight:600;letter-spacing:-.02em;line-height:1.1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(clip(value, 40))}</div>` +
+    (caption ? `<div style="font-size:12.5px;line-height:1.4;color:var(--ink-3);margin-top:3px;overflow-wrap:anywhere">${esc(clip(caption, 160))}</div>` : "") +
+    `</div>`;
+  return { html, h: Math.ceil(2 + size * 1.1 + (lines ? 3 + lines * 17.5 : 0)) + 1 };
+}
+
 function glanceResult(payload: Record<string, any>, blocks: Array<Block | null | false | undefined>) {
   const card = renderWidget({ blocks, accent: ACCENT });
   return {
@@ -275,6 +292,19 @@ function toolContext(eyebrow: string): { ctx: ToolCtx; fail?: undefined } | { ct
 const DAY_MS = 86_400_000;
 const ymd = (d: Date) => d.toISOString().slice(0, 10).replace(/-/g, "");
 const prettyDate = (s: string) => `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
+
+// Card-only date formatting ("Nov 9", "Nov 9 – Nov 14"); results keep ISO dates for the agent.
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+function shortDate(value: string, withYear = false): string {
+  const m = String(value).match(/^(\d{4})-?(\d{2})-?(\d{2})/);
+  if (!m) return String(value);
+  return `${MONTHS[Number(m[2]) - 1]} ${Number(m[3])}${withYear ? `, ${m[1]}` : ""}`;
+}
+function shortRange(start: string, end: string): string {
+  const thisYear = String(new Date().getUTCFullYear());
+  const withYear = start.slice(0, 4) !== end.slice(0, 4) || start.slice(0, 4) !== thisYear;
+  return start === end ? shortDate(start, withYear) : `${shortDate(start, withYear)} – ${shortDate(end, withYear)}`;
+}
 
 function parseDate(value: unknown, field: string): { date?: string; error?: string } {
   const s = String(value ?? "").trim();
@@ -400,8 +430,6 @@ server.registerTool(
 
     const main = series[0];
     const total = groupBy ? null : main?.total ?? 0;
-    const metricLabel = ({ uniques: "Unique users", totals: "Total events", pct_dau: "% of DAU", average: "Avg per user" } as Record<string, string>)[metric];
-    const subtitle = `${prettyDate(range.start)} → ${prettyDate(range.end)} · ${interval}`;
     const payload = {
       event_type: eventType,
       metric,
@@ -413,28 +441,48 @@ server.registerTool(
       ...(series.length > MAX_SERIES ? { series_truncated_to_top: MAX_SERIES } : {}),
     };
 
+    // Card wording: what the headline number counts, said the way a person would.
+    const when = shortRange(range.start, range.end);
+    const name = eventType === "_all" ? "" : eventType === "_active" ? "active" : eventType;
+    const counts = {
+      totals: name ? `${name} events` : "events of any type",
+      uniques: eventType === "_all" ? "users did anything" : eventType === "_active" ? "active users" : `users did ${name}`,
+      pct_dau: `of daily active users did ${name || "anything"}, on average`,
+      average: `${name ? `${name} events` : "events"} per user`,
+    }[metric as "totals" | "uniques" | "pct_dau" | "average"];
+    const show = (v: number) => (metric === "pct_dau" ? `${formatNumber(v)}%` : formatNumber(v));
+    const bucketName = (t: unknown) => {
+      const v = String(t ?? "");
+      if (interval === "realtime") return `the 5 minutes at ${v.match(/[T ](\d{2}:\d{2})/)?.[1] ?? v}`;
+      if (interval === "weekly") return `the week of ${shortDate(v)}`;
+      if (interval === "monthly") return `${MONTHS[Number(v.slice(5, 7)) - 1]} ${v.slice(0, 4)}`;
+      return shortDate(v);
+    };
+    const header = (title: string) => vHeader({ title, trailing: when });
+
     if (series.length === 0 || series.every((s) => s.total === 0)) {
-      return glanceResult(payload, [
-        vHeader({ title: eventLabel(eventType), subtitle, trailing: metricLabel }),
-        vNote(`No ${eventLabel(eventType)} events in this date range.`),
-      ]);
+      return glanceResult(payload, [header("Events"), vHeadline(show(0), `${counts} — nothing recorded in this date range.`)]);
     }
     if (groupBy) {
+      const top = series[0];
+      const noun = { totals: "events", uniques: "users", pct_dau: "of daily active users", average: "events per user" }[metric as "totals" | "uniques" | "pct_dau" | "average"];
+      const scope = name ? `for ${name}` : "across all events";
+      const caption =
+        series.length === 1
+          ? `The only ${groupBy} with data: ${show(top.total)} ${noun} ${scope}.`
+          : `Most ${noun} of any ${groupBy} ${scope}: ${show(top.total)}.`;
       return glanceResult(payload, [
-        vHeader({ title: eventLabel(eventType), subtitle: `By ${groupBy} · ${subtitle}`, trailing: metricLabel }),
-        vList(series.map((s) => ({ title: s.name || "(none)", trailing: formatNumber(s.total) }))),
+        header(`Events by ${groupBy}`),
+        vHeadline(top.name || "(none)", caption, { small: true }),
+        series.length > 1 ? vList(series.map((s) => ({ title: s.name || "(none)", trailing: show(s.total) }))) : null,
       ]);
     }
-    const points = main.points.map((p) => p.value);
     const peak = main.points.reduce((best, p) => (p.value > best.value ? p : best), main.points[0]);
+    const busiest = main.points.length > 1 && (metric === "totals" || metric === "uniques") ? ` Busiest: ${bucketName(peak.time)} (${show(peak.value)}).` : "";
     return glanceResult(payload, [
-      vHeader({ title: eventLabel(eventType), subtitle, trailing: metricLabel }),
-      vStats([
-        { label: metric === "uniques" ? "Unique users" : metric === "totals" ? "Total" : "Overall", value: formatNumber(total) },
-        { label: "Peak", value: formatNumber(peak?.value ?? 0) },
-        { label: "Buckets", value: String(main.points.length) },
-      ]),
-      vSpark({ points: points.slice(-60), start: String(main.points[0]?.time ?? "").slice(0, 10), end: String(main.points[main.points.length - 1]?.time ?? "").slice(0, 10) }),
+      header("Events"),
+      vHeadline(show(total ?? 0), `${counts}.${busiest}`),
+      vSpark({ points: main.points.map((p) => p.value).slice(-60) }),
     ]);
   }
 );
@@ -496,16 +544,23 @@ server.registerTool(
     }));
     const overall = pct(counts[counts.length - 1], first);
 
+    // Rows: users at each step, and the share kept from the step before. (The kit sizes rows by their
+    // subtitle, not trailingSub, so secondary text goes in the subtitle.)
     const rows: RowItem[] = stepRows.map((s: any) => ({
       title: `${s.step}. ${s.event}`,
-      subtitle: s.step === 1 ? "Entered funnel" : `${s.conversion_from_previous_pct}% from previous${s.avg_time_from_previous ? ` · avg ${s.avg_time_from_previous}` : ""}`,
-      trailing: formatNumber(s.users),
+      subtitle: s.step === 1 ? "Start" : `${s.conversion_from_previous_pct}% of step ${s.step - 1}${s.avg_time_from_previous ? ` · took ${s.avg_time_from_previous} on average` : ""}`,
+      trailing: `${formatNumber(s.users)} ${s.users === 1 ? "user" : "users"}`,
     }));
+    const lastStep = steps[steps.length - 1];
+    const caption =
+      first === 0
+        ? `No one did ${steps[0]} in this date range, so no one entered the funnel.`
+        : `of the ${formatNumber(first)} ${first === 1 ? "user" : "users"} who did ${steps[0]} went on to ${lastStep} within ${windowDays} days.`;
     return glanceResult(
       { start_date: prettyDate(range.start), end_date: prettyDate(range.end), mode, conversion_window_days: windowDays, overall_conversion_pct: overall, steps: stepRows },
       [
-        vHeader({ title: "Funnel", subtitle: `${prettyDate(range.start)} → ${prettyDate(range.end)} · ${windowDays}-day window`, trailing: `${overall}% overall` }),
-        first === 0 ? vNote("No users entered this funnel in the date range.") : null,
+        vHeader({ title: "Funnel", trailing: shortRange(range.start, range.end) }),
+        vHeadline(first === 0 ? "0 users" : `${overall}%`, caption),
         vList(rows),
       ]
     );
@@ -580,7 +635,6 @@ server.registerTool(
 
     const cohortUsers = periods[0]?.out_of ?? 0;
     const p1 = periods.find((p) => p.period === `${unit} 1`);
-    const subtitle = `${eventLabel(startEvent)} → ${eventLabel(returnEvent)}`;
     const payload = {
       start_event: startEvent,
       return_event: returnEvent,
@@ -593,20 +647,34 @@ server.registerTool(
       periods,
       cohorts,
     };
-    return glanceResult(payload, [
-      vHeader({ title: "Retention", subtitle, trailing: `${prettyDate(range.start).slice(5)} → ${prettyDate(range.end).slice(5)}` }),
-      vStats([
-        { label: "Users in cohorts", value: formatNumber(cohortUsers) },
-        { label: `${unit} 1 retention`, value: p1 ? `${p1.retained_pct}%` : "—" },
-        { label: "Cohorts", value: String(cohorts.length) },
-      ]),
+
+    // Card wording: "100% of 6 new users came back 1 day later."
+    const word = unit.toLowerCase();
+    const who = startEvent === "_new" ? "new users" : startEvent === "_active" ? "active users" : `users who did ${startEvent}`;
+    const back = returnEvent === "_all" || returnEvent === "_active" ? "came back" : `did ${returnEvent}`;
+    const later = (k: number) => `${k} ${word}${k === 1 ? "" : "s"} later${mode === "rolling" ? " or after" : ""}`;
+    const caption =
       cohortUsers === 0
-        ? vNote(`No users matched "${eventLabel(startEvent)}" in this date range.`)
-        : vList(
+        ? `No ${who} in this date range.`
+        : p1
+          ? `of ${formatNumber(cohortUsers)} ${who} ${back} ${later(1)}.`
+          : `${formatNumber(cohortUsers)} ${who} so far — too recent to measure who ${back}.`;
+    return glanceResult(payload, [
+      vHeader({ title: "Retention", trailing: shortRange(range.start, range.end) }),
+      vHeadline(cohortUsers === 0 ? "0 users" : p1 ? `${p1.retained_pct}%` : formatNumber(cohortUsers), caption),
+      cohortUsers > 0 && periods.length > 1
+        ? vList(
+            // A glance: the first three periods and the latest one measured; the full curve is in the data.
             periods
-              .slice(1)
-              .map((p) => ({ title: p.period, subtitle: `${formatNumber(p.retained)} of ${formatNumber(p.out_of)} users${p.incomplete ? " · still filling in" : ""}`, trailing: `${p.retained_pct}%` }))
-          ),
+              .map((p) => ({ ...p, n: Number(p.period.split(" ")[1]) }))
+              .filter((p, i, all) => p.n >= 1 && (p.n <= 3 || i === all.length - 1))
+              .map((p) => ({
+                title: `After ${p.n} ${word}${p.n === 1 ? "" : "s"}`,
+                subtitle: `${formatNumber(p.retained)} of ${formatNumber(p.out_of)} users${p.incomplete ? " so far" : ""}`,
+                trailing: `${p.retained_pct}%`,
+              }))
+          )
+        : null,
     ]);
   }
 );
@@ -674,8 +742,8 @@ server.registerTool(
 
     if (candidates.length === 0) {
       return glanceResult({ query: user, found: false, matches: [] }, [
-        vHeader({ title: "User activity", subtitle: user }),
-        vNote("No Amplitude user has this user ID or device ID. Amplitude can't search by email unless email is the user ID."),
+        vHeader({ title: "User" }),
+        vHeadline("No match", `No Amplitude user has the user ID or device ID "${user}". Amplitude can't search by email unless email is the user ID.`, { small: true }),
       ]);
     }
     // A prefix search can return several users; an exact user ID match among them is unambiguous.
@@ -683,8 +751,9 @@ server.registerTool(
     const target = candidates.length === 1 ? candidates[0] : exact.length === 1 ? exact[0] : null;
     if (!target) {
       return glanceResult({ query: user, found: false, multiple_matches: true, matches: candidates }, [
-        vHeader({ title: "Several users match", subtitle: user, trailing: `${candidates.length} users` }),
-        vList(candidates.map((c) => ({ title: c.user_id || "(no user ID)", subtitle: `Amplitude ID ${c.amplitude_id}` }))),
+        vHeader({ title: "Users", trailing: `${candidates.length} matches` }),
+        vHeadline("Which one?", `Several users match "${user}". Say the full user ID.`, { small: true }),
+        vList(candidates.map((c) => ({ title: c.user_id || "(no user ID)", trailing: `ID ${c.amplitude_id}` }))),
       ]);
     }
 
@@ -694,10 +763,16 @@ server.registerTool(
     const events = (Array.isArray(res.data?.events) ? res.data.events : []).slice(0, limit).map(summarizeEvent);
 
     return glanceResult({ query: user, found: true, user: profile, events }, [
-      vHeader({ title: profile.user_id || `Amplitude ID ${profile.amplitude_id}`, subtitle: `Last seen ${profile.last_seen ?? "—"} · first seen ${profile.first_seen ?? "—"}`, trailing: `${formatNumber(profile.total_events)} events` }),
-      events.length === 0
-        ? vNote("No events recorded for this user.")
-        : vList(events.map((e: any) => ({ title: e.event_type ?? "(unnamed event)", trailing: e.time ? e.time.slice(5, 16).replace("T", " ") : "" }))),
+      vHeader({ title: "User", trailing: `${formatNumber(profile.total_events)} events in total` }),
+      vHeadline(
+        profile.user_id || `Amplitude ID ${profile.amplitude_id}`,
+        [profile.last_seen && `Last seen ${shortDate(profile.last_seen)}`, profile.first_seen && `first seen ${shortDate(profile.first_seen)}`].filter(Boolean).join(", ") +
+          (events.length ? `. Latest ${events.length === 1 ? "event" : `${events.length} events`}, times in UTC:` : ". No events recorded."),
+        { small: true }
+      ),
+      events.length
+        ? vList(events.map((e: any) => ({ title: e.event_type ?? "(unnamed event)", trailing: e.time ? `${shortDate(e.time)}, ${e.time.slice(11, 16)}` : "" })))
+        : null,
     ]);
   }
 );
@@ -790,8 +865,10 @@ server.registerTool(
       if (query && all.length === 0) return errorResult(EYEBROW, `No discoverable cohort matches "${query}". ${noneHint}`);
       if (!query) {
         return glanceResult({ cohorts: all, total_cohorts: all.length, ...(all.length === 0 ? { note: noneHint } : {}) }, [
-          vHeader({ title: "Cohorts", trailing: `${all.length} cohort${all.length === 1 ? "" : "s"}` }),
-          all.length === 0 ? vNote(`No cohorts found. ${noneHint}`) : vList(all.map((c: any) => ({ title: c.name, subtitle: c.id, trailing: c.size === null ? "" : formatNumber(c.size) }))),
+          vHeader({ title: "Cohorts", trailing: `${all.length} discoverable` }),
+          all.length === 0
+            ? vHeadline("None found", noneHint, { small: true })
+            : vList(all.map((c: any) => ({ title: c.name, trailing: c.size === null ? "" : `${formatNumber(c.size)} ${c.size === 1 ? "user" : "users"}` }))),
         ]);
       }
       const lower = query.toLowerCase();
@@ -804,8 +881,9 @@ server.registerTool(
       }
       if (hits.length > 1) {
         return glanceResult({ query, multiple_matches: true, matches: hits }, [
-          vHeader({ title: "Several cohorts match", subtitle: query, trailing: `${hits.length} cohorts` }),
-          vList(hits.map((c: any) => ({ title: c.name, subtitle: c.id, trailing: c.size === null ? "" : formatNumber(c.size) }))),
+          vHeader({ title: "Cohorts", trailing: `${hits.length} matches` }),
+          vHeadline("Which one?", `Several cohorts match "${query}". Say the full name.`, { small: true }),
+          vList(hits.map((c: any) => ({ title: c.name, trailing: c.size === null ? "" : `${formatNumber(c.size)} ${c.size === 1 ? "user" : "users"}` }))),
         ]);
       }
       cohort = hits[0];
@@ -832,8 +910,8 @@ server.registerTool(
     const name = cohort?.name ?? null;
     if (status !== "JOB COMPLETED") {
       return glanceResult({ cohort: cohort ?? null, request_id: requestId, status: "processing", note: "Amplitude is still preparing this export. Call export_cohort again with this request_id to finish it." }, [
-        vHeader({ title: name ?? "Cohort export", trailing: "Processing" }),
-        vNote("Amplitude is still preparing this export. Ask again in a moment to finish it."),
+        vHeader({ title: "Cohort export", trailing: "In progress" }),
+        vHeadline(name ?? "Still preparing", "Amplitude is still preparing this export. Ask again in a moment to finish it.", { small: true }),
       ]);
     }
 
@@ -843,18 +921,19 @@ server.registerTool(
       if (!file.fileStage || cohort?.size == null) return errorResult(EYEBROW, file.error);
       // Export finished but the file couldn't be read: report the size Amplitude lists, and say the sample is missing.
       return glanceResult({ cohort, request_id: requestId, status: "done", members: cohort.size, sample: null, sample_unavailable: `${file.error} Members are from Amplitude's cohort list.` }, [
-        vHeader({ title: cohort.name, subtitle: `Cohort ${cohort.id}`, trailing: `${formatNumber(cohort.size)} members` }),
-        vNote("Exported, but the member file couldn't be read, so there's no sample."),
+        vHeader({ title: "Cohort" }),
+        vHeadline(formatNumber(cohort.size), `members in ${cohort.name}. The member file couldn't be read, so there's no sample.`),
       ]);
     }
     return glanceResult({ cohort: cohort ?? { id: null, name: null }, request_id: requestId, status: "done", members: file.rows, file_name: file.file_name, columns: file.columns, sample: file.sample }, [
-      vHeader({ title: name ?? file.file_name, subtitle: cohort?.id ? `Cohort ${cohort.id}` : undefined, trailing: `${formatNumber(file.rows)} members` }),
-      file.rows === 0
-        ? vNote("This cohort has no members right now.")
-        : vList(file.sample.map((row: Record<string, string>) => {
-            const values = Object.values(row).filter(Boolean);
-            return { title: values[0] || "(blank)", subtitle: values.slice(1, 3).join(" · ") || undefined };
-          })),
+      vHeader({ title: "Cohort" }),
+      vHeadline(formatNumber(file.rows), file.rows === 0 ? `members in ${name ?? "this cohort"} right now.` : `${file.rows === 1 ? "member" : "members"} in ${name ?? "this cohort"}. A few of them:`),
+      file.rows > 0
+        ? vList(file.sample.map((row: Record<string, string>) => {
+            const first = Object.values(row).find(Boolean) ?? "(blank)";
+            return { title: row.user_id || first, trailing: row.user_id && row.amplitude_id ? `ID ${row.amplitude_id}` : "" };
+          }))
+        : null,
     ]);
   }
 );

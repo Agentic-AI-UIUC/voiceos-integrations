@@ -152,6 +152,18 @@ describe("get_event_segmentation", () => {
     expect(body.series[0].points).toHaveLength(4);
   });
 
+  test("card reads as a sentence with short dates; the data keeps ISO dates", async () => {
+    const { body, html } = await run("get_event_segmentation", { event_type: "Sign Up", metric: "totals", start_date: "2025-11-01", end_date: "2025-11-04" });
+    expect(html).toContain("Nov 1, 2025 – Nov 4, 2025");
+    expect(html).toContain("Sign Up events. Busiest: Nov 2 (6).");
+    expect(html).not.toContain("Buckets");
+    expect(html).not.toContain("2025-11-01");
+    expect(body).toMatchObject({ start_date: "2025-11-01", end_date: "2025-11-04" });
+    expect(body.series[0].points[0].time).toBe("2026-11-01");
+    const weekly = await run("get_event_segmentation", { event_type: "Sign Up", interval: "weekly" });
+    expect(weekly.html).toContain("users did Sign Up. Busiest: the week of Nov 2 (6).");
+  });
+
   test("defaults to daily unique users over the last 7 days", async () => {
     await run("get_event_segmentation", { event_type: "Sign Up" });
     const sent = lastArguments("AMPLITUDE_GET_EVENT_SEGMENTATION");
@@ -164,7 +176,7 @@ describe("get_event_segmentation", () => {
     const { isError, body, html } = await run("get_event_segmentation", { event_type: "quiet_event" });
     expect(isError).toBe(false);
     expect(body.total).toBe(0);
-    expect(html).toContain("No quiet_event events");
+    expect(html).toContain("users did quiet_event — nothing recorded in this date range.");
   });
 
   test("names an unknown event plainly", async () => {
@@ -205,7 +217,7 @@ describe("get_funnel", () => {
     const { isError, body, html } = await run("get_funnel", { steps: ["quiet_event", "b"] });
     expect(isError).toBe(false);
     expect(body.steps.map((s: any) => s.users)).toEqual([0, 0]);
-    expect(html).toContain("No users entered");
+    expect(html).toContain("no one entered the funnel");
   });
 
   test.each([[["only-one"]], [["a", "b", "c", "d", "e"]], [[]]])("rejects %j before calling Composio", async (steps) => {
