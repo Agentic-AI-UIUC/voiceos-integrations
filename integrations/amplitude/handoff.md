@@ -32,6 +32,7 @@ These were checked against a real Amplitude project, not taken from the docs.
 
 - **Segmentation interval.** Composio describes `i="1"` as hourly and `"7"` as daily. They're wrong. Live results show `"1"` is daily, `"7"` weekly, `"30"` monthly and `"-300000"` 5-minute realtime, which is Amplitude's own meaning. Composio rejects Amplitude's hourly value `"-3600000"`, so the tool offers daily, weekly, monthly and realtime.
 - **Retention mode.** Composio lists `rm="n-day"`, but Amplitude rejects it ("Invalid retention method"). n-day is Amplitude's default when `rm` is left out, so the tool only sends `rm` for rolling.
+- **Spoken user IDs.** In VoiceOS, speech turned "voiceos-test-1" into "User Voice OS Test 1". When the exact text finds no one, `get_user_activity` drops a leading "user" and tries up to 16 spellings without spaces (most likely first, 4 at a time). Only exact user or device ID hits count, and the card says what it heard. Live, this found `voiceos-test-1` from that phrase.
 - **Unknown events** come back as Amplitude `event_type_not_found`. The tool turns that into "Amplitude has no event named X in this project".
 - **Lookback limit.** Amplitude rejects dates older than the plan allows ("Date too far back"; one year on the test plan). The error is passed through as is.
 - **Cohorts must be discoverable.** `AMPLITUDE_LIST_COHORTS` only returns cohorts marked discoverable in Amplitude. A private cohort doesn't appear, and the tool says how to make it discoverable.
@@ -54,7 +55,7 @@ The live run used a test Amplitude project seeded with 46 synthetic events (6 us
 | `get_user_activity` | 12 events, no location or device fields | Unknown user: found false | Limit 0 rejected |
 | `export_cohort` | Discoverable cohort listed and resolved by name; download blocked by the plan's 403, shown as a clear error | No cohorts listed (before one was made discoverable) | Unknown cohort and invalid request ID rejected |
 
-The live run passed 23 of 24 checks. The export download was skipped because of the plan limit, and nothing failed. The polling, download, CSV sampling and private-column filtering are covered by the offline tests. `bun test` runs 42 offline checks.
+The live run passed 23 of 24 checks. The export download was skipped because of the plan limit, and nothing failed. The polling, download, CSV sampling and private-column filtering are covered by the offline tests. `bun test` runs 45 offline checks.
 
 ## How to test
 

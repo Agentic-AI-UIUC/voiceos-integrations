@@ -70,7 +70,8 @@ globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
         },
       });
     case "AMPLITUDE_FIND_USER":
-      if (args.user === "ghost") return success({ matches: [], type: "nomatch" });
+      if (args.user === "ghost" || /\s/.test(args.user) || /^(ghost|voice)/.test(args.user) && args.user !== "voiceos-test-1") return success({ matches: [], type: "nomatch" });
+      if (args.user === "voiceos-test-1") return success({ type: "match_user_or_device_id", matches: [{ user_id: "voiceos-test-1", amplitude_id: 101, country: "United States" }] });
       if (args.user === "user") {
         return success({ type: "match_user_prefix", matches: [1, 2, 3, 4, 5, 6, 7].map((i) => ({ user_id: `user-${i}`, amplitude_id: 100 + i, country: "United States", last_device_id: `device-${i}` })) });
       }
