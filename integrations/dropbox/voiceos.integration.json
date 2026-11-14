@@ -1,0 +1,869 @@
+{
+  "schemaVersion": 1,
+  "id": "com.voiceos.generated.dropbox",
+  "version": "2.0.23",
+  "name": "Dropbox",
+  "summary": "Find, read, upload, organize, version and share Dropbox files through Composio OAuth2.",
+  "supportedPlatforms": [
+    "darwin",
+    "win32"
+  ],
+  "publisher": {
+    "id": "pub_user",
+    "name": "Made in VoiceOS"
+  },
+  "runtime": {
+    "kind": "local-mcp",
+    "command": "/bin/zsh",
+    "args": [
+      "run.sh"
+    ]
+  },
+  "permissions": [
+    {
+      "kind": "network",
+      "domains": [
+        "backend.composio.dev",
+        "*.r2.cloudflarestorage.com"
+      ]
+    },
+    {
+      "kind": "background"
+    }
+  ],
+  "preferences": [
+    {
+      "name": "COMPOSIO_API_KEY",
+      "title": "Composio API key",
+      "description": "Your Composio project API key. Save it here; never paste Dropbox tokens. Reload after saving.",
+      "type": "password",
+      "required": true
+    },
+    {
+      "name": "COMPOSIO_CONNECTED_ACCOUNT_ID",
+      "title": "Dropbox connected account ID (manual fallback)",
+      "description": "Optional: an active Dropbox OAuth2 connection ID from Composio (normally ca_...). Leave blank when using the Connect Dropbox voice tool. This is not a project, playground, or user ID.",
+      "type": "text",
+      "required": false
+    }
+  ],
+  "tools": [
+    {
+      "name": "list_files",
+      "title": "List files in folder",
+      "description": "List files in folder via Composio OAuth2. Use when the user asks to browse a Dropbox folder. Returns provider data including pagination; never infer all pages were read. The card already shows the returned items. Keep default narration brief and do not repeat the entire list unless the user explicitly asks for those details.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "default": ""
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "additionalProperties": false
+      },
+      "execution": {
+        "mode": "background"
+      }
+    },
+    {
+      "name": "search_files",
+      "title": "Search files and folders",
+      "description": "Search files and folders via Composio OAuth2. Use when the user asks to find Dropbox files or folders by keyword. Returns provider data including pagination; never infer all pages were read. The card already shows the returned items. Keep default narration brief and do not repeat the entire list unless the user explicitly asks for those details.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "minLength": 1
+          },
+          "path": {
+            "type": "string"
+          },
+          "max_results": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "additionalProperties": false
+      },
+      "execution": {
+        "mode": "background"
+      }
+    },
+    {
+      "name": "get_metadata",
+      "title": "Get file or folder metadata",
+      "description": "Get file or folder metadata via Composio OAuth2. Use when the user asks to inspect Dropbox file or folder metadata. Returns provider data including pagination; never infer all pages were read.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "additionalProperties": false
+      },
+      "execution": {
+        "mode": "background"
+      }
+    },
+    {
+      "name": "read_file",
+      "title": "Read a file",
+      "description": "Read a file via Composio OAuth2. Use when the user asks to read a Dropbox file; Word .docx files up to 20 MiB return extracted readable text, while other binary formats return a file reference. Returns provider data including pagination; never infer all pages were read.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "additionalProperties": false
+      },
+      "execution": {
+        "mode": "background"
+      }
+    },
+    {
+      "name": "upload_file",
+      "title": "Upload File",
+      "description": "Upload File via Composio OAuth2. Use when the user asks to upload an existing local file from an allowed home folder to Dropbox; overwrite requires explicit approval. Returns provider data including pagination; never infer all pages were read.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "file": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Full existing local file path under your home Desktop, Documents, Downloads, Pictures, Movies, Videos, or Music folder, without surrounding quotes or brackets. Supports binary Word/PDF/image files up to 50 MiB; never invent a file reference."
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "add",
+              "overwrite"
+            ],
+            "default": "add"
+          }
+        },
+        "required": [
+          "path",
+          "file"
+        ],
+        "additionalProperties": false
+      },
+      "execution": {
+        "mode": "background"
+      },
+      "confirmation": {
+        "schemaVersion": 1,
+        "root": {
+          "type": "card",
+          "title": "Upload File",
+          "children": [
+            {
+              "type": "stack",
+              "direction": "vertical",
+              "gap": "sm",
+              "children": [
+                {
+                  "type": "textField",
+                  "bind": "{{path}}",
+                  "label": "Destination path",
+                  "required": true
+                },
+                {
+                  "type": "textField",
+                  "bind": "{{file}}",
+                  "label": "Local file",
+                  "required": true
+                },
+                {
+                  "type": "widget",
+                  "label": "Upload behavior",
+                  "confirmLabel": "Upload File",
+                  "height": 60,
+                  "html": "<!doctype html><html><head><meta charset=\"utf-8\"><style>\n*{box-sizing:border-box}html,body{margin:0;background:transparent;color:#f5f5f5;font:12px system-ui,-apple-system,\"Segoe UI\",sans-serif;color-scheme:dark}\nlabel{display:block;color:#a9a9ae;margin:0 0 6px}.select-wrap{position:relative}\n.select-wrap::after{content:\"\";position:absolute;right:12px;top:13px;width:7px;height:7px;border-right:1.5px solid #bbb;border-bottom:1.5px solid #bbb;transform:rotate(45deg);pointer-events:none}\nselect{width:100%;height:35px;padding:0 30px 0 10px;border:1px solid #555860;border-radius:9px;background:#25262a;color:#fff;appearance:none;font:600 12px system-ui,-apple-system,\"Segoe UI\",sans-serif;cursor:pointer}\nselect:focus-visible{outline:2px solid #9ac3ff;outline-offset:2px}option{background:#25262a;color:#fff}\n</style></head><body><label for=\"mode\">Upload behavior</label><div class=\"select-wrap\"><select id=\"mode\" aria-label=\"Upload behavior\"><option value=\"add\">Add (no replace)</option><option value=\"overwrite\">Overwrite</option></select></div><script>\nconst mode=document.getElementById('mode');\nwindow.addEventListener('message',event=>{if(event.data?.type==='voiceos:init')mode.value=event.data.args?.mode==='overwrite'?'overwrite':'add';});\nmode.addEventListener('change',()=>parent.postMessage({type:'voiceos:updateInput',key:'mode',value:mode.value},'*'));\n</script></body></html>"
+                },
+                {
+                  "type": "stack",
+                  "direction": "horizontal",
+                  "gap": "sm",
+                  "align": "start",
+                  "children": [
+                    {
+                      "type": "button",
+                      "label": "Cancel",
+                      "role": "cancel"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "create_folder",
+      "title": "Create folder",
+      "description": "Create folder via Composio OAuth2. Use when the user asks to create a Dropbox folder. Returns provider data including pagination; never infer all pages were read.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "additionalProperties": false
+      },
+      "execution": {
+        "mode": "background"
+      },
+      "confirmation": {
+        "schemaVersion": 1,
+        "root": {
+          "type": "card",
+          "title": "Create folder",
+          "children": [
+            {
+              "type": "stack",
+              "direction": "vertical",
+              "gap": "md",
+              "children": [
+                {
+                  "type": "text",
+                  "text": "Review the destination path, then create this folder.",
+                  "color": "muted"
+                },
+                {
+                  "type": "textField",
+                  "bind": "{{path}}",
+                  "label": "Destination path",
+                  "required": true
+                }
+              ]
+            }
+          ],
+          "footer": [
+            {
+              "type": "actions",
+              "items": [
+                {
+                  "label": "Cancel",
+                  "role": "cancel"
+                },
+                {
+                  "label": "Create folder",
+                  "role": "confirm",
+                  "color": "accent"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "copy_item",
+      "title": "Copy file or folder",
+      "description": "Copy file or folder via Composio OAuth2. Use when the user asks to copy a Dropbox file or folder to an exact destination. Returns provider data including pagination; never infer all pages were read.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "from_path": {
+            "type": "string"
+          },
+          "to_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "from_path",
+          "to_path"
+        ],
+        "additionalProperties": false
+      },
+      "execution": {
+        "mode": "background"
+      },
+      "confirmation": {
+        "schemaVersion": 1,
+        "root": {
+          "type": "card",
+          "title": "Copy file or folder",
+          "children": [
+            {
+              "type": "stack",
+              "direction": "vertical",
+              "gap": "md",
+              "children": [
+                {
+                  "type": "text",
+                  "text": "Review the exact source and destination before continuing.",
+                  "color": "muted"
+                },
+                {
+                  "type": "textField",
+                  "bind": "{{from_path}}",
+                  "label": "Source path",
+                  "required": true
+                },
+                {
+                  "type": "textField",
+                  "bind": "{{to_path}}",
+                  "label": "Destination path",
+                  "required": true
+                }
+              ]
+            }
+          ],
+          "footer": [
+            {
+              "type": "actions",
+              "items": [
+                {
+                  "label": "Cancel",
+                  "role": "cancel"
+                },
+                {
+                  "label": "Copy file or folder",
+                  "role": "confirm",
+                  "color": "accent"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "move_item",
+      "title": "Move file or folder",
+      "description": "Move file or folder via Composio OAuth2. Use when the user asks to move or rename a Dropbox file or folder. Returns provider data including pagination; never infer all pages were read.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "from_path": {
+            "type": "string"
+          },
+          "to_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "from_path",
+          "to_path"
+        ],
+        "additionalProperties": false
+      },
+      "execution": {
+        "mode": "background"
+      },
+      "confirmation": {
+        "schemaVersion": 1,
+        "root": {
+          "type": "card",
+          "title": "Move file or folder",
+          "children": [
+            {
+              "type": "stack",
+              "direction": "vertical",
+              "gap": "md",
+              "children": [
+                {
+                  "type": "text",
+                  "text": "Review the exact source and destination before continuing.",
+                  "color": "muted"
+                },
+                {
+                  "type": "textField",
+                  "bind": "{{from_path}}",
+                  "label": "Source path",
+                  "required": true
+                },
+                {
+                  "type": "textField",
+                  "bind": "{{to_path}}",
+                  "label": "Destination path",
+                  "required": true
+                }
+              ]
+            }
+          ],
+          "footer": [
+            {
+              "type": "actions",
+              "items": [
+                {
+                  "label": "Cancel",
+                  "role": "cancel"
+                },
+                {
+                  "label": "Move file or folder",
+                  "role": "confirm",
+                  "color": "accent"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "delete_item",
+      "title": "Delete file or folder",
+      "description": "Delete file or folder via Composio OAuth2. Use when the user asks to delete a Dropbox file or folder; recovery depends on the account plan. Returns provider data including pagination; never infer all pages were read.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "additionalProperties": false
+      },
+      "execution": {
+        "mode": "background"
+      },
+      "confirmation": {
+        "schemaVersion": 1,
+        "root": {
+          "type": "card",
+          "title": "Delete file or folder",
+          "children": [
+            {
+              "type": "stack",
+              "direction": "vertical",
+              "gap": "md",
+              "children": [
+                {
+                  "type": "text",
+                  "text": "Deletes this item and everything inside it. Recovery depends on your Dropbox plan.",
+                  "color": "muted"
+                },
+                {
+                  "type": "textField",
+                  "bind": "{{path}}",
+                  "label": "File or folder path",
+                  "required": true
+                }
+              ]
+            }
+          ],
+          "footer": [
+            {
+              "type": "actions",
+              "items": [
+                {
+                  "label": "Cancel",
+                  "role": "cancel"
+                },
+                {
+                  "label": "Delete file or folder",
+                  "role": "confirm",
+                  "color": "accent"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "list_revisions",
+      "title": "List file revisions",
+      "description": "List file revisions via Composio OAuth2. Use when the user asks to inspect previous versions before restoring a Dropbox file. Returns provider data including pagination; never infer all pages were read. The card already shows the returned items. Keep default narration brief and do not repeat the entire list unless the user explicitly asks for those details.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "additionalProperties": false
+      },
+      "execution": {
+        "mode": "background"
+      }
+    },
+    {
+      "name": "restore_revision",
+      "title": "Restore file to specific revision",
+      "description": "Restore file to specific revision via Composio OAuth2. Use when the user asks to restore a Dropbox file to the exact revision the user selected. Returns provider data including pagination; never infer all pages were read.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "rev": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "path",
+          "rev"
+        ],
+        "additionalProperties": false
+      },
+      "execution": {
+        "mode": "background"
+      },
+      "confirmation": {
+        "schemaVersion": 1,
+        "root": {
+          "type": "card",
+          "title": "Restore file to specific revision",
+          "children": [
+            {
+              "type": "stack",
+              "direction": "vertical",
+              "gap": "md",
+              "children": [
+                {
+                  "type": "text",
+                  "text": "Replaces the current file with the exact revision below.",
+                  "color": "muted"
+                },
+                {
+                  "type": "textField",
+                  "bind": "{{path}}",
+                  "label": "File or folder path",
+                  "required": true
+                },
+                {
+                  "type": "textField",
+                  "bind": "{{rev}}",
+                  "label": "Revision ID",
+                  "required": true
+                }
+              ]
+            }
+          ],
+          "footer": [
+            {
+              "type": "actions",
+              "items": [
+                {
+                  "label": "Cancel",
+                  "role": "cancel"
+                },
+                {
+                  "label": "Restore file to specific revision",
+                  "role": "confirm",
+                  "color": "accent"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "create_shared_link",
+      "title": "Create shared link",
+      "description": "Create shared link via Composio OAuth2. Use when the user asks to create a shared link after approving the access change. Returns provider data including pagination; never infer all pages were read. Shared links are already available through the card Open/Copy controls. Use the returned summary for a brief reply; do not rebuild the URL or print it in a second formatted response. Reuse the exact returned URL for revocation. Never repeat a completed write because narration formatting failed.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "additionalProperties": false
+      },
+      "execution": {
+        "mode": "background"
+      },
+      "confirmation": {
+        "schemaVersion": 1,
+        "root": {
+          "type": "card",
+          "title": "Create shared link",
+          "children": [
+            {
+              "type": "stack",
+              "direction": "vertical",
+              "gap": "md",
+              "children": [
+                {
+                  "type": "text",
+                  "text": "Creates a link using the default access settings for your Dropbox account.",
+                  "color": "muted"
+                },
+                {
+                  "type": "textField",
+                  "bind": "{{path}}",
+                  "label": "File or folder path",
+                  "required": true
+                }
+              ]
+            }
+          ],
+          "footer": [
+            {
+              "type": "actions",
+              "items": [
+                {
+                  "label": "Cancel",
+                  "role": "cancel"
+                },
+                {
+                  "label": "Create shared link",
+                  "role": "confirm",
+                  "color": "accent"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "list_shared_links",
+      "title": "List shared links",
+      "description": "List shared links via Composio OAuth2. Use when the user asks to inspect existing Dropbox shared links. Returns provider data including pagination; never infer all pages were read. Shared links are already available through the card Open/Copy controls. Use the returned summary for a brief reply; do not rebuild the URL or print it in a second formatted response. Reuse the exact returned URL for revocation. Never repeat a completed write because narration formatting failed.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "cursor": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
+      },
+      "execution": {
+        "mode": "background"
+      }
+    },
+    {
+      "name": "revoke_shared_link",
+      "title": "Revoke shared link",
+      "description": "Revoke shared link via Composio OAuth2. Use when the user asks to revoke the exact Dropbox shared link selected by the user. Returns provider data including pagination; never infer all pages were read.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "format": "uri"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "additionalProperties": false
+      },
+      "execution": {
+        "mode": "background"
+      },
+      "confirmation": {
+        "schemaVersion": 1,
+        "root": {
+          "type": "card",
+          "title": "Revoke shared link",
+          "children": [
+            {
+              "type": "stack",
+              "direction": "vertical",
+              "gap": "md",
+              "children": [
+                {
+                  "type": "text",
+                  "text": "People using this link will lose access through it.",
+                  "color": "muted"
+                },
+                {
+                  "type": "textField",
+                  "bind": "{{url}}",
+                  "label": "Shared link",
+                  "required": true
+                }
+              ]
+            }
+          ],
+          "footer": [
+            {
+              "type": "actions",
+              "items": [
+                {
+                  "label": "Cancel",
+                  "role": "cancel"
+                },
+                {
+                  "label": "Revoke shared link",
+                  "role": "confirm",
+                  "color": "accent"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "connect_account",
+      "title": "Connect Dropbox",
+      "description": "Connect Dropbox through Composio OAuth2. Use when the user asks to connect or authorize their Dropbox account. Opens browser consent and verifies the connection; does not change Dropbox files.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "execution": {
+        "mode": "background"
+      },
+      "confirmation": {
+        "schemaVersion": 1,
+        "root": {
+          "type": "card",
+          "title": "Connect Dropbox",
+          "children": [
+            {
+              "type": "stack",
+              "direction": "vertical",
+              "gap": "md",
+              "children": [
+                {
+                  "type": "text",
+                  "text": "Open secure Composio OAuth2 authorization in your browser and connect Dropbox.",
+                  "color": "muted"
+                }
+              ]
+            }
+          ],
+          "footer": [
+            {
+              "type": "actions",
+              "items": [
+                {
+                  "label": "Cancel",
+                  "role": "cancel"
+                },
+                {
+                  "label": "Connect Dropbox",
+                  "role": "confirm",
+                  "color": "accent"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "connection_status",
+      "title": "Dropbox account status",
+      "description": "Check this Dropbox OAuth2 connection. Use when the user asks whether Dropbox is connected or needs reauthorization. Read only; does not start OAuth or change files.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "execution": {
+        "mode": "background"
+      }
+    },
+    {
+      "name": "disconnect_account",
+      "title": "Disconnect Dropbox",
+      "description": "Disconnect the saved Dropbox account in Composio. Use only when the user explicitly asks to disconnect or unlink Dropbox. Does not delete Dropbox files.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "execution": {
+        "mode": "background"
+      },
+      "confirmation": {
+        "schemaVersion": 1,
+        "root": {
+          "type": "card",
+          "title": "Disconnect Dropbox",
+          "children": [
+            {
+              "type": "stack",
+              "direction": "vertical",
+              "gap": "md",
+              "children": [
+                {
+                  "type": "text",
+                  "text": "Disconnect this Dropbox account in Composio. Your Dropbox files will remain.",
+                  "color": "muted"
+                }
+              ]
+            }
+          ],
+          "footer": [
+            {
+              "type": "actions",
+              "items": [
+                {
+                  "label": "Cancel",
+                  "role": "cancel"
+                },
+                {
+                  "label": "Disconnect Dropbox",
+                  "role": "confirm",
+                  "color": "accent"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "icon": "icon.png",
+  "setupGuide": {
+    "title": "Connect Dropbox with Composio OAuth2",
+    "collapsedByDefault": false,
+    "blocks": [
+      {
+        "type": "text",
+        "text": "Save your Composio project API key, then ask VoiceOS to connect Dropbox. Voice Connect/Disconnect requires Connected accounts Read and write access; creating an OAuth config also requires Auth configs Read and write access. Approve the confirmation card and authorize Dropbox in your browser. Ask for Dropbox connection status to verify. You can ask VoiceOS to disconnect Dropbox. Fallback: run npm run setup in this integration folder to use the local Connect/Disconnect page, then copy its active connected account ID (normally ca_...) into Setup and Reload. A pg-test-... identifier is not a connected account ID."
+      }
+    ]
+  }
+}

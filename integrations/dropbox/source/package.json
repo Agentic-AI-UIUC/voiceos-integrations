@@ -1,0 +1,27 @@
+{
+  "name": "dropbox",
+  "version": "2.0.23",
+  "private": true,
+  "description": "Browse files, search folders, share links, restore revisions, and manage your Dropbox files by voice.",
+  "type": "module",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.28.0",
+    "zod": "^3.24.0",
+    "tsx": "^4.20.2",
+    "@composio/core": "0.28.0",
+    "ajv": "8.17.1",
+    "zod-to-json-schema": "3.25.0",
+    "mammoth": "1.13.0",
+    "yauzl": "3.4.0"
+  },
+  "scripts": {
+    "setup": "tsx server.ts --setup",
+    "test": "tsx --test account.test.ts integration.test.ts setup-smoke.test.ts portable.test.ts feedback.test.ts review.test.ts layout.test.ts upload.test.ts brand.test.ts read-content.test.ts links.test.ts links-browser.test.ts",
+    "build:manifest": "tsx build-manifest.ts",
+    "build:portable": "node build-portable.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "jszip": "3.10.1"
+  }
+}

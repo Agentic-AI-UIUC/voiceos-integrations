@@ -1,0 +1,13 @@
+# VoiceOS host work required for the original Dropbox UX brief
+
+The Dropbox MCP package exposes 14 approved Dropbox actions and three separate account tools. It includes a local Composio OAuth2 Connect/Disconnect page inside the portable `server.ts` (`node server.ts --setup`), native Cancel/Confirm manifest cards for eight Dropbox writes and two account mutations, completed/error glance cards, and phase notifications when the MCP client supplies a progress token.
+
+The following user-visible behavior cannot be completed by the MCP server alone under the current integration manifest contract:
+
+1. **Native Setup account linking.** VoiceOS Setup still has no built-in Connect/Disconnect control. Version 2.0.16 supplies voice `connect_account`, `connection_status`, and `disconnect_account` tools. Connect opens the Composio OAuth2 consent page in the browser after native confirmation; status uses a plain glance card with no direct tool buttons. The local page and optional manual account ID remain as fallbacks. A fresh shared installation must test consent, Cancel, status, and disconnect on both platforms.
+2. **Native write toasts.** MCP results contain `status: completed` with a green result card, or `isError: true` with a failure card and error text. The manifest contract does not define a host toast API. VoiceOS must decide whether and how to show a success/error toast for each write. An unknown outcome after timeout must never display a success toast. The setup page has its own accessible status/error toast, but that is not the agent's write toast.
+3. **Transfer progress.** The server sends MCP `notifications/progress` for account check, staging, and Dropbox execution only when VoiceOS supplies `_meta.progressToken`. Composio's single-call `files.upload` path used here does not provide measured bytes or percentage callbacks. The host must surface these phases as an indeterminate loading state. A numerical transfer percentage requires a supported byte-progress source in the staging/upload API; it must not be fabricated from phase counts. VoiceOS must also allow the request enough time for the documented file-size limit.
+
+Composio manages routine OAuth token refresh. The integration rejects inactive accounts before dispatch and gives reconnect instructions for expired/revoked tokens or provider auth failures. Offline tests cover these branches; live expiry/revocation QA would disrupt a real connection and remains pending.
+
+Windows live QA covered all 14 actions on 2.0.10 and the 2.0.11 limit-10 revisions fix. Version 2.0.16 adds account tools and keeps Composio 0.28.0 pinned. Native Mac VoiceOS QA and a fresh shared-install check are still required before claiming all acceptance criteria complete.
