@@ -101,7 +101,8 @@ This guide records the programmatic refresh actually used for Monday.
    `listTools` request against the installed `server.ts` should currently return
    `connect_account`, `connection_status`, `disconnect_account`, `get_boards`,
    `get_items`, `prepare_create_item`, `create_item`, `prepare_update_item`,
-   `update_item_values`, `create_update`,
+   `update_item_values`, `get_comments`, `prepare_comment`, `create_comment`,
+   `edit_comment`, `delete_comment`,
    `prepare_create_board`, `create_board`, `prepare_create_group`, `create_group`,
    `prepare_archive_board`, `archive_board`, `prepare_delete_board`, `delete_board`,
    `list_board_members`, `prepare_manage_users`, and `manage_users`.

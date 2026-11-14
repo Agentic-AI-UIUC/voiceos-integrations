@@ -14,7 +14,7 @@ const manifest = JSON.parse(readFileSync(join(ROOT, "voiceos.integration.json"),
 const KEY = "offline-monday-key-only";
 const IDENTITY = { userId: "voiceos-monday-test" };
 const ACTIVE = { ...IDENTITY, accountId: "ca_test" };
-const TOOLS = ["connect_account", "connection_status", "disconnect_account", "get_boards", "get_items", "prepare_create_item", "create_item", "prepare_update_item", "update_item_values", "create_update", "prepare_create_board", "create_board", "prepare_create_group", "create_group", "prepare_archive_board", "archive_board", "prepare_delete_board", "delete_board", "list_board_members", "prepare_manage_users", "manage_users"].sort();
+const TOOLS = ["connect_account", "connection_status", "disconnect_account", "get_boards", "get_items", "prepare_create_item", "create_item", "prepare_update_item", "update_item_values", "get_comments", "prepare_comment", "create_comment", "edit_comment", "delete_comment", "prepare_create_board", "create_board", "prepare_create_group", "create_group", "prepare_archive_board", "archive_board", "prepare_delete_board", "delete_board", "list_board_members", "prepare_manage_users", "manage_users"].sort();
 const directory = mkdtempSync(join(tmpdir(), "voiceos-monday-tests-"));
 const statePath = join(directory, ".composio-auth.json");
 const scenarioPath = join(directory, "scenario.json");
@@ -79,7 +79,7 @@ beforeEach(() => {
 afterEach(() => {
   expect(events().filter(event => event.kind === "unexpected")).toEqual([]);
   const executions = events().filter(event => event.path?.includes("/tools/execute/"));
-  expect(executions.every(event => ["MONDAY_BOARDS", "MONDAY_GET_ITEMS", "MONDAY_ITEMS_PAGE", "MONDAY_LIST_GROUPS", "MONDAY_COLUMNS", "MONDAY_LIST_USERS", "MONDAY_GET_TEAMS", "MONDAY_GET_WORKSPACES", "MONDAY_CREATE_ITEM", "proxy", "MONDAY_CREATE_UPDATE", "MONDAY_CREATE_BOARD", "MONDAY_GET_ME", "MONDAY_ADD_USERS_TO_BOARD", "MONDAY_DELETE_SUBSCRIBERS_FROM_BOARD"].includes(event.path!.split("/").at(-1)!))).toBe(true);
+  expect(executions.every(event => ["MONDAY_BOARDS", "MONDAY_GET_ITEMS", "MONDAY_ITEMS_PAGE", "MONDAY_LIST_GROUPS", "MONDAY_COLUMNS", "MONDAY_LIST_USERS", "MONDAY_GET_TEAMS", "MONDAY_GET_WORKSPACES", "MONDAY_CREATE_ITEM", "proxy", "MONDAY_CREATE_UPDATE", "MONDAY_EDIT_UPDATE", "MONDAY_DELETE_UPDATE", "MONDAY_CREATE_BOARD", "MONDAY_GET_ME", "MONDAY_ADD_USERS_TO_BOARD", "MONDAY_DELETE_SUBSCRIBERS_FROM_BOARD"].includes(event.path!.split("/").at(-1)!))).toBe(true);
 });
 afterAll(async () => {
   try { await client?.close(); } finally {
@@ -98,11 +98,11 @@ describe("account tools contract", () => {
       expect(actual.description).toBe(declared.description);
       expect(actual.inputSchema.properties).toEqual(declared.inputSchema.properties);
       expect(actual.inputSchema.additionalProperties).toBe(false);
-      if (["connection_status", "get_boards", "get_items", "prepare_create_item", "prepare_create_board", "prepare_update_item", "prepare_create_group", "prepare_archive_board", "prepare_delete_board", "list_board_members", "prepare_manage_users"].includes(actual.name)) {
+      if (["connection_status", "get_boards", "get_items", "get_comments", "prepare_comment", "prepare_create_item", "prepare_create_board", "prepare_update_item", "prepare_create_group", "prepare_archive_board", "prepare_delete_board", "list_board_members", "prepare_manage_users"].includes(actual.name)) {
         expect(declared.confirmation).toBeUndefined();
         expect(declared.uiCallable).toBe(true);
         expect(actual.annotations?.readOnlyHint).toBe(true);
-      } else if (["create_item", "update_item_values", "create_update", "create_board", "create_group", "archive_board", "delete_board", "manage_users"].includes(actual.name)) {
+      } else if (["create_item", "update_item_values", "create_comment", "edit_comment", "delete_comment", "create_board", "create_group", "archive_board", "delete_board", "manage_users"].includes(actual.name)) {
         if (actual.name === "create_item" || actual.name === "create_board") {
           const item = actual.name === "create_item";
           const root = declared.confirmation.root;
@@ -145,6 +145,12 @@ describe("account tools contract", () => {
         } else if (actual.name === "update_item_values") {
           expect(declared.confirmation.root.children.find((block: { type: string }) => block.type === "widget").confirmLabel).toBe("Save changes");
           expect(declared.confirmation.root.children.at(-1).children).toEqual([{ type: "button", label: "Cancel", role: "cancel" }]);
+        } else if (actual.name.endsWith("_comment")) {
+          const root = declared.confirmation.root;
+          expect(root.footer[0].items.map((item: { role: string }) => item.role)).toEqual(["cancel", "confirm"]);
+          expect(actual.annotations?.destructiveHint).toBe(actual.name === "delete_comment");
+          if (actual.name === "delete_comment")
+            expect(root.children).toContainEqual({ type: "text", text: "This permanently deletes the comment from Monday.com.", color: "danger" });
         } else {
           expect(declared.confirmation).toBeUndefined();
         }
@@ -1293,7 +1299,6 @@ describe("Monday write tools", () => {
 
   const cases = [
     { name: "create_item", args: { board_id: 123, item_name: "New task", column_values: '{"status":{"label":"Done"}}' }, action: "MONDAY_CREATE_ITEM", response: { create_item: { id: "456" } }, routed: { board_id: "123", group_id: "incoming", item_name: "New task", column_values: '{"status":{"label":"Done"}}' } },
-    { name: "create_update", args: { item_id: 456, body: "A comment" }, action: "MONDAY_CREATE_UPDATE", response: { create_update: { id: "789" } }, routed: { item_id: 456, body: "A comment" } },
     { name: "create_board", args: { board_name: "Test board", board_kind: "private" }, action: "MONDAY_CREATE_BOARD", response: { create_board: { id: "987", url: "https://example.monday.com/boards/987", groups: [{ id: "topics", title: "New items" }] } }, routed: { board_name: "Test board", board_kind: "private" } },
   ];
   async function writeArguments(c: (typeof cases)[number]) {
@@ -1358,7 +1363,6 @@ describe("Monday write tools", () => {
   });
   test.each([
     ["create_item", {}], ["create_item", { board_id: 1, item_name: " " }],
-    ["create_update", { body: "Missing target" }], ["create_update", { item_id: 1, body: " " }],
     ["update_item_values", { item_id: 1, column_values: { text: "Missing board" } }],
     ["create_board", { board_name: "Board" }],
     ["create_board", { board_name: "Board", board_kind: "public", board_owner_ids: [1] }],
@@ -1982,5 +1986,195 @@ describe("Monday board membership", () => {
     expect(result.body.records.map((member: { role: string }) => member.role)).toEqual(["owner", "subscriber"]);
     const proxy = events().find(event => event.path?.endsWith("/execute/proxy"));
     expect(proxy?.body?.body).toMatchObject({ variables: { boardIds: ["123"] } });
+  });
+});
+
+describe("Monday comments", () => {
+  const launch = { id: "456", name: "Launch", state: "active", board: { id: "123", name: "Roadmap" }, group: { id: "planned", title: "Planned" } };
+  const poster = { id: "7", name: "Dario" };
+  const other = { id: "8", name: "Sam" };
+  const post = (id: string, text: string, creator = poster, created_at = "2026-11-10T00:00:00Z") => ({
+    id, body: "<p>" + text + "</p>", text_body: text, created_at, creator, replies: [],
+  });
+  const own = post("900", "Launch date is Monday");
+  const thread = { ...own, replies: [post("901", "Thanks", other)] };
+  function comments(pages: NonNullable<Scenario["commentPages"]> = { 1: [thread] }, items = [launch]) {
+    scenario({ commentPages: pages, proxyItem: launch, commentItems: items, toolDataByAction: {
+      MONDAY_BOARDS: { boards: [launch.board] },
+      MONDAY_ITEMS_PAGE: { items: items.map(({ group, ...item }) => item), cursor: null },
+      MONDAY_GET_ME: { me: poster },
+      MONDAY_CREATE_UPDATE: { create_update: { id: "910" } },
+      MONDAY_EDIT_UPDATE: { edit_update: { id: "900" } },
+      MONDAY_DELETE_UPDATE: { delete_update: { id: "900" } },
+    } });
+  }
+  const calls = (action: string) => events().filter(event => event.path?.endsWith("/tools/execute/" + action));
+
+  const commentReads = () => events().filter(event => {
+    const payload = event.body?.body as { query?: string; variables?: unknown } | undefined;
+    return event.path?.endsWith("/tools/execute/proxy") && payload?.query?.startsWith("query ItemCommentThreads");
+  });
+
+  test("reads by item name and paginates threads with their replies", async () => {
+    comments({ 1: [thread], 2: [post("902", "Second page")] });
+    const first = await invoke("get_comments", { item_name: "Launch", limit: 1 });
+    expect(first.body).toMatchObject({
+      item_id: 456, itemName: "Launch", pagination: { page: 1, limit: 1, nextPage: 2 },
+      records: [{ id: 900, text: own.text_body, author: "Dario", replies: [{ id: 901, author: "Sam", text: "Thanks" }] }],
+    });
+    const second = await invoke("get_comments", { item_id: first.body.item_id, page: 2, limit: 1 });
+    expect(second.body.records[0].text).toBe("Second page");
+    expect(commentReads().map(call => (call.body?.body as { variables: unknown }).variables)).toEqual([
+      { ids: ["456"], limit: 1, page: 1 }, { ids: ["456"], limit: 1, page: 2 },
+    ]);
+    expect(calls("MONDAY_GET_ITEMS")).toEqual([]);
+  });
+
+  test("asks which board when multiple boards could match", async () => {
+    const boards = [launch.board, { id: "777", name: "Marketing" }];
+    scenario({ toolDataByAction: {
+      MONDAY_BOARDS: { boards },
+      MONDAY_ITEMS_PAGE: { items: [launch], cursor: null },
+    } });
+    expect((await invoke("get_comments", { item_name: "Launch" })).body).toMatchObject({
+      question: expect.stringContaining("Which"), choices: [{ label: "Roadmap" }, { label: "Marketing" }],
+    });
+    expect(commentReads()).toEqual([]);
+  });
+
+  test("opens the only item when the user gives just the board", async () => {
+    comments();
+    expect((await invoke("get_comments", { board_name: "Roadmap" })).body.itemName).toBe("Launch");
+  });
+
+  test("asks for an item when the board has two items in one group", async () => {
+    comments(undefined, [launch, { ...launch, id: "457", name: "Review" }]);
+    const result = await invoke("get_comments", { board_name: "Roadmap" });
+    expect(result.body).toMatchObject({
+      question: "Which item on “Roadmap” do you mean?",
+      choices: [{ label: "Launch" }, { label: "Review" }],
+      resolved_scope: { board_id: 123, group_name: "Planned" },
+    });
+    expect(commentReads()).toEqual([]);
+    expect((await invoke("get_comments", { ...result.body.resolved_scope, item_name: "Launch" })).body.itemName).toBe("Launch");
+  });
+
+  test("uses the last row for the count of hidden items", async () => {
+    const items = [launch, ...Array.from({ length: 19 }, (_, index) => ({
+      ...launch, id: String(457 + index), name: `Task ${index + 1}`,
+    }))];
+    comments(undefined, items);
+    const result = await invoke("get_comments", { board_name: "Roadmap" });
+    expect(result.body.choices).toHaveLength(5);
+    expect(result.body.remaining_choices).toBe(15);
+    expect(result.body._voiceos_glance.blocks[1].rows.at(-1)).toEqual({ title: "and 15 more" });
+    const second = await invoke("get_comments", result.body.next_item_choices_arguments);
+    expect(second.body.choices.map(({ id }: { id: number }) => id)).toEqual([461, 462, 463, 464, 465]);
+    expect(second.body._voiceos_glance.blocks[1].rows.at(-1)).toEqual({ title: "and 10 more" });
+    const third = await invoke("get_comments", second.body.next_item_choices_arguments);
+    const last = await invoke("get_comments", third.body.next_item_choices_arguments);
+    expect(last.body.choices.map(({ id }: { id: number }) => id)).toEqual([471, 472, 473, 474, 475]);
+    expect(last.body.next_item_choices_arguments).toBeUndefined();
+    expect(commentReads()).toEqual([]);
+  });
+
+  test("asks for a group when items span groups and skips the item question for a one-item group", async () => {
+    comments(undefined, [launch, { ...launch, id: "457", name: "Review", group: { id: "done", title: "Done" } }]);
+    const result = await invoke("get_comments", { board_name: "Roadmap" });
+    expect(result.body).toMatchObject({
+      question: "Which group on “Roadmap” do you mean?",
+      choices: [{ label: "Planned" }, { label: "Done" }],
+      resolved_scope: { board_id: 123 },
+    });
+    expect(commentReads()).toEqual([]);
+    expect((await invoke("get_comments", { ...result.body.resolved_scope, group_name: "Planned" })).body.itemName).toBe("Launch");
+  });
+
+  test("posts new comments and replies using the exact text reviewed on the card", async () => {
+    comments();
+    const body = "Ready <today> & tomorrow\nNext step";
+    const top = await invoke("prepare_comment", { operation: "create", item_name: "Launch", body });
+    expect(top.body.create_comment_arguments).toMatchObject({ body, item: "Launch · Roadmap" });
+    const draft = await invoke("prepare_comment", { operation: "create", item_id: 456, comment_text: "Launch date", body });
+    const args = draft.body.create_comment_arguments;
+    expect(args).toMatchObject({ body, parent: own.text_body });
+    expect((await invoke("create_comment", { ...args, body: "Different text" })).isError).toBe(true);
+    expect(calls("MONDAY_CREATE_UPDATE")).toEqual([]);
+    expect((await invoke("create_comment", top.body.create_comment_arguments)).body.id).toBe("910");
+    expect((await invoke("create_comment", args)).body.message).toBe("Posted reply.");
+    expect((await invoke("create_comment", args)).isError).toBe(true);
+    const html = "Ready &lt;today&gt; &amp; tomorrow<br>Next step";
+    expect(calls("MONDAY_CREATE_UPDATE").map(call => call.body?.arguments)).toEqual([
+      { item_id: 456, body: html }, { item_id: 456, body: html, parent_id: 900 },
+    ]);
+  });
+
+  test("replaces a pending card without writing and rejects the previous draft", async () => {
+    comments();
+    const input = { operation: "create", item_id: 456, body: "First draft" };
+    const original = (await invoke("prepare_comment", input)).body.create_comment_arguments;
+    const revised = (await invoke("prepare_comment", {
+      ...input, body: "Corrected draft", replaces_draft_id: original.draft_id,
+    })).body.create_comment_arguments;
+    expect((await invoke("create_comment", original)).isError).toBe(true);
+    expect(calls("MONDAY_CREATE_UPDATE")).toEqual([]);
+    expect((await invoke("create_comment", revised)).body.id).toBe("910");
+  });
+
+  test("returns replies on reads and directs reply edits and deletions to Monday.com", async () => {
+    comments({ 1: [{ ...thread, replies: [post("901", "My reply")] }] });
+    for (const operation of ["edit", "delete"]) {
+      const result = await invoke("prepare_comment", {
+        operation, item_id: 456, comment_id: 901, ...(operation === "edit" ? { body: "Replacement" } : {}),
+      });
+      expect(result.isError).toBe(true);
+      expect(result.body.error).toContain("top-level comments");
+    }
+    expect(calls("MONDAY_EDIT_UPDATE")).toEqual([]);
+    expect(calls("MONDAY_DELETE_UPDATE")).toEqual([]);
+  });
+
+  test("checks ownership, asks about duplicate text, and finds the latest own comment on a later page", async () => {
+    const older = Array.from({ length: 99 }, (_, index) => post(String(1000 + index), "Older comment"));
+    const newer = post("950", own.text_body, poster, "2026-11-12T00:00:00Z");
+    const someoneElse = post("951", own.text_body, other, "2026-11-13T00:00:00Z");
+    comments({ 1: [thread, ...older], 2: [newer, someoneElse] });
+    const item_id = 456;
+    expect((await invoke("prepare_comment", { operation: "delete", item_id, comment_id: 951 })).body.question).toContain("you wrote");
+    const ambiguous = await invoke("prepare_comment", { operation: "edit", item_id, body: "Corrected", comment_text: own.text_body });
+    expect(ambiguous.body.choices.map((match: { id: number }) => match.id)).toEqual([900, 950]);
+    const latest = await invoke("prepare_comment", { operation: "delete", item_id, latest: true });
+    expect(latest.body.delete_comment_arguments).toMatchObject({ old_body: newer.text_body, author: poster.name });
+    expect(latest.body.delete_comment_arguments.reply_warning).toBeUndefined();
+    expect(calls("MONDAY_DELETE_UPDATE")).toEqual([]);
+  });
+
+  test("executes edit and delete once and rejects a stale or cross-account deletion", async () => {
+    comments();
+    const { body: { edit_comment_arguments: edit } } = await invoke("prepare_comment", {
+      operation: "edit", item_id: 456, comment_id: 900, body: "Launch date is Tuesday",
+    });
+    expect(edit).toMatchObject({ old_body: own.text_body, body: "Launch date is Tuesday" });
+    expect((await invoke("edit_comment", edit)).body.id).toBe("900");
+    expect(calls("MONDAY_EDIT_UPDATE")[0].body?.arguments).toEqual({ id: 900, body: "Launch date is Tuesday" });
+
+    const prepareDelete = async () => (await invoke("prepare_comment", { operation: "delete", item_id: 456, comment_id: 900 })).body.delete_comment_arguments;
+    const stale = await prepareDelete();
+    comments({ 1: [{ ...thread, body: "<p>Edited elsewhere</p>", text_body: "Edited elsewhere" }] });
+    expect((await invoke("delete_comment", stale)).body.error).toContain("changed");
+
+    comments();
+    const otherAccount = await prepareDelete();
+    state({ ...ACTIVE, accountId: "ca_other" });
+    expect((await invoke("delete_comment", otherAccount)).body.error).toContain("connection changed");
+    state();
+
+    const approved = await prepareDelete();
+    expect(approved).toMatchObject({ author: poster.name, item: "Launch · Roadmap", old_body: own.text_body });
+    expect(approved.reply_warning).toContain("1 reply");
+    expect(calls("MONDAY_DELETE_UPDATE")).toEqual([]);
+    expect((await invoke("delete_comment", approved)).body).toMatchObject({ id: "900" });
+    expect((await invoke("delete_comment", approved)).isError).toBe(true);
+    expect(calls("MONDAY_DELETE_UPDATE").map(call => call.body?.arguments)).toEqual([{ update_id: 900 }]);
   });
 });

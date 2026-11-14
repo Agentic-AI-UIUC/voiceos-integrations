@@ -43,7 +43,20 @@ Results contain `records` and `pagination`. Board and item-ID reads return `next
 
 Board and item browsing use `MONDAY_BOARDS`, `MONDAY_GET_ITEMS`, and `MONDAY_ITEMS_PAGE` through the Composio SDK using the saved installation identity and connected account, pinned to toolkit version `20261101_00`. Reads verify an active Monday connection first and have a 20-second account-check/execution deadline. Composio failures and Monday GraphQL errors are returned as errors, with reconnect guidance for invalid authorization. Reads never initiate OAuth automatically.
 
-The MCP allowlist contains three account controls, two browsing tools, six read-only preparation tools, and seven writes. Membership changes remain pending.
+## Comments
+
+- `get_comments` lists an item's threads and replies using Monday’s GraphQL API through Composio Proxy Execute. The Monday connection needs `updates:read`. Use the item name, optionally with its board name, or a verified item ID. Use `pagination.nextPage` and the returned item ID to continue.
+- `prepare_comment` resolves the item and, for a reply, edit, or deletion, the target comment. Select by quoted text, a verified comment ID, or `latest: true` for a request such as “my last comment.” Ask the returned question when the match is ambiguous, then use the selected ID. Use `replaces_draft_id` with the complete revised request to replace a pending card.
+- `create_comment` posts a new comment or reply using the exact text shown on the card. This replaces the former `create_update` tool.
+- `edit_comment` shows the original and revised text. `delete_comment` separately shows the comment, author, item, and permanent deletion warning.
+
+Edit and delete apply to the connected user's own top-level comments. Replies can be read and posted. Every write takes the corresponding arguments from `prepare_comment` and consumes that draft on approval. Approval rechecks the item and, where applicable, the selected comment and current user.
+
+```json
+{"name":"get_comments","arguments":{"item_name":"Launch","board_name":"Roadmap"}}
+{"name":"prepare_comment","arguments":{"operation":"create","item_name":"Launch","board_name":"Roadmap","body":"Review completed."}}
+{"name":"prepare_comment","arguments":{"operation":"delete","item_name":"Launch","board_name":"Roadmap","latest":true}}
+```
 
 ## Write tools (pass 2)
 
@@ -52,7 +65,6 @@ The MCP allowlist contains three account controls, two browsing tools, six read-
 - `prepare_update_item`: find the exact item using the browsing tools and pass its `item_id` and optional verified `board_id`. Omit `column_values` to get editable columns and labels. Pass the desired values keyed by actual column ID or title. Supported types are item name, status, dropdown, people, date, timeline, text, long text, numbers, and checkbox. Use `null` to clear a value explicitly. For an assignee change that preserves other assignments, use `{ "operation": "add", "names": ["Jordan"] }` or `{ "operation": "remove", "names": ["Jordan"] }`.
 - `update_item_values`: pass the returned `update_item_arguments` verbatim to show the item's current and proposed values on one VoiceOS card. To revise it by voice, call `prepare_update_item` with `replaces_draft_id` and the complete revised set of changes. **Save changes** rechecks the preview and sends one mutation. The result reports which values were verified on the item after saving.
 - To move an item within its board, pass the destination group title or ID in `destination_group` to `prepare_update_item`. The same confirmation shows the current and destination groups and any column edits. VoiceOS saves and verifies column edits first, then attempts and verifies the move.
-- `create_update`: required `item_id` and nonempty `body` to post an update/comment.
 - `prepare_create_group`: pass the destination as `board_name` or a verified `board_id`, and the new group's `group_name`. Placement defaults to the bottom. Pass `position.placement` as `top`, `bottom`, `before`, or `after`, with `position.reference_group` for a relative placement. Use the latest draft ID as `replaces_draft_id` when answering a clarification or revising a draft.
 - `create_group`: use `create_group_arguments` to open the **Create group** card. It shows the destination board and lets the user edit the name and position. Approval creates one empty group using Monday's `create_group` mutation through Composio Proxy Execute. The result includes the confirmed group ID. For an uncertain outcome, check Monday before trying again.
 - `prepare_archive_board`: pass the board name or a verified board ID. If the name matches multiple boards, use the returned choices to clarify which one the user means. Pass `replaces_draft_id` to revise an open confirmation by voice.
@@ -69,7 +81,6 @@ IDs use the same positive safe integer contract as reads. Column values accept a
 ```json
 {"name":"prepare_create_item","arguments":{"board_id":123,"item_name":"Review proposal","column_values":{"status":{"label":"Working on it"}}}}
 {"name":"prepare_update_item","arguments":{"board_id":123,"item_id":456,"column_values":{"name":"Final review","Status":"Done","Notes":"Reviewed"}}}
-{"name":"create_update","arguments":{"item_id":456,"body":"Review completed."}}
 {"name":"prepare_create_board","arguments":{"board_name":"Project planning"}}
 ```
 
