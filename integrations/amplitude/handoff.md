@@ -2,7 +2,7 @@
 
 Version 1.0.0 of a VoiceOS integration that lets the voice agent read Amplitude analytics: event trends, funnels, retention, one user's activity, and cohort exports. All Amplitude access goes through Composio's REST API v3.1, using the user's own Amplitude API key and secret key. Every tool is read-only, so none has a confirmation card.
 
-Install link: not published yet; it will be added after review.
+Install link: https://api.voiceos.com/integration-share/-5n-i10t59AQ/page
 
 ## Tools
 
