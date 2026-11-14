@@ -32,7 +32,7 @@ type Output = {
   providerRevoked?: boolean;
 };
 type ReadOutput = {
-  resultType: "boards" | "tasks" | "board_choices";
+  resultType: "boards" | "tasks" | "board_choices" | "board_members";
   boardName?: string;
   groupName?: string;
   itemName?: string;
@@ -50,10 +50,12 @@ const readActions = [
   "MONDAY_LIST_GROUPS",
   "MONDAY_COLUMNS",
   "MONDAY_LIST_USERS",
+  "MONDAY_GET_ME",
   "MONDAY_GET_TEAMS",
   "MONDAY_GET_WORKSPACES",
 ] as const;
-const writeActions = ["MONDAY_CREATE_ITEM", "MONDAY_CREATE_UPDATE", "MONDAY_CREATE_BOARD"] as const;
+const membershipActions = ["MONDAY_ADD_USERS_TO_BOARD", "MONDAY_DELETE_SUBSCRIBERS_FROM_BOARD"] as const;
+const writeActions = ["MONDAY_CREATE_ITEM", "MONDAY_CREATE_UPDATE", "MONDAY_CREATE_BOARD", ...membershipActions] as const;
 const approvedActions = [...readActions, ...writeActions];
 type Action = (typeof approvedActions)[number];
 type WriteOutput = { status: string; message: string; id: string; completedColumns?: string[] };
@@ -69,6 +71,42 @@ const nonempty = () => z.string().trim().min(1);
 const columnValues = () => z.union([z.string(), z.record(z.unknown())]);
 const itemName = () => nonempty().max(256);
 const draftId = () => z.string().uuid();
+const memberRole = z.enum(["subscriber", "owner"]);
+const memberBoardInput = {
+  board_name: nonempty().max(256),
+  workspace_name: nonempty().max(256).optional(),
+  board_id: id().optional(),
+};
+const listBoardMembersSchema = z.object(memberBoardInput).strict();
+const prepareManageUsersSchema = z.object({
+  ...memberBoardInput,
+  operation: z.enum(["add", "remove"]),
+  people: z.array(z.object({ person: nonempty().max(320), role: memberRole.optional() }).strict()).min(1).max(100),
+  replaces_draft_id: draftId().optional(),
+}).strict();
+const memberPreview = z.object({ name: nonempty(), email: nonempty(), role: memberRole }).strict();
+const manageUsersSchema = z.object({
+  draft_id: draftId(),
+  operation: z.enum(["add", "remove"]),
+  board: nonempty(),
+  people: z.array(memberPreview).min(1).max(100),
+  warnings: z.array(nonempty()).max(2),
+}).strict();
+type ManageUsersInput = z.infer<typeof manageUsersSchema>;
+type MemberRole = z.infer<typeof memberRole>;
+type MemberChange = z.infer<typeof memberPreview> & { id: number; before?: MemberRole };
+type MembershipQuestion = { question: string; matching_boards?: { board_id: number; board_name: string; workspace_name: string }[] };
+type MembershipPreparation = MembershipQuestion | { manage_users_arguments: ManageUsersInput; message?: string };
+type MembershipResult = { status: string; message: string };
+const membershipDrafts = new Map<string, {
+  accountId: string;
+  board: BoardActionTarget;
+  args: ManageUsersInput;
+  changes: MemberChange[];
+  actorId?: number;
+  expires: number;
+}>();
+const activeMembershipWrites = new Set<string>();
 const prepareCreateItemSchema = z.object({
   board_id: id().optional(),
   board_name: nonempty().max(256).optional(),
@@ -335,14 +373,13 @@ function getPollIntervalMs(): number {
   }
 }
 
-async function notify(message: string, boardUrl?: string) {
+async function notify(message: string) {
   try {
     await server.server.request(
       {
         method: "voiceos/reminders/trigger",
         params: {
           message: message.slice(0, 1900), speak: false,
-          ...(boardUrl ? { actions: [{ id: "open_board", label: "Open board" }], data: { url: boardUrl } } : {}),
         },
       },
       z.object({ notificationId: z.string() }),
@@ -481,6 +518,21 @@ function providerError(message: string): Error {
 class BoardSettingsRejection extends Error {}
 
 function actionError(action: Action, message: string, envelope: unknown): Error {
+  if (membershipActions.some(write => write === action)) {
+    let layer = record(envelope);
+    while (layer) {
+      const providerMessage = Array.isArray(layer.errors)
+        ? layer.errors.map(error => displayText(record(error)?.message)).filter(Boolean).join(" ")
+        : displayText(layer.error_message);
+      if (providerMessage) {
+        message = providerMessage;
+        break;
+      }
+      layer = record(layer.raw_response) ?? record(layer.data);
+    }
+    return /token.*(?:expired|invalid|revoked)|(?:expired|invalid|revoked).*token|not authenticated/i.test(message)
+      ? providerError(message) : new Error(`Monday.com: ${message}`);
+  }
   if (action === "MONDAY_CREATE_BOARD" &&
       !/timed?\s*out|timeout|unknown outcome|unavailable to verify|connection (?:lost|reset)/i.test(message) &&
       /\b(?:private|shareable|board_kind|visibility)\b.{0,180}\b(?:plan|upgrade|not (?:allowed|supported|available)|cannot|requires?)\b|\b(?:plan|upgrade|not (?:allowed|supported|available)|cannot|requires?)\b.{0,180}\b(?:private|shareable|board_kind|visibility)\b/is.test(message)) {
@@ -534,6 +586,10 @@ async function executeAction(action: Action, args: Record<string, unknown>, expe
       throw new Error(
         "Composio rejected your API key. Update it in Monday.com settings; reconnecting alone will not fix the key.",
       );
+    if (httpStatus(error) === 403 && membershipActions.some(write => write === action)) {
+      const response = record(record(error)?.error) ?? record(record(record(error)?.cause)?.error);
+      throw actionError(action, displayText(response?.message) ?? "Access was denied. Check board permissions and authorized scopes.", response);
+    }
     if (httpStatus(error) === 403)
       throw new Error(
         "Monday.com access was denied. Check your board permissions and the Composio app's authorized scopes.",
@@ -610,11 +666,13 @@ function itemSubtitle(item: Record<string, unknown>, groupName?: string): string
 
 function readGlance(data: ReadOutput) {
   const choosingBoard = data.resultType === "board_choices";
-  const isBoards = data.resultType !== "tasks";
+  const isMembers = data.resultType === "board_members";
+  const isBoards = data.resultType === "boards" || choosingBoard;
   const count = data.records.length;
   const visibleCount = count > readPreviewLimit ? readPreviewLimit - 1 : count;
   const rows = data.records.slice(0, visibleCount).map(entry => {
-    const subtitle = isBoards ? displayText(record(entry.workspace)?.name) : itemSubtitle(entry, data.groupName);
+    const subtitle = isMembers ? (entry.role === "owner" ? "Owner" : "Subscriber")
+      : isBoards ? displayText(record(entry.workspace)?.name) : itemSubtitle(entry, data.groupName);
     return {
       title: (displayText(entry.name) ?? (isBoards ? "Untitled board" : "Untitled item")).slice(0, 60),
       ...(subtitle ? { subtitle: subtitle.slice(0, 60) } : {}),
@@ -631,7 +689,7 @@ function readGlance(data: ReadOutput) {
   return [
     {
       type: "header",
-      title: (isBoards ? "Monday.com boards" : data.boardName ?? "Monday.com items").slice(0, 60),
+      title: (isMembers ? `Board members · ${data.boardName}` : isBoards ? "Monday.com boards" : data.boardName ?? "Monday.com items").slice(0, 60),
     },
     rows.length ? { type: "list", rows } : { type: "keyValue", pairs: [["Results", data.message]] },
   ];
@@ -732,7 +790,8 @@ function assigneeLookup(lookup: (action: Action, args: Record<string, unknown>) 
       for (const user of users) usersById.set(String(user.id), user);
       if (usersById.size === count) throw new Error("Could not finish verifying the Monday.com users.");
     }
-    return [...usersById.values()].filter(user => user.enabled !== false && user.is_pending !== true);
+    return [...usersById.values()].filter(user => user.enabled !== false && user.is_pending !== true &&
+      (user.status == null || String(user.status).toUpperCase() === "ACTIVE"));
   }
   return (kind: "person" | "team") => kind === "person"
     ? (users ??= listUsers())
@@ -1691,6 +1750,234 @@ function boardActionTarget(board: Record<string, unknown>): BoardActionTarget | 
   };
 }
 
+async function findMembershipBoard(input: z.infer<typeof listBoardMembersSchema>, accountId: string):
+  Promise<{ board: Record<string, unknown>; target: BoardActionTarget } | MembershipQuestion> {
+  const { board_name, workspace_name, board_id } = input;
+  const boards = (await listActiveBoards(accountId)).filter(board => {
+    const target = boardActionTarget(board);
+    return target && (board_id === undefined || Number(target.id) === board_id) &&
+      (!workspace_name || matchesName(target.workspaceName || "Main workspace", workspace_name));
+  });
+  const matches = matchingBoards(boards, board_name);
+  if (matches.length === 1) return { board: matches[0], target: boardActionTarget(matches[0])! };
+  if (!matches.length) return { question: `I couldn't find an active board named “${board_name}”${workspace_name ? ` in “${workspace_name}”` : ""}. Which board did you mean?` };
+  const choices = matches.map(board => {
+    const target = boardActionTarget(board)!;
+    return { board_id: Number(target.id), board_name: target.name, workspace_name: target.workspaceName || "Main workspace" };
+  });
+  const labels = choices.map(choice => `${choice.board_name} in ${choice.workspace_name}`);
+  const distinctLabels = labels.map((label, index) =>
+    labels.indexOf(label) === labels.lastIndexOf(label) ? label : `${label} (board ${choices[index].board_id})`);
+  return { question: `Which board did you mean? I found ${distinctLabels.join(", ")}.`, matching_boards: choices };
+}
+
+function boardMembers(board: Record<string, unknown>) {
+  const members = new Map<number, { id: number; name: string; role: MemberRole }>();
+  if (!Array.isArray(board.owners) || !Array.isArray(board.subscribers))
+    throw new Error("Monday.com did not return both board owners and subscribers. Board membership could not be verified.");
+  for (const role of ["subscriber", "owner"] as const) {
+    for (const row of records(role === "owner" ? board.owners : board.subscribers)) {
+      const memberId = Number(row.id);
+      if (!id().safeParse(memberId).success) throw new Error("Monday.com returned an invalid board member ID.");
+      members.set(memberId, { id: memberId, name: String(row.name), role });
+    }
+  }
+  return members;
+}
+
+const boardMembershipQuery = `query BoardMembership($boardIds: [ID!]!) {
+  boards(ids: $boardIds, state: active) {
+    id
+    owners { id name }
+    subscribers { id name }
+  }
+}`;
+
+async function readBoardMembers(board: Record<string, unknown>, boardId: number, accountId: string) {
+  if (Array.isArray(board.owners) && Array.isArray(board.subscribers)) return boardMembers(board);
+  const data = await mondayGraphQL(accountId, boardMembershipQuery, { boardIds: [String(boardId)] });
+  const current = metadataRows(data.boards).find(row => String(row.id) === String(boardId));
+  return boardMembers(current ?? board);
+}
+
+async function listBoardMembers(input: z.infer<typeof listBoardMembersSchema>): Promise<ReadOutput | MembershipQuestion> {
+  const accountId = (await load()).accountId;
+  if (!accountId) throw new Error("Monday.com is not connected. Run Connect Monday.com.");
+  const found = await findMembershipBoard(input, accountId);
+  if ("question" in found) return found;
+  const membership = await readBoardMembers(found.board, Number(found.target.id), accountId);
+  const members = [...membership.values()].sort((a, b) => a.role.localeCompare(b.role) || a.name.localeCompare(b.name));
+  const boardName = found.target.name;
+  const owners = members.filter(member => member.role === "owner").length;
+  const subscribers = members.length - owners;
+  return {
+    resultType: "board_members", boardName, status: "Success",
+    message: `“${boardName}” has ${owners} ${owners === 1 ? "owner" : "owners"} and ${subscribers} direct ${subscribers === 1 ? "subscriber" : "subscribers"}.`,
+    records: members, pagination: {},
+  };
+}
+
+async function mondayActor(accountId: string) {
+  const data = await executeAction("MONDAY_GET_ME", {}, accountId);
+  const actor = id().safeParse(Number(record(data.me)?.id ?? data.id));
+  if (!actor.success) throw new Error("Could not verify the connected Monday.com user's identity.");
+  return actor.data;
+}
+
+async function prepareManageUsers(input: z.infer<typeof prepareManageUsersSchema>): Promise<MembershipPreparation | MembershipResult> {
+  const accountId = (await load()).accountId;
+  if (!accountId) throw new Error("Monday.com is not connected. Run Connect Monday.com.");
+  for (const [key, draft] of membershipDrafts) {
+    if (draft.expires <= Date.now()) membershipDrafts.delete(key);
+  }
+  if (input.replaces_draft_id) {
+    if (membershipDrafts.get(input.replaces_draft_id)?.accountId !== accountId)
+      throw new Error("The board membership draft expired or was already used. Prepare a new confirmation.");
+    membershipDrafts.delete(input.replaces_draft_id);
+  }
+  const removing = input.operation === "remove";
+  if (removing && input.people.some(person => person.role !== undefined))
+    throw new Error("For removals, provide the people to remove. Monday supplies their current roles.");
+  const found = await findMembershipBoard(input, accountId);
+  if ("question" in found) return found;
+  const members = await readBoardMembers(found.board, Number(found.target.id), accountId);
+  const actorId = removing ? await mondayActor(accountId) : undefined;
+  const directory = await assigneeLookup((action, args) => executeAction(action, args, accountId))("person");
+  const resolved = new Map<number, MemberChange>();
+  for (const { person, role = "subscriber" } of input.people) {
+    const self = removing && /^(?:me|myself)$/i.test(person);
+    const exact = directory.filter(user => self ? Number(user.id) === actorId
+      : matchesName(user.name, person) || matchesName(user.email, person));
+    const matches = exact.length || self || person.includes("@") ? exact : directory.filter(user =>
+      displayText(user.name)?.toLowerCase().includes(person.toLowerCase()));
+    if (matches.length !== 1) {
+      const choices = matches.slice(0, 10).map(user => `${user.name}${user.email ? ` (${user.email})` : ""}`);
+      return { question: choices.length
+        ? `Which Monday user did you mean by “${person}”? ${choices.join(", ")}. Give the full name or email.`
+        : `I couldn't find an existing Monday user matching “${person}”. What is their full name or email?` };
+    }
+    const user = matches[0];
+    const memberId = id().safeParse(Number(user.id));
+    const name = displayText(user.name);
+    const email = displayText(user.email);
+    if (!memberId.success || !name || !email) throw new Error(`Monday.com did not return a verified name and email for “${person}”.`);
+    const before = members.get(memberId.data)?.role;
+    if (removing && before === "owner") return {
+      status: "Request blocked",
+      message: `${name} owns this board. VoiceOS can only remove direct subscribers. No membership changes were made.`,
+    };
+    const prior = resolved.get(memberId.data);
+    if (prior && prior.role !== role) return { question: `Should ${name} be added as a subscriber or an owner?` };
+    resolved.set(memberId.data, { id: memberId.data, name, email, role, before });
+  }
+  const changes = [...resolved.values()].filter(change => removing
+    ? change.before === "subscriber" : change.before !== "owner" && change.before !== change.role);
+  const skipped = [...resolved.values()].filter(change => !changes.includes(change)).map(change => change.name);
+  if (!changes.length) return {
+    status: "No changes",
+    message: removing ? "None of the selected people are direct subscribers." : "The selected people already have board membership at the requested level or higher.",
+  };
+  const warnings: string[] = [];
+  if (changes.some(change => change.role === "owner")) warnings.push("Board owners have full control of this board.");
+  if (changes.some(change => change.id === actorId)) warnings.push("Removing yourself may cause you to lose access to this board.");
+  const args: ManageUsersInput = {
+    draft_id: randomUUID(), operation: input.operation,
+    board: `${found.target.name} · ${found.target.workspaceName || "Main workspace"}`,
+    people: changes.map(({ name, email, role }) => ({ name, email, role })), warnings,
+  };
+  membershipDrafts.set(args.draft_id, { accountId, board: found.target, args, changes, actorId, expires: Date.now() + 30 * 60_000 });
+  return {
+    manage_users_arguments: args,
+    ...(skipped.length ? { message: `No membership change needed for ${skipped.join(", ")}.` } : {}),
+  };
+}
+
+async function manageUsers(input: ManageUsersInput) {
+  const draft = membershipDrafts.get(input.draft_id);
+  if (!draft || draft.expires <= Date.now() || !isDeepStrictEqual(draft.args, input))
+    throw new Error("The board membership confirmation changed, expired, or was already used. Prepare a new confirmation.");
+  membershipDrafts.delete(input.draft_id);
+  const boardKey = `${draft.accountId}/${draft.board.id}`;
+  if (activeMembershipWrites.has(boardKey))
+    throw new Error("A membership change is already running for this board. Check its result and prepare a new confirmation.");
+  activeMembershipWrites.add(boardKey);
+  try {
+    return await applyMembershipDraft(draft);
+  } finally {
+    activeMembershipWrites.delete(boardKey);
+  }
+}
+
+async function applyMembershipDraft(draft: NonNullable<ReturnType<typeof membershipDrafts.get>>) {
+  const { accountId, board, changes, actorId } = draft;
+  const boardId = Number(board.id);
+  const removing = draft.args.operation === "remove";
+  if (removing && await mondayActor(accountId) !== actorId)
+    throw new Error("The connected Monday.com user changed. Prepare a new confirmation.");
+  const current = await readBoardById(boardId, accountId);
+  if (!current || !isDeepStrictEqual(boardActionTarget(current), board))
+    throw new Error("The selected board changed or is no longer active. Prepare a new confirmation.");
+  const members = await readBoardMembers(current, boardId, accountId);
+  if (changes.some(change => members.get(change.id)?.role !== change.before))
+    throw new Error("The selected board memberships changed. Prepare a new confirmation.");
+  const directory = await assigneeLookup((action, args) => executeAction(action, args, accountId))("person");
+  const peopleById = new Map(directory.map(user => [Number(user.id), user]));
+  if (changes.some(change => {
+    const user = peopleById.get(change.id);
+    return displayText(user?.name) !== change.name || displayText(user?.email) !== change.email;
+  })) throw new Error("The selected Monday.com users changed. Prepare a new confirmation.");
+
+  const action = removing ? "MONDAY_DELETE_SUBSCRIBERS_FROM_BOARD" : "MONDAY_ADD_USERS_TO_BOARD";
+  const field = removing ? "delete_subscribers_from_board" : "add_users_to_board";
+  const confirmed = new Set<number>();
+  const attempted = new Set<number>();
+  const errors: string[] = [];
+  for (const role of ["subscriber", "owner"] as const) {
+    const batch = changes.filter(change => change.role === role);
+    if (!batch.length) continue;
+    for (const change of batch) attempted.add(change.id);
+    try {
+      const result = await executeAction(action, {
+        board_id: boardId, user_ids: batch.map(change => change.id), ...(removing ? {} : { kind: role }),
+      }, accountId);
+      const returned = result[field];
+      if (Array.isArray(returned)) {
+        const ids = new Set(returned.map(user => Number(record(user)?.id)));
+        // A returned ID confirms a subscription change. An existing subscriber's
+        // promotion needs a membership readback to verify the new role.
+        for (const change of batch)
+          if (ids.has(change.id) && !(role === "owner" && change.before)) confirmed.add(change.id);
+      }
+    } catch (error) {
+      errors.push(sanitizedError(error));
+      break;
+    }
+  }
+  if (confirmed.size < changes.length) {
+    try {
+      const updated = await readBoardById(boardId, accountId);
+      if (updated) {
+        const after = await readBoardMembers(updated, boardId, accountId);
+        for (const change of changes.filter(change => attempted.has(change.id))) {
+          const role = after.get(change.id)?.role;
+          if (removing ? !role : role === change.role) confirmed.add(change.id);
+        }
+      }
+    } catch { /* Keep provider-confirmed results when readback fails. */ }
+  }
+  const completed = changes.filter(change => confirmed.has(change.id)).map(change => change.name);
+  const pending = changes.filter(change => attempted.has(change.id) && !confirmed.has(change.id)).map(change => change.name);
+  const skipped = changes.filter(change => !attempted.has(change.id)).map(change => change.name);
+  const message = [
+    completed.length ? `${removing ? "Removed" : "Added"} ${completed.join(", ")} ${removing ? "from" : "to"} “${board.name}”.` : "",
+    ...new Set(errors),
+    pending.length ? `Could not confirm changes for ${pending.join(", ")}. Check the board before trying again.` : "",
+    skipped.length ? `Skipped ${skipped.join(", ")} after the earlier request failed.` : "",
+  ].filter(Boolean).join(" ");
+  if (!completed.length) throw new Error(message);
+  return { status: confirmed.size < changes.length ? "Partial success" : "Success", message };
+}
+
 async function prepareBoardAction(action: BoardAction, input: z.infer<typeof prepareBoardActionSchema>): Promise<PrepareBoardActionOutput> {
   const { board_id: boardId, board_name: boardName, revises_board_name: previousBoard } = input;
   let replaces = input.replaces_draft_id;
@@ -2169,7 +2456,7 @@ button.addEventListener('click', () => {
 async function feedback(
   title: string,
   extra: ProgressContext,
-  run: () => Promise<Output | ReadOutput | WriteOutput | CreatedBoardOutput | RejectedBoardOutput | PrepareCreateItemOutput | PrepareCreateBoardOutput | PrepareUpdateItemOutput | PrepareCreateGroupOutput | PrepareBoardActionOutput>,
+  run: () => Promise<Output | ReadOutput | WriteOutput | CreatedBoardOutput | RejectedBoardOutput | PrepareCreateItemOutput | PrepareCreateBoardOutput | PrepareUpdateItemOutput | PrepareCreateGroupOutput | PrepareBoardActionOutput | MembershipPreparation | MembershipResult>,
   notifyResult = false,
   errorTitle?: string,
 ) {
@@ -2183,16 +2470,13 @@ async function feedback(
   const isError = "error" in data;
   await progress(extra, `${title}: ${isError ? "failed" : "finished"}`, true);
   if ("question" in data || "update_item_arguments" in data || "update_item_details" in data || "create_item_arguments" in data || "create_board_arguments" in data || "pending_board" in data ||
-      "board_draft_status" in data || "create_group_arguments" in data || "archive_board_arguments" in data || "delete_board_arguments" in data || "board" in data) {
+      "board_draft_status" in data || "create_group_arguments" in data || "archive_board_arguments" in data || "delete_board_arguments" in data || "manage_users_arguments" in data || "board" in data) {
     return { content: [{ type: "text" as const, text: JSON.stringify(data) }] };
   }
   let notificationQueued = false;
   const boardUrl = "url" in data ? data.url : null;
   const itemFollowUp = "item_follow_up" in data ? data.item_follow_up : undefined;
-  if ("url" in data) {
-    const notification = itemFollowUp ? `${data.message} ${itemFollowUp}` : data.message;
-    notificationQueued = await notify(notification, boardUrl ?? undefined);
-  } else if (notifyResult) {
+  if (notifyResult) {
     if (
       await notify(
         `Monday.com — ${title}: ${"error" in data ? data.error : data.message}`,
@@ -2215,8 +2499,8 @@ async function feedback(
             blocks: "records" in data ? readGlance(data) : [
               {
                 type: "header",
-                title: resultTitle,
-                trailing: "error" in data ? "Error" : data.status,
+                title: "status" in data && data.status === "Request blocked" ? data.status : resultTitle,
+                trailing: "error" in data ? "Error" : data.status === "Request blocked" ? "Monday.com" : data.status,
               },
               {
                 type: "keyValue",
@@ -2441,5 +2725,23 @@ server.registerTool("delete_board", {
   title: "Delete Monday.com board", description: deleteBoardDescription, inputSchema: boardActionSchema,
   annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
 }, async (input, extra) => feedback("Delete Monday.com board", extra, () => executeBoardAction("delete", input)));
+
+server.registerTool("list_board_members", {
+  title: "List Monday.com board members", description: "Use for questions like “who is on the Marketing board?” Lists the named board’s owners and direct subscribers. If a question is returned, ask it. Pass board_id only to select a board the user confirmed from matching_boards. Use the full records for follow-ups, and summarize the names and roles aloud without reading IDs. If membership cannot be verified, report the error. Read only.",
+  inputSchema: listBoardMembersSchema,
+  annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+}, async (input, extra) => feedback("List Monday.com board members", extra, () => listBoardMembers(input)));
+
+server.registerTool("prepare_manage_users", {
+  title: "Prepare Monday.com board membership change", description: "Start here for explicit requests to add existing Monday users to a board or remove direct subscribers from a board. Pass the board name and each person by name or email. Use role owner only for people the user explicitly asked to make board owners. Use me for a requested self-removal. If a question is returned, ask it, then retry with all clarified inputs. Pass board_id only to select a board the user confirmed from matching_boards. For a correction to a pending card, include replaces_draft_id and the complete corrected request. Pass manage_users_arguments verbatim to manage_users for confirmation. Read only.",
+  inputSchema: prepareManageUsersSchema,
+  annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+}, async (input, extra) => feedback("Prepare Monday.com board membership change", extra, () => prepareManageUsers(input)));
+
+server.registerTool("manage_users", {
+  title: "Manage Monday.com board members", description: "Show the confirmation card using manage_users_arguments from prepare_manage_users verbatim. Approval applies the displayed board membership changes. If the user corrects the board, people, or roles, prepare and show a new confirmation. Speak the result, including any provider errors or unconfirmed changes. Check Monday before retrying an uncertain change.",
+  inputSchema: manageUsersSchema,
+  annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+}, async (input, extra) => feedback("Manage Monday.com board members", extra, () => manageUsers(input)));
 
 await server.connect(new StdioServerTransport());

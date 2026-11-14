@@ -24,6 +24,7 @@ export type Scenario = {
   proxyCreatedGroup?: Record<string, unknown>;
   proxyArchivedBoard?: Record<string, unknown>;
   proxyDeletedBoard?: Record<string, unknown>;
+  proxyBoardMembership?: Record<string, unknown>;
   proxyDestination?: Record<string, unknown>;
   proxyMovedItem?: Record<string, unknown>;
   toolData?: Record<string, unknown>;
@@ -44,7 +45,7 @@ function record(event: Event) { appendFileSync(eventsPath!, JSON.stringify(event
 const respond = (data: unknown, status = 200) => new Response(JSON.stringify(data), {
   status, headers: { "content-type": "application/json" },
 });
-const toolNames = "MONDAY_BOARDS|MONDAY_GET_ITEMS|MONDAY_ITEMS_PAGE|MONDAY_LIST_GROUPS|MONDAY_COLUMNS|MONDAY_LIST_USERS|MONDAY_GET_TEAMS|MONDAY_GET_WORKSPACES|MONDAY_CREATE_ITEM|MONDAY_CREATE_UPDATE|MONDAY_CREATE_BOARD";
+const toolNames = "MONDAY_BOARDS|MONDAY_GET_ITEMS|MONDAY_ITEMS_PAGE|MONDAY_LIST_GROUPS|MONDAY_COLUMNS|MONDAY_LIST_USERS|MONDAY_GET_TEAMS|MONDAY_GET_WORKSPACES|MONDAY_CREATE_ITEM|MONDAY_CREATE_UPDATE|MONDAY_CREATE_BOARD|MONDAY_GET_ME|MONDAY_ADD_USERS_TO_BOARD|MONDAY_DELETE_SUBSCRIBERS_FROM_BOARD";
 
 export function execFile(command: string, args: string[], _options: unknown, callback: (error: Error | null) => void) {
   if (command !== "/usr/bin/open") throw new Error("Unexpected child process request");
@@ -69,6 +70,8 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
     if (path === "/api/v3.1/tools/execute/proxy" && request.method === "POST") {
       if (config.proxyHttpStatus) return respond({ message: "Composio proxy rejected" }, config.proxyHttpStatus);
       const query = body?.body?.query ?? "";
+      if (query.startsWith("query BoardMembership"))
+        return respond({ status: 200, data: { data: { boards: config.proxyBoardMembership ? [config.proxyBoardMembership] : [] } } });
       if (query.startsWith("query ItemMoveDestination"))
         return respond({ status: 200, data: { data: { boards: config.proxyDestination ? [config.proxyDestination] : [] } } });
       if (query.startsWith("mutation CreateGroup")) {

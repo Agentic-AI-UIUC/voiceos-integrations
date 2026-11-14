@@ -1064,6 +1064,222 @@
           ]
         }
       }
+    },
+    {
+      "name": "list_board_members",
+      "title": "List Monday.com board members",
+      "description": "Use for questions like “who is on the Marketing board?” Lists the named board’s owners and direct subscribers. If a question is returned, ask it. Pass board_id only to select a board the user confirmed from matching_boards. Use the full records for follow-ups, and summarize the names and roles aloud without reading IDs. If membership cannot be verified, report the error. Read only.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "board_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "workspace_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "board_id": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "board_name"
+        ],
+        "additionalProperties": false
+      },
+      "uiCallable": true,
+      "execution": {
+        "mode": "sync",
+        "estimatedDurationMs": 5000
+      }
+    },
+    {
+      "name": "prepare_manage_users",
+      "title": "Prepare Monday.com board membership change",
+      "description": "Start here for explicit requests to add existing Monday users to a board or remove direct subscribers from a board. Pass the board name and each person by name or email. Use role owner only for people the user explicitly asked to make board owners. Use me for a requested self-removal. If a question is returned, ask it, then retry with all clarified inputs. Pass board_id only to select a board the user confirmed from matching_boards. For a correction to a pending card, include replaces_draft_id and the complete corrected request. Pass manage_users_arguments verbatim to manage_users for confirmation. Read only.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "board_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "workspace_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "board_id": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "operation": {
+            "type": "string",
+            "enum": [
+              "add",
+              "remove"
+            ]
+          },
+          "people": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "person": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 320
+                },
+                "role": {
+                  "type": "string",
+                  "enum": [
+                    "subscriber",
+                    "owner"
+                  ]
+                }
+              },
+              "required": [
+                "person"
+              ],
+              "additionalProperties": false
+            },
+            "minItems": 1,
+            "maxItems": 100
+          },
+          "replaces_draft_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "board_name",
+          "operation",
+          "people"
+        ],
+        "additionalProperties": false
+      },
+      "uiCallable": true,
+      "execution": {
+        "mode": "sync",
+        "estimatedDurationMs": 5000
+      },
+      "visibility": "agent"
+    },
+    {
+      "name": "manage_users",
+      "title": "Manage Monday.com board members",
+      "description": "Show the confirmation card using manage_users_arguments from prepare_manage_users verbatim. Approval applies the displayed board membership changes. If the user corrects the board, people, or roles, prepare and show a new confirmation. Speak the result, including any provider errors or unconfirmed changes. Check Monday before retrying an uncertain change.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "draft_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "operation": {
+            "type": "string",
+            "enum": [
+              "add",
+              "remove"
+            ]
+          },
+          "board": {
+            "type": "string",
+            "minLength": 1
+          },
+          "people": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "email": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "role": {
+                  "type": "string",
+                  "enum": [
+                    "subscriber",
+                    "owner"
+                  ]
+                }
+              },
+              "required": [
+                "name",
+                "email",
+                "role"
+              ],
+              "additionalProperties": false
+            },
+            "minItems": 1,
+            "maxItems": 100
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "maxItems": 2
+          }
+        },
+        "required": [
+          "draft_id",
+          "operation",
+          "board",
+          "people",
+          "warnings"
+        ],
+        "additionalProperties": false
+      },
+      "uiCallable": true,
+      "execution": {
+        "mode": "sync",
+        "estimatedDurationMs": 5000
+      },
+      "confirmation": {
+        "schemaVersion": 1,
+        "root": {
+          "type": "card",
+          "title": "Manage board members",
+          "children": [
+            {
+              "type": "widget",
+              "label": "Board membership change",
+              "height": 98,
+              "html": "<!doctype html>\n<meta charset=\"utf-8\">\n<style>\nbody { margin: 0; background: transparent; color: #eee; font: 12.5px/1.4 system-ui, sans-serif; overflow-wrap: anywhere; }\nhtml[data-theme=\"light\"] body { color: #222; }\n#action { font-weight: 600; }\n#board, ul { margin: 4px 0; }\nul { padding-inline-start: 18px; }\n.warning { margin: 4px 0; color: #ffbf75; }\nhtml[data-theme=\"light\"] .warning { color: #854a00; }\n</style>\n<div id=\"action\"></div>\n<div id=\"board\"></div>\n<ul id=\"people\"></ul>\n<div id=\"warnings\"></div>\n<script>\nconst show = (id, value) => { document.getElementById(id).textContent = value; };\nlet height = 0;\nfunction resize() {\n  const next = Math.ceil(document.body.getBoundingClientRect().height);\n  if (next > 0 && next !== height) {\n    height = next;\n    parent.postMessage({ type: 'voiceos:resize', height }, '*');\n  }\n}\naddEventListener('message', event => {\n  if (event.source !== parent || event.data?.type !== 'voiceos:init') return;\n  const { operation, board, people = [], warnings = [] } = event.data.args ?? {};\n  document.documentElement.dataset.theme = event.data.theme?.mode === 'light' ? 'light' : 'dark';\n  show('action', operation === 'remove' ? 'Remove board members' : 'Add board members');\n  show('board', board ?? '');\n  document.getElementById('people').replaceChildren(...people.map(({ name, email, role }) => {\n    const row = document.createElement('li');\n    row.textContent = name + ' (' + email + ') · ' + (role === 'owner' ? 'Owner' : 'Subscriber');\n    return row;\n  }));\n  document.getElementById('warnings').replaceChildren(...warnings.map(warning => {\n    const line = document.createElement('div');\n    line.className = 'warning';\n    line.textContent = warning;\n    return line;\n  }));\n  resize();\n});\nnew ResizeObserver(resize).observe(document.body);\n</script>"
+            }
+          ],
+          "footer": [
+            {
+              "type": "actions",
+              "items": [
+                {
+                  "label": "Cancel",
+                  "role": "cancel"
+                },
+                {
+                  "label": "Apply change",
+                  "role": "confirm",
+                  "color": "accent"
+                }
+              ]
+            }
+          ]
+        }
+      }
     }
   ]
 }

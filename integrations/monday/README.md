@@ -1,6 +1,6 @@
 # Monday.com — 0.1.3
 
-macOS VoiceOS integration using Composio-managed OAuth. This version exposes three account tools, two read tools, and seven write tools:
+macOS VoiceOS integration using Composio-managed OAuth.
 
 - **Connect Monday.com** (`connect_account`): open browser authorization and immediately return its pending state and link, or verify a saved active connection.
 - **Monday.com account** (`connection_status`): check connection status (active, pending, disconnected, or expired). Read-only; does not start OAuth.
@@ -13,6 +13,13 @@ Connecting and disconnecting Monday.com show native confirmation cards, progress
 Board discovery is labeled **Monday.com boards**, with `resultType: "boards"`. Task results use **Tasks**, with `resultType: "tasks"`. For “What are my tasks on the Voiceos board?”, the agent is instructed to resolve the board internally, prefer an exact name match or use a unique clear partial match (for example, **Voiceos test**), and ask when multiple boards could match. It must fetch tasks before giving the task answer, rather than narrating board names as tasks. An intermediate board card can still appear, but its label distinguishes it from the final answer.
 
 The agent passes the exact resolved name as optional `board_name` display context alongside `board_id`. The card shows the board name and the agent can say “Here are the first few items on Voiceos test.” Provider-returned board names take precedence when available. Cursor reads can carry the same display context. Item-ID reads may span boards and omit `board_name`. A failed task fetch reports the error. VoiceOS controls narration.
+
+## Board membership
+
+- Ask “Who's on the Marketing board?” to list its owners and direct subscribers without a confirmation. A board can also be accessible through a team or its visibility.
+- Ask “Add Alex to the Marketing board” to prepare a subscriber addition. Specify “as an owner” to grant board ownership. For “Remove me from the Marketing board,” VoiceOS uses the connected Monday identity and warns that you could lose access.
+- The confirmation shows the board and workspace, each person's name, email and role, and any ownership or self-removal warning. Give the workspace or a person's full name or email if VoiceOS asks which one you meant. Approval applies the reviewed changes. Removal is available for direct subscribers.
+- VoiceOS speaks the outcome and displays it on the result card. For a partial or uncertain outcome, check the board before requesting another change.
 
 ## Read tools (pass 1)
 
@@ -109,7 +116,15 @@ bun run build
 
 Tests run a disposable copy of the real MCP server with the real Composio SDK. All HTTP and browser calls are intercepted locally; real credentials and installed OAuth state are never loaded. Coverage includes the tool allowlist and manifest/schema parity, confirmation contracts, OAuth completion/reuse/recovery, concurrent account calls, disconnect revocation/fallback/failures, credential redaction, and notifications. Read coverage includes saved-account/version routing, progress, filters, page/cursor pagination, column-value preservation, invalid inputs, empty and malformed results, GraphQL/HTTP failures, and expired/revoked/disabled connections.
 
-Manual checks in VoiceOS are still required for rendered confirmation/result cards and notifications, and a live Monday login is required to verify real consent. The integration does not claim that offline tests verify provider token refresh.
+### Agent testing through the desktop notch
+
+For a live VoiceOS test, open the **VoiceOS Agent** notch on the desktop and submit a natural-language request through its composer or microphone. Use visible board and person names, just as a user would. Observe the response and any confirmation or result card in the notch. To test spoken output, use the voice interaction and verify the audio separately.
+
+For approved writes on a dedicated test board, use the notch's confirmation card and verify the resulting Monday state independently with the Codex Monday.com connector. Direct MCP calls can diagnose provider issues. Record those results separately from notch tests.
+
+See [the agent refresh and notch guide](AGENTS.md#accessing-the-macos-agent-island-for-integration-testing) for setup and troubleshooting. A live Monday connection is required to test real authorization.
+
+For board membership, start with “Who's on the VoiceOS move destination test board?” Then exercise add and remove using an existing test user. Check the default subscriber role, the explicit-owner and self-removal warnings, and that canceling a confirmation leaves membership unchanged.
 
 Live pass-1 acceptance checks:
 

@@ -14,7 +14,7 @@ const manifest = JSON.parse(readFileSync(join(ROOT, "voiceos.integration.json"),
 const KEY = "offline-monday-key-only";
 const IDENTITY = { userId: "voiceos-monday-test" };
 const ACTIVE = { ...IDENTITY, accountId: "ca_test" };
-const TOOLS = ["connect_account", "connection_status", "disconnect_account", "get_boards", "get_items", "prepare_create_item", "create_item", "prepare_update_item", "update_item_values", "create_update", "prepare_create_board", "create_board", "prepare_create_group", "create_group", "prepare_archive_board", "archive_board", "prepare_delete_board", "delete_board"].sort();
+const TOOLS = ["connect_account", "connection_status", "disconnect_account", "get_boards", "get_items", "prepare_create_item", "create_item", "prepare_update_item", "update_item_values", "create_update", "prepare_create_board", "create_board", "prepare_create_group", "create_group", "prepare_archive_board", "archive_board", "prepare_delete_board", "delete_board", "list_board_members", "prepare_manage_users", "manage_users"].sort();
 const directory = mkdtempSync(join(tmpdir(), "voiceos-monday-tests-"));
 const statePath = join(directory, ".composio-auth.json");
 const scenarioPath = join(directory, "scenario.json");
@@ -79,7 +79,7 @@ beforeEach(() => {
 afterEach(() => {
   expect(events().filter(event => event.kind === "unexpected")).toEqual([]);
   const executions = events().filter(event => event.path?.includes("/tools/execute/"));
-  expect(executions.every(event => ["MONDAY_BOARDS", "MONDAY_GET_ITEMS", "MONDAY_ITEMS_PAGE", "MONDAY_LIST_GROUPS", "MONDAY_COLUMNS", "MONDAY_LIST_USERS", "MONDAY_GET_TEAMS", "MONDAY_GET_WORKSPACES", "MONDAY_CREATE_ITEM", "proxy", "MONDAY_CREATE_UPDATE", "MONDAY_CREATE_BOARD"].includes(event.path!.split("/").at(-1)!))).toBe(true);
+  expect(executions.every(event => ["MONDAY_BOARDS", "MONDAY_GET_ITEMS", "MONDAY_ITEMS_PAGE", "MONDAY_LIST_GROUPS", "MONDAY_COLUMNS", "MONDAY_LIST_USERS", "MONDAY_GET_TEAMS", "MONDAY_GET_WORKSPACES", "MONDAY_CREATE_ITEM", "proxy", "MONDAY_CREATE_UPDATE", "MONDAY_CREATE_BOARD", "MONDAY_GET_ME", "MONDAY_ADD_USERS_TO_BOARD", "MONDAY_DELETE_SUBSCRIBERS_FROM_BOARD"].includes(event.path!.split("/").at(-1)!))).toBe(true);
 });
 afterAll(async () => {
   try { await client?.close(); } finally {
@@ -98,11 +98,11 @@ describe("account tools contract", () => {
       expect(actual.description).toBe(declared.description);
       expect(actual.inputSchema.properties).toEqual(declared.inputSchema.properties);
       expect(actual.inputSchema.additionalProperties).toBe(false);
-      if (["connection_status", "get_boards", "get_items", "prepare_create_item", "prepare_create_board", "prepare_update_item", "prepare_create_group", "prepare_archive_board", "prepare_delete_board"].includes(actual.name)) {
+      if (["connection_status", "get_boards", "get_items", "prepare_create_item", "prepare_create_board", "prepare_update_item", "prepare_create_group", "prepare_archive_board", "prepare_delete_board", "list_board_members", "prepare_manage_users"].includes(actual.name)) {
         expect(declared.confirmation).toBeUndefined();
         expect(declared.uiCallable).toBe(true);
         expect(actual.annotations?.readOnlyHint).toBe(true);
-      } else if (["create_item", "update_item_values", "create_update", "create_board", "create_group", "archive_board", "delete_board"].includes(actual.name)) {
+      } else if (["create_item", "update_item_values", "create_update", "create_board", "create_group", "archive_board", "delete_board", "manage_users"].includes(actual.name)) {
         if (actual.name === "create_item" || actual.name === "create_board") {
           const item = actual.name === "create_item";
           const root = declared.confirmation.root;
@@ -136,6 +136,11 @@ describe("account tools contract", () => {
           expect(widget.confirmLabel).toBe(deleting ? "Delete board" : "Archive board");
           expect(widget.html).toContain('<select id="board_choice"');
           expect(children.at(-1).children).toEqual([{ type: "button", label: "Cancel", role: "cancel" }]);
+          expect(actual.annotations?.destructiveHint).toBe(true);
+        } else if (actual.name === "manage_users") {
+          const { children, footer } = declared.confirmation.root;
+          expect(children[0].html).toContain('id="warnings"');
+          expect(footer[0].items.map((item: { role: string }) => item.role)).toEqual(["cancel", "confirm"]);
           expect(actual.annotations?.destructiveHint).toBe(true);
         } else if (actual.name === "update_item_values") {
           expect(declared.confirmation.root.children.find((block: { type: string }) => block.type === "widget").confirmLabel).toBe("Save changes");
@@ -1175,10 +1180,9 @@ describe("Monday create board confirmation", () => {
     const followUp = "Preparing the item confirmation…";
     expect(board.body).toMatchObject({
       id: "987", name: "Integrations", url, item_destination: { board_id: 987, item_name: "study" },
-      item_follow_up: followUp, notificationQueued: true,
+      item_follow_up: followUp, notificationQueued: false,
     });
-    expect(notifications[0]).toMatchObject({ message: `Created public board “Integrations” in Main workspace. ${followUp}`,
-      actions: [{ id: "open_board", label: "Open board" }], data: { url } });
+    expect(notifications).toEqual([]);
     expect(board.body._voiceos_glance.blocks[1].pairs).toContainEqual(["Next", followUp]);
     expect(board.body._voiceos_glance.blocks.at(-1)).toMatchObject({ type: "widget", label: "Open board", data: { url } });
     const open = await client.request({ method: "voiceos/reminders/action", params: {
@@ -1208,7 +1212,7 @@ describe("Monday create board confirmation", () => {
     const result = await invoke("create_board", await prepareBoardArguments());
     expect(result.isError).toBe(false);
     expect(result.body).toMatchObject({ id: "987", url: null, item_destination: { board_id: 987 } });
-    expect(notifications[0].actions).toBeUndefined();
+    expect(notifications).toEqual([]);
     expect(boardWrites()).toHaveLength(1);
   });
 
@@ -1306,7 +1310,7 @@ describe("Monday write tools", () => {
       const result = await invoke(c.name, args);
       expect(result.isError).toBe(false);
       expect(result.body.id).toBeTruthy();
-      expect(result.body.notificationQueued).toBe(c.name === "create_board");
+      expect(result.body.notificationQueued).toBe(false);
       expect(result.body._voiceos_glance.blocks[0].trailing).toBe("Success");
       const calls = events().filter(e => e.path?.includes("/tools/execute/"));
       expect(calls[0]).toMatchObject({ path: `/api/v3.1/tools/execute/${c.action}`, body: {
@@ -1327,7 +1331,7 @@ describe("Monday write tools", () => {
         }
       }
       expect(calls).toHaveLength(1);
-      expect(notifications).toHaveLength(c.name === "create_board" ? 1 : 0);
+      expect(notifications).toEqual([]);
     });
     for (const failure of [
       { toolHttpStatus: 500 }, { toolHttpStatus: 403 },
@@ -1826,5 +1830,157 @@ describe("Monday delete board confirmation", () => {
     expect(result.body.error).toContain("did not confirm the selected board was deleted");
     expect((await invoke("delete_board", body.delete_board_arguments)).isError).toBe(true);
     expect(writes()).toHaveLength(1);
+  });
+});
+
+describe("Monday board membership", () => {
+  const owner = { id: "8", name: "Board Owner", email: "owner@example.test" };
+  const subscriber = { id: "9", name: "Alex West", email: "alex.w@example.test" };
+  const alex = { id: "10", name: "Alex East", email: "alex.e@example.test" };
+  const jamie = { id: "11", name: "Jamie Park", email: "jamie@example.test" };
+  const board = { id: "123", name: "Marketing", workspace: { id: "4", name: "Sales" },
+    owners: [owner], subscribers: [owner, subscriber] };
+  const target = { board_name: "Marketing" };
+  const add = { ...target, operation: "add", people: [{ person: alex.email }] };
+  const removeSelf = { ...target, operation: "remove", people: [{ person: "me" }] };
+  const writes = () => events().filter(event => /\/tools\/execute\/MONDAY_(ADD_USERS_TO_BOARD|DELETE_SUBSCRIBERS_FROM_BOARD)$/.test(event.path ?? ""));
+
+  function configure(overrides: Record<string, Record<string, unknown>> = {}) {
+    scenario({ userPages: { 1: [owner, subscriber, alex, jamie] }, toolDataByAction: {
+      MONDAY_BOARDS: { boards: [board] }, MONDAY_GET_ME: { data: { me: subscriber } }, ...overrides,
+    } });
+  }
+
+  test("lists owners and direct subscribers once, using only the board read", async () => {
+    configure();
+    const result = await invoke("list_board_members", target);
+    expect(result.body.records).toEqual([
+      { id: 8, name: owner.name, role: "owner" },
+      { id: 9, name: subscriber.name, role: "subscriber" },
+    ]);
+    expect(result.body._voiceos_glance.blocks[1].rows.map((row: { subtitle: string }) => row.subtitle)).toEqual(["Owner", "Subscriber"]);
+    expect(events().filter(event => event.path?.includes("/tools/execute/")).map(event => event.path?.split("/").at(-1))).toEqual(["MONDAY_BOARDS"]);
+  });
+
+  test("asks which board and then which person when names are ambiguous", async () => {
+    configure({ MONDAY_BOARDS: { boards: [board, { ...board, id: "124", workspace: { name: "Other" } }] } });
+    expect((await invoke("prepare_manage_users", add)).body.question).toContain("Marketing in Other");
+    const result = await invoke("prepare_manage_users", { ...add, workspace_name: "Sales", people: [{ person: "Alex" }] });
+    expect(result.body.question).toContain(alex.email);
+    expect(result.body.question).toContain(subscriber.email);
+    expect(writes()).toEqual([]);
+  });
+
+  test("adds subscribers by default and owners only when explicitly selected", async () => {
+    configure({ MONDAY_ADD_USERS_TO_BOARD: { raw_response: { data: { add_users_to_board: [alex, jamie] } } } });
+    const result = await invoke("prepare_manage_users", { ...add, people: [...add.people, { person: jamie.name, role: "owner" }] });
+    const args = result.body.manage_users_arguments;
+    expect(args).toMatchObject({
+      board: "Marketing · Sales",
+      people: [{ name: alex.name, email: alex.email, role: "subscriber" }, { name: jamie.name, email: jamie.email, role: "owner" }],
+      warnings: ["Board owners have full control of this board."],
+    });
+    expect(writes()).toEqual([]);
+    const forged = { ...args, warnings: [] };
+    expect((await invoke("manage_users", forged)).isError).toBe(true);
+    expect(writes()).toEqual([]);
+    const applied = await invoke("manage_users", args);
+    expect(applied.body.status).toBe("Success");
+    expect(applied.body.message).toContain("Alex East, Jamie Park");
+    expect(writes().map(event => event.body?.arguments)).toEqual([
+      { board_id: 123, user_ids: [10], kind: "subscriber" },
+      { board_id: 123, user_ids: [11], kind: "owner" },
+    ]);
+    expect((await invoke("manage_users", args)).isError).toBe(true);
+    expect(writes()).toHaveLength(2);
+    expect(notifications).toEqual([]);
+  });
+
+  test("warns for self-removal and sends only the reviewed subscriber ID", async () => {
+    configure({ MONDAY_DELETE_SUBSCRIBERS_FROM_BOARD: { data: { delete_subscribers_from_board: [subscriber] } } });
+    const args = (await invoke("prepare_manage_users", removeSelf)).body.manage_users_arguments;
+    expect(args.warnings).toEqual(["Removing yourself may cause you to lose access to this board."]);
+    expect(args.people).toEqual([{ name: subscriber.name, email: subscriber.email, role: "subscriber" }]);
+    expect(writes()).toEqual([]);
+    expect((await invoke("manage_users", args)).body.message).toContain("Removed Alex West");
+    expect(writes()[0].body?.arguments).toEqual({ board_id: 123, user_ids: [9] });
+    expect(notifications).toEqual([]);
+  });
+
+  test("rejects owner removal and stale membership confirmations", async () => {
+    configure();
+    const blocked = await invoke("prepare_manage_users", { ...removeSelf, people: [{ person: owner.name }] });
+    expect(blocked.body.status).toBe("Request blocked");
+    expect(blocked.body.message).toContain("owns this board");
+    expect(blocked.body._voiceos_glance.blocks[0].title).toBe("Request blocked");
+    expect(blocked.body._voiceos_glance.blocks[1].pairs[0][1]).toContain("No membership changes were made.");
+    expect(blocked.body.manage_users_arguments).toBeUndefined();
+    const args = (await invoke("prepare_manage_users", removeSelf)).body.manage_users_arguments;
+    configure({ MONDAY_BOARDS: { boards: [{ ...board, owners: [owner, subscriber] }] } });
+    expect((await invoke("manage_users", args)).body.error).toContain("memberships changed");
+    expect(writes()).toEqual([]);
+  });
+
+  test("replaces a pending confirmation and checks the connected account before writing", async () => {
+    configure();
+    const original = (await invoke("prepare_manage_users", add)).body.manage_users_arguments;
+    const revised = (await invoke("prepare_manage_users", {
+      ...add, people: [{ person: jamie.email }], replaces_draft_id: original.draft_id,
+    })).body.manage_users_arguments;
+    expect(revised.people[0].email).toBe(jamie.email);
+    expect((await invoke("manage_users", original)).isError).toBe(true);
+    state({ ...IDENTITY, accountId: "ca_other" });
+    expect((await invoke("manage_users", revised)).body.error).toContain("account changed");
+    expect(writes()).toEqual([]);
+  });
+
+  test("does not report a promotion from subscriber to owner without readback", async () => {
+    configure({ MONDAY_ADD_USERS_TO_BOARD: { add_users_to_board: [subscriber] } });
+    const args = (await invoke("prepare_manage_users", {
+      ...add, people: [{ person: subscriber.email, role: "owner" }],
+    })).body.manage_users_arguments;
+    const result = await invoke("manage_users", args);
+    expect(result.isError).toBe(true);
+    expect(result.body.error).toContain("Could not confirm changes for Alex West");
+    expect(writes()).toHaveLength(1);
+  });
+
+  test("displays Monday permission errors on the result card without a toast", async () => {
+    const message = "User unauthorized: only a board owner or admin can change this board's subscribers.";
+    configure({ MONDAY_ADD_USERS_TO_BOARD: { errors: [{ message }] } });
+    const args = (await invoke("prepare_manage_users", add)).body.manage_users_arguments;
+    const result = await invoke("manage_users", args);
+    expect(result.isError).toBe(true);
+    expect(result.body._voiceos_glance.blocks[1].pairs[0][1]).toContain(message);
+    expect(writes()).toHaveLength(1);
+    expect(notifications).toEqual([]);
+  });
+
+  test("reports partial results and never retries a missing confirmation", async () => {
+    configure({ MONDAY_ADD_USERS_TO_BOARD: { add_users_to_board: [alex] } });
+    const args = (await invoke("prepare_manage_users", { ...add, people: [...add.people, { person: jamie.name }] })).body.manage_users_arguments;
+    const result = await invoke("manage_users", args);
+    expect(result.body.status).toBe("Partial success");
+    expect(result.body.message).toContain("Added Alex East");
+    expect(result.body.message).toContain("Could not confirm changes for Jamie Park");
+    expect(writes()).toHaveLength(1);
+  });
+
+  test("fails safely when Monday omits subscriber data", async () => {
+    configure({ MONDAY_BOARDS: { boards: [{ ...board, subscribers: undefined }] } });
+    expect((await invoke("list_board_members", target)).body.error).toContain("did not return both");
+    expect((await invoke("prepare_manage_users", add)).isError).toBe(true);
+    expect(writes()).toEqual([]);
+  });
+
+  test("reads explicit board membership through Composio when the board catalog omits subscribers", async () => {
+    scenario({
+      toolDataByAction: { MONDAY_BOARDS: { boards: [{ ...board, subscribers: undefined }] } },
+      proxyBoardMembership: board,
+    });
+    const result = await invoke("list_board_members", target);
+    expect(result.body.records.map((member: { role: string }) => member.role)).toEqual(["owner", "subscriber"]);
+    const proxy = events().find(event => event.path?.endsWith("/execute/proxy"));
+    expect(proxy?.body?.body).toMatchObject({ variables: { boardIds: ["123"] } });
   });
 });

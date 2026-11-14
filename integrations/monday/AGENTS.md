@@ -103,7 +103,8 @@ This guide records the programmatic refresh actually used for Monday.
    `get_items`, `prepare_create_item`, `create_item`, `prepare_update_item`,
    `update_item_values`, `create_update`,
    `prepare_create_board`, `create_board`, `prepare_create_group`, `create_group`,
-   `prepare_archive_board`, `archive_board`, `prepare_delete_board`, and `delete_board`.
+   `prepare_archive_board`, `archive_board`, `prepare_delete_board`, `delete_board`,
+   `list_board_members`, `prepare_manage_users`, and `manage_users`.
    Tool discovery needs no Composio key and makes no provider calls.
    Update that expected list as subsequent passes add approved tools.
 
@@ -163,6 +164,12 @@ and tool in that check. On 2026-11-10, a fresh debug launch was verified to
 expose one `#/agent-notch` target with the listener bound to `127.0.0.1:9227`.
 
 ### Prompting through the island
+
+Run live acceptance tests through the desktop notch's composer or microphone.
+Use its visible confirmation and result cards for the test. A direct MCP call
+can diagnose provider behavior, and the Codex Monday.com connector can verify
+the resulting board state independently. Record those checks separately from
+what was observed in the notch.
 
 Write live test prompts the way a user would speak or type. Refer to boards,
 items, and people by their visible names or natural descriptions. For example,
