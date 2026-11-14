@@ -1,0 +1,67 @@
+{
+  "version": "20261101_00",
+  "inputSchema": {
+    "type": "object",
+    "title": "CreateUpdateRequest",
+    "required": [
+      "body"
+    ],
+    "properties": {
+      "body": {
+        "type": "string",
+        "title": "Body",
+        "examples": [
+          "This is an update message."
+        ],
+        "description": "The update's text content."
+      },
+      "item_id": {
+        "type": "integer",
+        "title": "Item Id",
+        "description": "ID of the item to post the update on."
+      },
+      "parent_id": {
+        "type": "integer",
+        "title": "Parent Id",
+        "description": "ID of the parent update to reply under."
+      },
+      "use_app_info": {
+        "type": "boolean",
+        "title": "Use App Info",
+        "description": "If true, attribute the update to the app rather than the current user (API version 2025-10+)."
+      },
+      "mentions_list": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "title": "UpdateMention",
+          "required": [
+            "id",
+            "type"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "title": "Id",
+              "description": "ID of the entity to mention."
+            },
+            "type": {
+              "type": "string",
+              "title": "Type",
+              "description": "Type of the mention (e.g., USER, TEAM)."
+            }
+          },
+          "description": "Defines an entity to mention in an update."
+        },
+        "title": "Mentions List",
+        "description": "List of entities to mention in the update."
+      },
+      "original_creation_date": {
+        "type": "string",
+        "title": "Original Creation Date",
+        "description": "Original creation date in DD-MM-YYYY format (API version 2025-10+)."
+      }
+    },
+    "description": "Request model for creating an update on a Monday.com item or replying to an existing update."
+  }
+}
