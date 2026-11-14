@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "com.voiceos.generated.dropbox",
-  "version": "2.0.23",
+  "version": "2.0.24",
   "name": "Dropbox",
   "summary": "Find, read, upload, organize, version and share Dropbox files through Composio OAuth2.",
   "supportedPlatforms": [
@@ -497,7 +497,7 @@
     {
       "name": "list_revisions",
       "title": "List file revisions",
-      "description": "List file revisions via Composio OAuth2. Use when the user asks to inspect previous versions before restoring a Dropbox file. Returns provider data including pagination; never infer all pages were read. The card already shows the returned items. Keep default narration brief and do not repeat the entire list unless the user explicitly asks for those details.",
+      "description": "List file revisions via Composio OAuth2. Use when the user asks to inspect previous versions before restoring a Dropbox file. Returns provider data including pagination; never infer all pages were read. The card shows exact revision IDs. If the user asks for a revision ID, quote the exact rev value from the returned entry, identify it by its timestamp, and do not infer an ID from a date.",
       "inputSchema": {
         "type": "object",
         "properties": {

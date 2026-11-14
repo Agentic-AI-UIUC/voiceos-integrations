@@ -18,7 +18,8 @@ export function successCard(tool:Tool,data:any,args:Record<string,any>){
    const name=item.name||item.path_display||(item.rev?'File revision':undefined)||item.id;
    const details=[item['.tag']==='folder'?'Folder':size(item.size),readableDate(item.server_modified)].filter(Boolean).join(' · ');
    const link=tool.name==='list_shared_links'?linkControls(item.url,shown):'';
-   const fragment=`<div class="db-item"><span>${esc(String(name||'Unlabelled returned item').slice(0,180))}</span>${item.path_display?`<span class="db-meta">${esc(item.path_display.slice(0,220))}</span>`:''}${details?`<span class="db-meta">${esc(details)}</span>`:''}${link}</div>`;
+   const revision=tool.name==='list_revisions'&&typeof item.rev==='string'?`<span class="db-meta">Revision ID: <code>${esc(item.rev)}</code></span>`:'';
+   const fragment=`<div class="db-item"><span>${esc(String(name||'Unlabelled returned item').slice(0,180))}</span>${item.path_display?`<span class="db-meta">${esc(item.path_display.slice(0,220))}</span>`:''}${details?`<span class="db-meta">${esc(details)}</span>`:''}${revision}${link}</div>`;
    if(budget+fragment.length>140000)break;
    content+=fragment;budget+=fragment.length;shown++;
   }

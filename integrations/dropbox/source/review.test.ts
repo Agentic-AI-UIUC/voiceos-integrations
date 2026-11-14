@@ -32,11 +32,13 @@ test('result cards retain 30 returned rows without exposing raw revision identif
  const {html}=successCard(tools[0],{entries,has_more:false},{path:''}).blocks[0];
  assert.equal((html.match(/class="db-item"/g)||[]).length,30);assert.match(html,/file-29/);assert.doesNotMatch(html,/rev-29/);assert.match(html,/overflow:auto/);assert.match(html,/30 of 30 returned items/);
 });
-test('revision and metadata cards show readable dates while model data keeps exact values',()=>{
+test('revision card shows exact selectable ID and readable date',()=>{
  const row={name:'review.docx',rev:'0165secret',server_modified:'2026-11-10T21:16:14Z',path_display:'/review.docx',size:13313};
  const revision=successCard(tools.find(t=>t.name==='list_revisions')!,{entries:[row]},{path:'/review.docx'}).blocks[0].html;
  const metadata=successCard(tools.find(t=>t.name==='get_metadata')!,row,{path:'/review.docx'}).blocks[0].html;
- for(const html of [revision,metadata]){assert.doesNotMatch(html,/0165secret|2026-11-10T21:16:14Z/);assert.match(html,/Nov 10/);}
+ assert.match(revision,/Revision ID: <code>0165secret<\/code>/);
+ assert.doesNotMatch(metadata,/0165secret/);
+ for(const html of [revision,metadata]){assert.doesNotMatch(html,/2026-11-10T21:16:14Z/);assert.match(html,/Nov 10/);}
  assert.equal(row.rev,'0165secret');
 });
 test('shared links are usable but unsafe URLs and binary signed URLs are not rendered as links',()=>{
