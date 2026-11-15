@@ -38,7 +38,7 @@ test("an expired link and a revoked token are told apart", async () => {
 test("a rejected Composio API key points at the key settings, not at reconnecting", async () => {
   const badKey = new ComposioError("Invalid API key", "composio", 401, "APIKey_InvalidAPIKey");
   expect(await describeError(badKey, linkStatus("ACTIVE"), "u")).toEqual({
-    error: "The Composio API key was rejected — check the key in this integration's Setup page or .env.",
+    error: "The Composio API key was rejected. Check the Composio API key on this integration's Setup page.",
     reconnect: false,
   });
 });

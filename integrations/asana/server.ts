@@ -14,19 +14,18 @@
  *   3. Due date → Asana    7. Tools (MCP wiring, entry point)
  *   4. Asana operations
  *
- * Composio setup (credentials are the developer's, never VoiceOS setup fields):
- *   - Create a `.env` next to this file with
- *       COMPOSIO_API_KEY=<project key: platform.composio.dev → Settings → API Keys>
+ * Composio setup:
+ *   - The Composio API key is a required Setup field for now (see #24). For
+ *     local dev, a `.env` next to this file works too:
+ *       COMPOSIO_API_KEY=<project key: platform.composio.dev → API Keys>
  *     Each install gets its own Composio user (voiceos-<id>, saved in
  *     .composio-user.json next to this file). COMPOSIO_USER_ID in .env
  *     overrides it, e.g. `default` to reuse an old connection.
  *     .env never ships with Publish; each developer keeps their own.
- *   - TEMPORARY, for testing: the integration's Setup page also has an optional
- *     "Composio API key" field. When filled it wins over .env. Remove it from
- *     voiceos.integration.json `preferences` before release.
+ *   - The Setup field wins over .env.
  *   - No dashboard step: the first connect creates a Composio-managed Asana
  *     auth config if the project has none (needs a full-access key). Users
- *     connect from the "Connect Asana" link on the error card.
+ *     connect by saying "connect Asana" or from the "Connect Asana" link on an error card.
  *
  * Tool names, descriptions and input schemas must stay identical to
  * voiceos.integration.json — VoiceOS routes and confirms from the manifest.
@@ -157,7 +156,7 @@ export interface ComposioConfig {
 
 export function createComposio(config: ComposioConfig): { execute: ExecuteTool; request: ComposioRequest; proxy: ProxyCall; forgetAccounts: () => void } {
   const request: ComposioRequest = async (method, path, body) => {
-    if (!config.apiKey) throw new ComposioError("Missing Composio API key — set COMPOSIO_API_KEY in this integration's .env (or, for testing, its Setup page).", "composio");
+    if (!config.apiKey) throw new ComposioError("Missing Composio API key. Add it on this integration's Setup page.", "composio");
 
     const res = await (config.fetch ?? fetch)(`${BASE_URL}${path}`, {
       method,
@@ -1854,7 +1853,7 @@ export async function describeError(
     return { error: `${why} Ask whoever set up this integration to ${AUTH_CONFIG_HELP}. Composio user: "${userId}".`, reconnect: true };
   }
   if (err instanceof ComposioError && err.source === "composio" && err.status === 401) {
-    return { error: "The Composio API key was rejected — check the key in this integration's Setup page or .env.", reconnect: false };
+    return { error: "The Composio API key was rejected. Check the Composio API key on this integration's Setup page.", reconnect: false };
   }
   return { error: err?.message || "Network error while connecting to Composio.", reconnect: false };
 }

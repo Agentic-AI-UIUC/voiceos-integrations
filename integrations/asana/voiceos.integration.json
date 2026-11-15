@@ -31,10 +31,10 @@
   "preferences": [
     {
       "name": "COMPOSIO_API_KEY",
-      "title": "Composio API key (temporary, for testing)",
-      "description": "Temporary field for testing; it will be removed before release. Leave blank to use COMPOSIO_API_KEY from the integration's .env.",
+      "title": "Composio API key",
+      "description": "API key from API Keys in your Composio dashboard at platform.composio.dev (Platform workspace, not For You).",
       "type": "password",
-      "required": false
+      "required": true
     },
     {
       "name": "ASANA_WORKSPACE_GID",
