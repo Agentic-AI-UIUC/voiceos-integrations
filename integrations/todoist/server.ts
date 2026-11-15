@@ -5,10 +5,13 @@ import { z } from "zod";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { readFile, writeFile, rename } from "node:fs/promises";
+import { readFileSync } from "node:fs";
+import { platform } from "node:os";
+import { setTimeout as delay } from "node:timers/promises";
 
 // Composio owns OAuth, token storage/refresh, and Todoist requests.
 // This adapter only saves this installation's identity and connection reference.
-const server = new McpServer({ name: "composio-todoist", version: "1.0.9" });
+const server = new McpServer({ name: "composio-todoist", version: "1.0.15" });
 // BEGIN TOOL CATALOG
 const catalog: any = {
   "version": "20260731_00",
@@ -189,7 +192,7 @@ const catalog: any = {
       "name": "update_task",
       "title": "Update task",
       "slug": "TODOIST_UPDATE_TASK",
-      "description": "Update an existing Todoist task. Use when asked to rename, reschedule, reprioritize, assign, or change task labels or notes. Find the exact task with get_active_tasks first. Send only requested changes; labels replaces the entire label list.",
+      "description": "Update an existing Todoist task. Find the exact task with get_active_tasks first. Include only requested changes. For a specific due date without a time, use due_date in the format Nov 13, 2026. When changing labels, pass the current task labels separately for display if available. For a follow-up before approval, revise the pending update, preserve the selected task and other pending edits, and show the confirmation again.",
       "readOnly": false,
       "inputSchema": {
         "type": "object",
@@ -199,19 +202,12 @@ const catalog: any = {
         ],
         "properties": {
           "labels": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
+            "anyOf": [{ "type": "array", "items": { "type": "string" } }, { "type": "string" }],
             "title": "Labels",
-            "examples": [
-              [
-                "Food",
-                "Shopping"
-              ]
-            ],
-            "description": "List of label names to assign to the task. Replaces the entire existing labels list \u2014 omit a label only if intentionally removing it. Labels must already exist in Todoist; non-existent names fail silently."
+            "examples": [["Food", "Shopping"]],
+            "description": "Full list of existing label names to assign. For an add or remove request, start with the current task labels and change only the requested names. Omit this field to keep existing labels. Use [] only when explicitly removing every label. The confirmation editor also accepts one label per line."
           },
+          "current_labels": { "type": "array", "items": { "type": "string" }, "description": "Current task labels from the lookup, for display only when changing labels." },
           "content": {
             "type": "string",
             "title": "Content",
@@ -231,11 +227,8 @@ const catalog: any = {
           "due_date": {
             "type": "string",
             "title": "Due Date",
-            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
-            "examples": [
-              "2023-12-31"
-            ],
-            "description": "Due date in YYYY-MM-DD format."
+            "examples": ["Nov 13, 2026"],
+            "description": "Date without a time. Use the English short month, day, and four-digit year (e.g. Nov 13, 2026) for a readable confirmation. YYYY-MM-DD is also accepted."
           },
           "due_lang": {
             "type": "string",
@@ -297,8 +290,9 @@ const catalog: any = {
             "examples": [
               "Include fruits and vegetables"
             ],
-            "description": "New description for the task."
+            "description": "New description for the task. Provide nonblank text or use clear_description to remove the description."
           },
+          "clear_description": { "type": "boolean", "description": "Set to true only when explicitly asked to remove the task description. Omit description when using this option." },
           "due_datetime": {
             "type": "string",
             "title": "Due Datetime",
@@ -442,7 +436,7 @@ const catalog: any = {
       "name": "create_project",
       "title": "Create project",
       "slug": "TODOIST_CREATE_PROJECT2",
-      "description": "Create a Todoist project. Use when asked to make a new project or subproject. Find a parent project ID with list_projects; clarify duplicate names.",
+      "description": "Create a Todoist project or subproject. Resolve the parent ID with list_projects and clarify duplicate names. For a follow-up before approval, revise the pending project, preserve its other fields, and show the confirmation again.",
       "readOnly": false,
       "inputSchema": {
         "type": "object",
@@ -461,21 +455,15 @@ const catalog: any = {
             "description": "The project name. This is the only required field."
           },
           "color": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "integer"
-              }
+            "type": "string",
+            "enum": [
+              "", "berry_red", "red", "orange", "yellow",
+              "olive_green", "lime_green", "green", "mint_green", "teal",
+              "sky_blue", "light_blue", "blue", "grape", "violet",
+              "lavender", "magenta", "salmon", "charcoal", "grey",
+              "taupe"
             ],
-            "title": "Color",
-            "examples": [
-              "blue",
-              "berry_red",
-              41
-            ],
-            "description": "Project color. Can be either a color name (e.g., 'berry_red', 'blue') or a numeric color code. Default is 'charcoal'."
+            "description": "Todoist color name. Leave blank or omit to use the default, charcoal."
           },
           "parent_id": {
             "anyOf": [
@@ -515,7 +503,7 @@ const catalog: any = {
             "description": "Description of the project. Optional field."
           },
           "is_favorite": {
-            "type": "boolean",
+            "anyOf": [{ "type": "boolean" }, { "type": "string", "enum": ["true", "false"] }],
             "title": "Is Favorite",
             "examples": [
               true,
@@ -544,7 +532,8 @@ const catalog: any = {
         "type": "object",
         "title": "TodoistDeleteProject2Request",
         "required": [
-          "project_id"
+          "project_id",
+          "target_name"
         ],
         "properties": {
           "project_id": {
@@ -558,6 +547,7 @@ const catalog: any = {
           },
           "target_name": {
             "type": "string",
+            "minLength": 1,
             "title": "Selected target",
             "description": "Human-readable name/title from the lookup, for confirmation display only. Never invent a name or substitute it for the required ID."
           }
@@ -721,21 +711,14 @@ const catalog: any = {
       }
     },
     {
-      "name": "manage_labels",
-      "title": "List labels",
+      "name": "list_labels",
+      "title": "List Todoist labels",
       "readOnly": true,
       "slug": "TODOIST_LIST_LABELS",
       "description": "Read personal Todoist labels and resolve label names into IDs. Use when asked to list labels or find an exact label before an update or deletion. Clarify duplicate names and follow next_cursor for more results. Use create_label, update_label, or delete_label for changes.",
       "inputSchema": {
         "type": "object",
         "properties": {
-          "action": {
-            "type": "string",
-            "enum": [
-              "list"
-            ],
-            "description": "Optional legacy list action. This tool only reads labels; use create_label, update_label, or delete_label for changes."
-          },
           "limit": {
             "type": "integer",
             "title": "Limit",
@@ -763,15 +746,24 @@ const catalog: any = {
       "title": "Create label",
       "readOnly": false,
       "slug": "TODOIST_CREATE_LABEL_V1",
-      "description": "Create a personal Todoist label. Use when asked to add a new label. Review its name and requested settings before confirming.",
+      "description": "Create a personal Todoist label. For a follow-up before approval, revise the pending label, preserve its other fields, and show the confirmation again.",
       "inputSchema": {
         "type": "object",
         "required": ["name"],
         "properties": {
           "name": { "type": "string", "minLength": 1, "maxLength": 128, "description": "Name of the new label." },
-          "color": { "anyOf": [{ "type": "string" }, { "type": "integer" }], "description": "Color name or numeric color code. Defaults to charcoal if omitted." },
-          "order": { "type": "integer", "description": "Position in the label list." },
-          "is_favorite": { "type": "boolean", "description": "Whether to mark the label as a favorite. Defaults to false if omitted." }
+          "color": {
+            "type": "string",
+            "enum": [
+              "", "berry_red", "red", "orange", "yellow",
+              "olive_green", "lime_green", "green", "mint_green", "teal",
+              "sky_blue", "light_blue", "blue", "grape", "violet",
+              "lavender", "magenta", "salmon", "charcoal", "grey",
+              "taupe"
+            ],
+            "description": "Todoist color name. Leave blank or omit to use the default, charcoal."
+          },
+          "is_favorite": { "anyOf": [{ "type": "boolean" }, { "type": "string", "enum": ["true", "false"] }], "description": "Whether to mark the label as a favorite. Defaults to false if omitted." }
         }
       }
     },
@@ -780,13 +772,13 @@ const catalog: any = {
       "title": "Update label",
       "readOnly": false,
       "slug": "TODOIST_UPDATE_LABEL_V1_SECOND",
-      "description": "Update a personal Todoist label. Use when asked to rename a label or change its color, order, or favorite status. Resolve the exact ID with manage_labels first, clarify ambiguous names, and send only requested changes.",
+      "description": "Update a personal Todoist label. Use when asked to rename a label or change its color, order, or favorite status. Resolve the exact ID with list_labels first, clarify ambiguous names, and send only requested changes.",
       "inputSchema": {
         "type": "object",
         "required": ["label_id"],
         "properties": {
           "label_id": { "type": "string", "description": "ID of the label to update." },
-          "target_name": { "type": "string", "description": "Existing label name from manage_labels, for confirmation display only. Never substitute it for label_id." },
+          "target_name": { "type": "string", "description": "Existing label name from list_labels, for confirmation display only. Never substitute it for label_id." },
           "name": { "type": "string", "minLength": 1, "maxLength": 128, "description": "New label name. Omit to leave unchanged." },
           "color": { "anyOf": [{ "type": "string" }, { "type": "integer" }], "description": "New color name or numeric color code. Omit to leave unchanged." },
           "order": { "type": "integer", "description": "New position in the label list. Omit to leave unchanged." },
@@ -798,7 +790,7 @@ const catalog: any = {
       "name": "delete_label",
       "title": "Delete label",
       "slug": "TODOIST_DELETE_LABEL_V1",
-      "description": "Delete a personal Todoist label and remove it from every task that uses it. Use only when explicitly asked to delete a label. Resolve its exact ID and name with manage_labels/action=list, clarify ambiguous names, and require confirmation. Tasks themselves are not deleted.",
+      "description": "Delete a personal Todoist label and remove it from every task that uses it. Use only when explicitly asked to delete a label. Resolve its exact ID and name with list_labels, clarify ambiguous names, and require confirmation. Tasks themselves are not deleted.",
       "readOnly": false,
       "inputSchema": {
         "type": "object",
@@ -818,7 +810,7 @@ const catalog: any = {
           "target_name": {
             "type": "string",
             "title": "Selected label",
-            "description": "Human-readable label name from manage_labels/action=list, for confirmation display only. Never substitute it for label_id."
+            "description": "Human-readable label name from list_labels, for confirmation display only. Never substitute it for label_id."
           }
         },
         "description": "Request model for deleting a personal label."
@@ -836,7 +828,8 @@ let disconnecting: Promise<any> | undefined;
 function api() {
   const apiKey = process.env.COMPOSIO_API_KEY?.trim();
   if (!apiKey) throw new Error("Add your Composio API key in Todoist settings first.");
-  return client ??= new Composio({ apiKey, baseURL: "https://backend.composio.dev", allowTracking: false });
+  // SDK upgrade notices go to stdout, which must contain only MCP messages.
+  return client ??= new Composio({ apiKey, baseURL: "https://backend.composio.dev", allowTracking: false, disableVersionCheck: true });
 }
 
 async function save(state: State) {
@@ -907,72 +900,178 @@ async function progress(extra: any, message: string, done = false) {
   } catch { /* A progress display failure must never change an operation's outcome. */ }
 }
 
-async function notifyWrite(message: string) {
+async function notifyAuthorizationStatus(message: string) {
   try {
     await server.server.request({
       method: "voiceos/reminders/trigger", params: { message: message.slice(0, 1900), speak: false },
     } as any, z.object({ notificationId: z.string() }), { timeout: 4000 });
-    return true;
   } catch {
-    console.error("VoiceOS could not queue the Todoist result notification; the tool result is still available.");
-    return false;
+    console.error("VoiceOS could not queue the Todoist authorization notification.");
   }
 }
 
-async function withFeedback(title: string, write: boolean, extra: any, run: () => Promise<any>) {
+async function withFeedback(title: string, extra: any, run: () => Promise<any>) {
   await progress(extra, `${title}…`);
   let output: any;
   try { output = await run(); } catch (error) { output = failure(error); }
   await progress(extra, `${title}: ${output.isError ? "failed" : "finished"}`, true);
-  if (write) {
-    const payload = JSON.parse(output.content.find((block: any) => block.type === "text").text);
-    payload.notificationQueued = await notifyWrite(output.isError
-      ? `Todoist — ${title} ${payload.code === "OUTCOME_UNKNOWN" ? "outcome unconfirmed" : "failed"}: ${payload.error ?? "Request failed."}`
-      : `Todoist — ${title} completed.`);
-    output.content.find((block: any) => block.type === "text").text = JSON.stringify(payload);
-  }
   return output;
+}
+
+let activeConnectWatcher: AbortController | undefined;
+
+function stopBackgroundConnectWatcher() {
+  if (activeConnectWatcher) {
+    activeConnectWatcher.abort();
+    activeConnectWatcher = undefined;
+  }
+}
+
+function shouldWatchBackgroundConnect(): boolean {
+  if (!process.env.TODOIST_TEST_SCENARIO) return true;
+  try {
+    const scenario = JSON.parse(readFileSync(process.env.TODOIST_TEST_SCENARIO, "utf8"));
+    return Boolean(scenario.watchBackgroundConnect);
+  } catch {
+    return false;
+  }
+}
+
+function getPollIntervalMs(): number {
+  if (!process.env.TODOIST_TEST_SCENARIO) return 2000;
+  try {
+    const scenario = JSON.parse(readFileSync(process.env.TODOIST_TEST_SCENARIO, "utf8"));
+    return scenario.pollIntervalMs ?? 50;
+  } catch {
+    return 50;
+  }
+}
+
+function startBackgroundConnectWatcher(connectionId: string) {
+  if (!shouldWatchBackgroundConnect()) return;
+  stopBackgroundConnectWatcher();
+  const controller = new AbortController();
+  activeConnectWatcher = controller;
+  const pollIntervalMs = getPollIntervalMs();
+
+  (async () => {
+    const startTime = Date.now();
+    // Poll for up to 180 seconds (3 minutes)
+    while (!controller.signal.aborted && Date.now() - startTime < 180000) {
+      await delay(pollIntervalMs);
+      if (controller.signal.aborted) break;
+      try {
+        const account = await api().connectedAccounts.get(connectionId, {
+          signal: AbortSignal.timeout(5000),
+        });
+        if (account?.status === "ACTIVE" && !account.isDisabled) {
+          const state = await load();
+          if (state.pending?.id === connectionId) {
+            state.accountId = connectionId;
+            delete state.pending;
+            delete state.needsReauthorization;
+            await save(state);
+            await notifyAuthorizationStatus("Todoist — Connected successfully. Your account is ready to use.");
+          }
+          break;
+        }
+        if (["FAILED", "EXPIRED", "REVOKED"].includes(account?.status)) {
+          await notifyAuthorizationStatus(`Todoist — Authorization ${account.status.toLowerCase()}. Say "connect me to Todoist" to try again.`);
+          break;
+        }
+      } catch {
+        // Continue polling until timeout or aborted
+      }
+    }
+  })().catch(() => {});
+}
+
+function pendingAccountCard(message: string) {
+  const initialMessage = JSON.stringify(message).replace(/</g, "\\u003c");
+  const html = `<!doctype html><html><meta charset="utf-8">
+  <style>
+    :root{color-scheme:dark;--ink:#fff;--muted:#bbb}
+    :root[data-theme=light]{color-scheme:light;--ink:#161616;--muted:#515151}
+    *{box-sizing:border-box}
+    body{margin:0;padding:14px;color:var(--ink);font:14px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+    header{display:flex;justify-content:space-between;gap:12px;font-weight:600}
+    p{margin:8px 0;color:var(--muted)}
+  </style>
+  <header><span>Todoist</span><span id="status">Authorization pending</span></header>
+  <p id="message" role="status" aria-live="polite"></p>
+  <script>(() => {
+    const status = document.getElementById("status");
+    const message = document.getElementById("message");
+    const deadline = Date.now() + 180000;
+    let canInvoke = false;
+    let requestId;
+    let timer;
+    let finished = false;
+    message.textContent = ${initialMessage};
+
+    function checkStatus() {
+      clearTimeout(timer);
+      if (!canInvoke || finished || document.hidden || requestId) return;
+      if (Date.now() >= deadline) {
+        message.textContent = "Ask VoiceOS to check your Todoist connection.";
+        return;
+      }
+      requestId = Array.from(crypto.getRandomValues(new Uint32Array(4))).join("_");
+      parent.postMessage({ type: "voiceos:invokeTool", name: "connection_status", args: {}, requestId }, "*");
+    }
+
+    document.addEventListener("visibilitychange", checkStatus);
+
+    addEventListener("message", ({ source, data }) => {
+      if (source !== parent || !data) return;
+      if (data.type === "voiceos:init") {
+        canInvoke = !!data.capabilities?.invokeTool;
+        document.documentElement.dataset.theme = data.theme?.mode ?? "dark";
+        if (canInvoke) checkStatus();
+        else if (!finished) message.textContent = "After approving in your browser, ask VoiceOS to check your Todoist connection.";
+        return;
+      }
+      if (!requestId || data.type !== "voiceos:toolResult" || data.requestId !== requestId ||
+          !["completed", "failed", "cancelled", "unknown"].includes(data.status)) return;
+      requestId = undefined;
+      const block = data.result?.content?.find(item => item.type === "text");
+      let result;
+      try { if (block) result = JSON.parse(block.text); } catch {}
+      if (typeof result?.connected === "boolean" && typeof result.status === "string") {
+        finished = !["INITIATED", "INITIALIZING", "PENDING"].includes(result.status);
+        if (finished) {
+          status.textContent = result.status;
+          message.textContent = result.message;
+        }
+      }
+      if (!finished) timer = setTimeout(checkStatus, 5000);
+    });
+
+    new ResizeObserver(() => {
+      if (!document.hidden && document.documentElement.offsetWidth) {
+        parent.postMessage({ type: "voiceos:resize", height: Math.ceil(document.documentElement.getBoundingClientRect().height) }, "*");
+      }
+    }).observe(document.documentElement);
+  })()</script></html>`;
+  return { type: "widget", html, height: 100, label: "Todoist connection status" };
 }
 
 function accountResult(connected: boolean, status: string, message: string, extraData: object = {}) {
   const data = { connected, status, message, ...extraData };
-  const initial = JSON.stringify(data).replace(/</g, "\\u003c");
-  // This small result widget is needed for account controls. It never touches
-  // credentials: calls go through VoiceOS's uiCallable tool bridge.
-  const html = `<!doctype html><html><meta charset="utf-8"><style>
-    *{box-sizing:border-box;scrollbar-width:none}::-webkit-scrollbar{display:none}
-    :root{--k-radius:26px;--ink:#fff;--muted:#b5b5b5;--line:#ffffff26}
-    html[data-theme=light]{--ink:#171717;--muted:#555;--line:#0002}
-    body{margin:0;padding:20px;color:var(--ink);font:15px/1.5 -apple-system,BlinkMacSystemFont,sans-serif;background:transparent}
-    h3{margin:0 0 8px;font-size:18px}p{margin:0 0 18px;color:var(--muted)}
-    .buttons{display:flex;gap:12px;flex-wrap:wrap}button{min-height:44px;border:1px solid var(--line);border-radius:12px;padding:10px 18px;background:transparent;color:var(--ink);font:inherit;cursor:pointer}
-    button.primary{background:#db4035;border-color:#db4035;color:white}button:disabled{opacity:.5;cursor:default}
-    [aria-busy=true] #status:before{content:"";display:inline-block;width:10px;height:10px;border:2px solid var(--line);border-top-color:#db4035;border-radius:50%;animation:spin .8s linear infinite;margin-right:7px}
-    @keyframes spin{to{transform:rotate(360deg)}}
-    </style><body><h3>Todoist account</h3><p id="status" role="status" aria-live="polite"></p>
-    <div class="buttons"><button id="account" class="primary" disabled></button><button id="refresh" disabled>Refresh</button></div>
-    <script>(()=>{
-      let data=${initial},capable=false,pending=null;
-      const account=document.getElementById('account'),refresh=document.getElementById('refresh'),status=document.getElementById('status');
-      function paint(){status.textContent=data.message;account.textContent=data.connected?'Disconnect':'Connect';account.disabled=refresh.disabled=!capable||!!pending;document.body.setAttribute('aria-busy',String(!!pending));resize()}
-      function resize(){if(!document.hidden&&document.documentElement.offsetWidth){const height=Math.ceil(document.documentElement.getBoundingClientRect().height);if(height>=8)parent.postMessage({type:'voiceos:resize',height},'*')}}
-      function call(name){if(!capable||pending)return;const bytes=new Uint32Array(4);crypto.getRandomValues(bytes);const id=Array.from(bytes,n=>n.toString(16)).join('_');
-        const timer=setTimeout(()=>{if(pending&&pending.id===id){pending=null;data.message='No final response received. Refresh status before trying again.';paint()}},210000);
-        pending={id,timer};data.message=name==='connect_account'?'Waiting for browser authorization…':name==='disconnect_account'?'Disconnecting Todoist…':'Checking connection…';paint();
-        parent.postMessage({type:'voiceos:invokeTool',name,args:{},requestId:id},'*')}
-      addEventListener('message',event=>{if(event.source!==parent||!event.data)return;const m=event.data;
-        if(m.type==='voiceos:init'){capable=!!(m.capabilities&&m.capabilities.invokeTool);document.documentElement.dataset.theme=m.theme&&m.theme.mode||'dark';if(typeof m.radius==='number')document.documentElement.style.setProperty('--k-radius',Math.max(0,Math.min(48,m.radius))+'px');if(!capable)data.message+=' Use voice commands to connect or disconnect on this VoiceOS version.';paint()}
-        if(m.type==='voiceos:toolResult'&&pending&&m.requestId===pending.id&&['completed','failed','cancelled','unknown'].includes(m.status)){
-          clearTimeout(pending.timer);pending=null;let payload;try{const block=m.result&&m.result.content&&m.result.content.find(x=>x.type==='text');if(block)payload=JSON.parse(block.text)}catch{}
-          if(payload&&typeof payload.connected==='boolean')data=payload;
-          else data.message=payload&&payload.error||m.error||(m.status==='cancelled'?'Cancelled.':m.status==='completed'?'Request finished. Refresh to verify connection status.':'Could not verify the outcome. Refresh status before retrying.');paint()}
-      });
-      account.onclick=()=>call(data.connected?'disconnect_account':'connect_account');refresh.onclick=()=>call('connection_status');
-      if(window.ResizeObserver)new ResizeObserver(resize).observe(document.documentElement);paint();
-    })()</script></body></html>`;
-  return { content: [{ type: "text" as const, text: JSON.stringify({
-    ...data, _voiceos_glance: { blocks: [{ type: "widget", html, height: 210, label: "Todoist account controls", data }] },
-  }) }] };
+  return {
+    content: [{
+      type: "text" as const,
+      text: JSON.stringify({
+        ...data,
+        _voiceos_glance: {
+          blocks: status === "Authorization pending" ? [pendingAccountCard(message)] : [
+            { type: "header", title: "Todoist", trailing: connected ? "Connected" : status },
+            { type: "keyValue", pairs: [["Status", message]] },
+          ],
+        },
+      }),
+    }],
+  };
 }
 
 async function savedAccount(state: State) {
@@ -991,7 +1090,17 @@ async function savedAccount(state: State) {
 
 async function activeAccount(state: State) {
   const account = await savedAccount(state);
-  return account?.status === "ACTIVE" && !account.isDisabled ? account : undefined;
+  if (account?.status === "ACTIVE" && !account.isDisabled) {
+    if (state.pending?.id && state.pending.id === account.id) {
+      stopBackgroundConnectWatcher();
+      state.accountId = account.id;
+      delete state.pending;
+      delete state.needsReauthorization;
+      await save(state);
+    }
+    return account;
+  }
+  return undefined;
 }
 
 async function requireAccount(state: State) {
@@ -1007,72 +1116,74 @@ async function requireAccount(state: State) {
 }
 
 async function connect() {
+  // Connect is a short browser handoff, not a task that waits for user consent.
+  // Bound the whole handoff so it finishes before VoiceOS's MCP request timeout.
+  const signal = AbortSignal.timeout(12000);
   const state = await load();
   const existing = await activeAccount(state);
   if (existing && (!state.needsReauthorization || state.pending?.id === existing.id)) {
+    stopBackgroundConnectWatcher();
     state.accountId = existing.id;
     delete state.pending;
     delete state.needsReauthorization;
     await save(state);
-    return accountResult(true, "Connected", "Todoist authorization verified.");
+    return accountResult(true, "Connected", "Todoist authorization verified. Your saved connection is ready to use.");
   }
-  if (state.pending) {
-    let pending;
-    try { pending = await api().connectedAccounts.get(state.pending.id); }
-    catch (error: any) {
-      if (error.status !== 404 && error.cause?.status !== 404) throw error;
-    }
-    if (!pending || !["INITIATED", "INITIALIZING", "PENDING"].includes(pending.status)) {
-      delete state.pending;
-      await save(state);
-    }
+  // If not active, create a fresh authorization session with a valid redirect link.
+  // Reopening a previously launched link fails because Composio link sessions expire once visited.
+  delete state.pending;
+  const session = await api().sessions.create(state.userId, {
+    toolkits: ["todoist"],
+    tools: { todoist: { enable: catalog.tools.map((tool: any) => tool.slug) } },
+  }, { signal });
+  const request = await session.authorize("todoist", undefined, { signal });
+  const url = request.redirectUrl;
+  if (!url || new URL(url).protocol !== "https:") {
+    throw new Error("Composio did not return a valid authorization link.");
   }
-  if (!state.pending) {
-    const session = await api().sessions.create(state.userId, {
-      toolkits: ["todoist"],
-      tools: { todoist: { enable: catalog.tools.map((tool: any) => tool.slug) } },
-    });
-    const request = await session.authorize("todoist");
-    if (!request.redirectUrl || new URL(request.redirectUrl).protocol !== "https:") {
-      throw new Error("Composio did not return a valid authorization link.");
-    }
-    state.pending = { id: request.id, url: request.redirectUrl };
-    await save(state);
-  }
+  state.pending = { id: request.id, url };
+  await save(state);
   // Only an explicit Connect request opens the OAuth consent page.
   await new Promise<void>((resolve, reject) => {
-    execFile("/usr/bin/open", [state.pending!.url], { timeout: 8000 }, error => error ? reject(error) : resolve());
+    const onOpened = (error: Error | null) => error ? reject(error) : resolve();
+    if (platform() === "win32") {
+      // Pass the URL as data so query parameters aren't parsed as PowerShell code.
+      execFile("powershell.exe", [
+        "-NoProfile", "-NonInteractive", "-Command",
+        "Start-Process -FilePath $env:TODOIST_AUTHORIZATION_URL -ErrorAction Stop",
+      ], {
+        env: { ...process.env, TODOIST_AUTHORIZATION_URL: url },
+        windowsHide: true,
+        timeout: 8000,
+        signal,
+      }, onOpened);
+    } else {
+      execFile("/usr/bin/open", [url], { timeout: 8000, signal }, onOpened);
+    }
   });
-  let account;
-  try { account = await api().connectedAccounts.waitForConnection(state.pending.id, 180000); }
-  catch (error: any) {
-    if (/timed?\s*out/i.test(error.message ?? "")) throw new TodoistError("AUTH_PENDING", "Todoist authorization has not finished yet. Complete it in your browser, then refresh the connection status. Your pending link is saved.");
-    throw error;
-  }
-  if (account.toolkit.slug !== "todoist" || account.status !== "ACTIVE" || account.isDisabled) {
-    throw new Error("Todoist authorization is not active.");
-  }
-  state.accountId = account.id;
-  delete state.pending;
-  delete state.needsReauthorization;
-  await save(state);
-  return accountResult(true, "Connected", "Todoist authorization verified. Your saved connection is ready to use.");
+  startBackgroundConnectWatcher(request.id);
+  return accountResult(
+    false,
+    "Authorization pending",
+    "Finish authorizing Todoist in your browser. This card checks for approval while open.",
+    { authorizationUrl: state.pending.url },
+  );
 }
 
 server.registerTool("connect_account", {
   title: "Connect Todoist",
-  description: "Connect Todoist using Composio OAuth. Use when the user says connect me to Todoist or authorize Todoist. Reuse this installation's verified connection; otherwise open browser authorization and wait. This does not read or change tasks.",
+  description: "Connect Todoist using Composio OAuth. Use when asked to connect or authorize Todoist. Verify a saved active connection; otherwise open browser authorization and immediately return pending with its link. To check or verify connection status without opening another tab, use connection_status.",
   inputSchema: {}, annotations: { readOnlyHint: false, destructiveHint: false },
-}, async (_input, extra) => withFeedback("Connect Todoist", true, extra, async () => {
+}, async (_input, extra) => withFeedback("Connect Todoist", extra, async () => {
     if (disconnecting) throw new Error("A Todoist disconnect is still running. Wait for it to finish before connecting.");
     if (!connecting) connecting = connect().finally(() => { connecting = undefined; });
     return await connecting;
 }));
 
 server.registerTool("connection_status", {
-  title: "Todoist account", description: "Show Todoist connection status and Connect/Disconnect controls. Use for account settings, connection status, or expired authorization. Does not start OAuth.",
+  title: "Todoist account", description: "Show Todoist connection status with an account status card. Use for account settings, connection status, or expired authorization. Does not start OAuth.",
   inputSchema: {}, annotations: { readOnlyHint: true, destructiveHint: false },
-}, async (_input, extra) => withFeedback("Check connection", false, extra, async () => {
+}, async (_input, extra) => withFeedback("Check connection", extra, async () => {
   const state = await load();
   const account = await savedAccount(state);
   const connected = account?.status === "ACTIVE" && !account.isDisabled && !state.needsReauthorization;
@@ -1087,6 +1198,7 @@ server.registerTool("connection_status", {
 }));
 
 async function disconnect() {
+  stopBackgroundConnectWatcher();
   if (connecting) throw new Error("Todoist authorization is still running. Finish or wait for it before disconnecting.");
   const state = await load();
   let providerRevoked = true;
@@ -1121,7 +1233,7 @@ async function disconnect() {
 server.registerTool("disconnect_account", {
   title: "Disconnect Todoist", description: "Disconnect this installation's Todoist connection. Use only when explicitly asked to disconnect or unlink Todoist. Revokes authorization where supported; otherwise disables the Composio connection. Never deletes Todoist data.",
   inputSchema: {}, annotations: { readOnlyHint: false, destructiveHint: false },
-}, async (_input, extra) => withFeedback("Disconnect Todoist", true, extra, async () => {
+}, async (_input, extra) => withFeedback("Disconnect Todoist", extra, async () => {
   if (!disconnecting) disconnecting = disconnect().finally(() => { disconnecting = undefined; });
   return await disconnecting;
 }));
@@ -1159,6 +1271,51 @@ function inputShape(schema: any): z.ZodRawShape {
   }));
 }
 
+// VoiceOS sends edited top-level confirmation fields as text.
+function normalizeConfirmationEdits(name: string, args: Record<string, any>) {
+  if (name === "create_project" || name === "create_label") {
+    if (args.color === "") delete args.color;
+    if (typeof args.is_favorite === "string") args.is_favorite = args.is_favorite === "true";
+  }
+  if (name !== "update_task") return;
+  if (args.clear_description === true) {
+    if (args.description !== undefined) throw new Error("Choose whether to replace or remove the description.");
+    args.description = "";
+  } else if (typeof args.description === "string" && !args.description.trim()) {
+    throw new Error("Enter a description or ask VoiceOS to remove it.");
+  }
+  delete args.clear_description;
+  if (typeof args.labels !== "string") return;
+  const labels = args.labels.trim();
+  if (!labels) {
+    delete args.labels;
+  } else if (labels.startsWith("[")) {
+    try {
+      args.labels = z.array(z.string().min(1)).parse(JSON.parse(labels));
+    } catch {
+      throw new Error('Enter one label per line, a list like ["Work"], or [] to remove all labels.');
+    }
+  } else {
+    args.labels = labels.split(/\r?\n/).map(label => label.trim()).filter(Boolean);
+  }
+}
+
+function normalizeUpdateDueDate(value: string): string {
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const readable = /^([A-Z][a-z]{2}) (\d{1,2}), (\d{4})$/.exec(value);
+  let iso = value;
+  if (readable) {
+    const [, month, day, year] = readable;
+    const monthNumber = months.indexOf(month) + 1;
+    iso = `${year}-${String(monthNumber).padStart(2, "0")}-${day.padStart(2, "0")}`;
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
+    const date = new Date(`${iso}T00:00:00Z`);
+    if (Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === iso) return iso;
+  }
+  throw new Error("Enter a valid due date such as Nov 13, 2026.");
+}
+
 function validateArguments(name: string, args: Record<string, any>) {
   for (const key of ["content", "name", "task_id", "project_id", "section_id", "label_id"]) {
     if (typeof args[key] === "string" && !args[key].trim()) throw new Error(`${key} cannot be blank.`);
@@ -1193,9 +1350,26 @@ function listPage(data: any, keys: string[], depth = 0): { items: any[]; nextCur
   throw new Error("Unexpected list response from Composio; no empty list was assumed.");
 }
 
+function formatTaskDueDate(due: { date?: string; timezone?: string | null } | null | undefined) {
+  if (typeof due?.date !== "string") return;
+  // Date-only and floating values already use the intended calendar day.
+  const isFixed = due.date.endsWith("Z");
+  const date = new Date(isFixed ? due.date : due.date.slice(0, 10) + "T00:00:00Z");
+  if (!Number.isFinite(date.getTime())) return;
+  try {
+    return date.toLocaleDateString("en-US", {
+      timeZone: isFixed ? due.timezone ?? "UTC" : "UTC",
+      weekday: "short", month: "short", day: "numeric", year: "numeric",
+    });
+  } catch {
+    // An unsupported timezone should only suppress this row's subtitle.
+    return undefined;
+  }
+}
+
 function operationResult(tool: any, args: Record<string, any>, data: any) {
   const listKeys: Record<string, string> = {
-    list_projects: "projects", list_sections: "sections", get_active_tasks: "tasks", manage_labels: "labels",
+    list_projects: "projects", list_sections: "sections", get_active_tasks: "tasks", list_labels: "labels",
   };
   const entity = listKeys[tool.name];
   const payload: Record<string, any> = { success: true, operation: tool.name, data };
@@ -1206,10 +1380,16 @@ function operationResult(tool: any, args: Record<string, any>, data: any) {
     if (page.nextCursor) payload.next_cursor = page.nextCursor;
     blocks[0].trailing = `${page.items.length} returned`;
     if (page.items.length) {
-      blocks.push({ type: "list", rows: page.items.slice(0, 6).map(item => ({
-        title: String(item.name ?? item.content ?? item.id ?? "Item").slice(0, 60),
-        ...(item.id ? { subtitle: `ID: ${item.id}` } : {}),
-      })) });
+      const rows = page.items.slice(0, 6).map(item => {
+        const due = entity === "tasks" ? formatTaskDueDate(item.due) : undefined;
+        const isFavorite = (entity === "projects" || entity === "labels") && item.is_favorite === true;
+        const subtitle = due ? `Due ${due}` : isFavorite ? "Favorite" : undefined;
+        return {
+          title: String(item.name ?? item.content ?? "Item").slice(0, 60),
+          ...(subtitle ? { subtitle } : {}),
+        };
+      });
+      blocks.push({ type: "list", rows });
     } else blocks.push({ type: "keyValue", pairs: [["Results", "No items returned"]] });
     if (page.nextCursor) blocks.push({ type: "keyValue", pairs: [["More results", "Ask for the next page"]] });
   } else if (tool.name === "get_productivity_stats") {
@@ -1234,12 +1414,13 @@ for (const tool of catalog.tools) {
   server.registerTool(tool.name, {
     title: tool.title, description: tool.description, inputSchema: z.object(inputShape(tool.inputSchema)).strict(),
     annotations: { readOnlyHint: tool.readOnly, destructiveHint: ["delete_project", "delete_section", "delete_label"].includes(tool.name), openWorldHint: true },
-  }, async (input: Record<string, any>, extra) => withFeedback(tool.title,
-    !tool.readOnly, extra, async () => {
-      const { target_name, ...args } = input;
-      // Accept the legacy list action locally, without sending it to Todoist.
-      if (tool.name === "manage_labels") delete args.action;
+  }, async (input: Record<string, any>, extra) => withFeedback(tool.title, extra, async () => {
+      const { target_name, current_labels, ...args } = input;
+      normalizeConfirmationEdits(tool.name, args);
       validateArguments(tool.name, args);
+      if (tool.name === "update_task" && args.due_date !== undefined) {
+        args.due_date = normalizeUpdateDueDate(args.due_date);
+      }
       const state = await load();
       const account = await requireAccount(state);
       // A single selected action, no fallback tool names and no automatic OAuth.
