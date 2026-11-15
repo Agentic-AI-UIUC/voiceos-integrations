@@ -8,7 +8,7 @@
  *   build.ts   the markup (this file), plus a tiny script for the simple cards;
  *              widgetKit wraps markup, CSS and script into one page
  *
- * delete_project, add_comment and complete_task are declarative "card" confirmations instead
+ * delete_project, add_comment, complete_task and disconnect_account are declarative "card" confirmations instead
  * (see `declarative` below): VoiceOS gives widget confirmations only a floating
  * Confirm and no Cancel (issue #34), while a card's footer has a real Cancel.
  *
@@ -185,6 +185,22 @@ const declarative: Record<string, object> = {
     title: "Complete task",
     children: [{ type: "text", text: "{{task_name}}", variant: "title" }],
     footer: actions("Confirm"),
+  },
+  disconnect_account: {
+    type: "card",
+    title: "Disconnect Asana",
+    children: [
+      {
+        type: "stack",
+        direction: "vertical",
+        gap: "xs",
+        children: [
+          { type: "text", text: "VoiceOS will stop working with your Asana tasks, projects and goals." },
+          { type: "text", text: "Nothing in Asana is changed. You can connect again any time.", color: "muted" },
+        ],
+      },
+    ],
+    footer: actions("Disconnect", "danger"),
   },
 };
 

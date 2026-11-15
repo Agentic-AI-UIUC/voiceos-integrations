@@ -785,6 +785,74 @@
           ]
         }
       }
+    },
+    {
+      "name": "connect_account",
+      "title": "Connect account",
+      "description": "Connect the user's Asana account. Use when the user asks to connect, link or sign in to Asana. Returns a sign-in link on the card: tell the user in one sentence to open Connect Asana on the card. If Asana is already connected, it only says so.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "connection_status",
+      "title": "Connection status",
+      "description": "Check whether Asana is connected. Use when the user asks about their Asana connection. Read only: it never starts a sign-in.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "disconnect_account",
+      "title": "Disconnect account",
+      "description": "Disconnect Asana from VoiceOS: revokes Composio's Asana access where possible and removes the connection. Use only when the user explicitly asks to disconnect, unlink or sign out of Asana. Never changes anything in Asana.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      },
+      "confirmation": {
+        "schemaVersion": 1,
+        "root": {
+          "type": "card",
+          "title": "Disconnect Asana",
+          "children": [
+            {
+              "type": "stack",
+              "direction": "vertical",
+              "gap": "xs",
+              "children": [
+                {
+                  "type": "text",
+                  "text": "VoiceOS will stop working with your Asana tasks, projects and goals."
+                },
+                {
+                  "type": "text",
+                  "text": "Nothing in Asana is changed. You can connect again any time.",
+                  "color": "muted"
+                }
+              ]
+            }
+          ],
+          "footer": [
+            {
+              "type": "actions",
+              "items": [
+                {
+                  "label": "Cancel",
+                  "role": "cancel"
+                },
+                {
+                  "label": "Disconnect",
+                  "role": "confirm",
+                  "color": "danger"
+                }
+              ]
+            }
+          ]
+        }
+      }
     }
   ],
   "icon": "icon.png"

@@ -47,8 +47,8 @@ user, so they are **not** VoiceOS setup fields:
 1. Copy `.env.example` to `.env` and set `COMPOSIO_API_KEY` (a full-access
    project key). `server.ts` loads it on start.
 2. That's all. The first connect creates a Composio-managed Asana auth config
-   if the project has none, and users connect from the **Connect Asana** link
-   on the error card. Each install has its own Composio user (`voiceos-<id>`
+   if the project has none, and users connect by saying "connect Asana"
+   (`connect_account`), or from the **Connect Asana** link on an error card. Each install has its own Composio user (`voiceos-<id>`
    in the gitignored `.composio-user.json`).
 
 ## Rules that make integrations feel native

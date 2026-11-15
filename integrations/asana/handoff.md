@@ -24,7 +24,7 @@ All runtime code is in `server.ts`. `AGENTS.md` has the file layout and the dev 
 1. Remove the temporary `COMPOSIO_API_KEY` Setup field from `preferences` in `voiceos.integration.json`.
 2. Copy `.env.example` to `.env` and set your own `COMPOSIO_API_KEY` (a full-access project key). Nothing to set up in
    the Composio dashboard: the first connect creates the Asana auth config if the project has none, and users connect
-   from the **Connect Asana** link on the error card.
+   by saying "connect Asana" (or from the **Connect Asana** link on an error card).
 3. Run `bun test`.
 4. Check `publisher` in `voiceos.integration.json`. It credits the original author as `{"id": "lothronx", "name": "Yue Wu"}`, in
    the same form as the bundled grokbot integration. Studio generated `pub_user` / "Made in VoiceOS" there, so make sure
@@ -49,6 +49,14 @@ The user talks to VoiceOS. The agent picks one of the 9 approved tools below.
 | Create project | `create_project` | Create a project: name, description, due date, team, default view (list/board/calendar). | `list_asana_options` (`kind: "project"`) |
 | Delete project | `delete_project` | Delete a project. The card says how many tasks go with it, and the server re-checks the name and that count before deleting. | `find_asana_projects` |
 | Create goal | `create_goal` | Create a goal: name, description, due date, owner (defaults to the user), time period. | `list_asana_options` (`kind: "goal"`) |
+
+The connect/disconnect UI is three more tools. They manage the connection only:
+
+| Tool | Example | Card |
+|---|---|---|
+| `connect_account` | "Connect Asana" | **Connect Asana** link, or "connected" |
+| `connection_status` | "Is Asana connected?" | Connected / not connected, and why. Never starts a sign-in. |
+| `disconnect_account` | "Disconnect Asana" | Asks first (Cancel / Disconnect). Revokes Composio's Asana token, then deletes the connection. |
 
 ## Current status
 
@@ -75,10 +83,12 @@ capability:
 | `find_asana_projects` | Delete project | It counts the tasks that a delete would remove, so the card can warn about them. |
 | `set_task_done` | Complete task | It completes a task when the user clicks the circle on a task card. If the click went through `complete_task`, VoiceOS would ask for approval in a dialog that shows raw JSON. So the click calls this tool, which has no confirmation card. Each task row on a card carries a token that the server signs with a secret only it knows, and the tool refuses any call without a valid token. That way the agent can't use it to skip the confirmation step. |
 
-### 2. Connect and disconnect happen in the Composio dashboard
+### 2. Connect and disconnect are by voice
 
-Custom integrations can't use VoiceOS's native connect toggle. Users link Asana in platform.composio.dev. When the
-link is missing, expired or revoked, the tool error says which one and where to reconnect.
+Custom integrations can't use VoiceOS's native connect toggle, so `connect_account`, `connection_status` and
+`disconnect_account` do it. The **Connect Asana** link on the card opens Asana sign-in in the browser; there is no
+Disconnect button. When a tool fails because the link is missing, expired or revoked, its error card says which one
+and has the same Connect Asana link.
 
 ## Things that will surprise you
 
@@ -94,6 +104,10 @@ link is missing, expired or revoked, the tool error says which one and where to 
   matching task names only. A brand-new task takes about a minute to show up in search.
 - **The server checks every card before writing.** Card labels come from the agent, so the server confirms that each
   picked id exists, that the card showed its real name, and that the task or project name still matches.
+- **Disconnect revokes, then deletes.** If Composio can't revoke at Asana (400/409), the connection is still deleted
+  and the result tells the user to remove Composio under Apps in their Asana settings.
+- **After a revoke outside VoiceOS, Composio still says connected**, so `connection_status` can say "connected" until
+  a tool fails and shows the Connect Asana link.
 - **Lists stop at 100.** Each spot where that happens has a `shortcut:` comment in the code.
 
 ## Dev notes
