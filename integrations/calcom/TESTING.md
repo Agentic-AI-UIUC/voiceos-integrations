@@ -45,3 +45,16 @@ This is broad risk-based coverage, not every possible combination. Named-zone in
 
 ## Screenshots
 Right-side-only recaptures of actual VoiceOS screenshots. Images 01–16 are the initial live sweep; 17 onward document expanded checks. No synthetic result cards are presented as live evidence.
+
+## Studio refresh limitation
+The installed server passed the missing-offset and duration guards. VoiceOS Studio
+continued displaying its cached, older confirmation date hint after server restart
+and editor reopen. A manifest-only Studio rebuild then failed with “Integration
+generation is not available right now.” The corrected embedded formatters in this
+PR pass automated tests, but their deployment to Studio's cached UI still needs
+verification when that service recovers. No booking was approved in the final
+confirmation-only check.
+
+The corrected manifest was also rendered in a browser at 388px width; the invalid
+input displayed the expected correction hint. Its screenshot is labelled as a local
+render check, separate from the live Studio evidence.

@@ -75,3 +75,7 @@ rejection, missing-offset rejection, explicit-link duration mismatch rejection,
 UTC rescheduling, guarded cancellation, and an empty upcoming QA lookup. Live DST
 Sunday availability queries returned no slots; exact DST-hour behavior is covered
 by automated tests, not by successful live bookings during those hours.
+
+The corrected manifest date hint still needs a successful Studio refresh: its
+rebuild service was unavailable during the final live UI check. Server validation
+is active and was verified live. See TESTING.md for the exact distinction.

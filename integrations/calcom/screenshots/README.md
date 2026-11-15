@@ -109,3 +109,7 @@ See [test report](../TESTING.md) for tested scenarios and limits. Click any imag
 ### Final cleanup — no upcoming QA bookings
 
 [![Final cleanup — no upcoming QA bookings](28-final-cleanup-verified.jpg)](28-final-cleanup-verified.jpg)
+
+### Local render check — corrected date hint (not a live Studio capture)
+
+![Local render check — corrected date hint (not a live Studio capture)](confirmation-hint-render-check.jpg)
