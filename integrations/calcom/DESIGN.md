@@ -40,3 +40,11 @@ not an invented or bearer-token URL. Opening details never mutates bookings.
 cardDetails.test.ts covers escaping, complete long text, and URL construction.
 Use VoiceOS to verify expansion, collapse, keyboard focus, scrolling, and external
 navigation. Compare unchanged empty/error/availability cards for consistency.
+
+## Scheduling validation
+The server owns strict ISO instant and calendar-date validation.
+`syncConfirmationDates.ts` embeds that same validator into the manifest's date
+hints; run it after changing date validation. Offset-free times must show an
+inline correction hint, never a silently normalized DST time. The server remains
+authoritative and blocks invalid edits before a write. `cardDetails.test.ts`
+executes each embedded formatter against invalid dates and both fall-back offsets.

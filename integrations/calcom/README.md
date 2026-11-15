@@ -34,9 +34,11 @@ bun server.ts
 ```
 
 Mac and Windows launchers are included. Live UI verification was performed on Mac;
-Windows execution has not yet been verified. The tests cover disclosure rendering,
-escaping, URL construction, long content, and empty states. They do not establish
-end-to-end coverage of all Composio operations.
+Windows execution has not yet been verified. The 85 automated tests (179 assertions) cover real MCP handlers with mocked HTTP,
+strict dates and offsets, both DST boundaries, 23/25-hour availability days,
+MCP input validation, booking-identity checks, provider/auth/network failures,
+uncertain write outcomes, and card/confirmation rendering. These simulated cases
+are separate from the live Mac evidence below.
 
 Live Mac testing on November 14, 2026 exercised all seven tools: listing bookings
 and event types, availability, creating an event type, and creating → rescheduling
@@ -49,8 +51,27 @@ write confirmation/result and an invalid-email provider error. The QA event type
 
 - Publish the integration and add its VoiceOS share link before submission.
 - Complete Windows QA.
-- An explicit event-type ID/slug bypasses the requested-duration match check.
-- Cancel/reschedule use the booking UID without checking title/time against the
-  confirmation's displayed details.
 - Confirmation widgets currently use the existing widget format rather than
   native cards with Cancel buttons.
+
+## Validation and timezone behavior
+
+- Booking timestamps require ISO 8601 with `Z` or an explicit UTC offset.
+  Offset-free dates, impossible calendar dates, and invalid times are rejected.
+- Explicit offsets identify instants; the cards display the Mac's local timezone.
+  Both fall-back occurrences remain distinct. Named-zone wall-time input is not
+  a tool parameter: the voice agent must resolve the intended offset.
+- Event type IDs/slugs must exist in the accessible list and match the requested
+  duration. Unknown numeric IDs no longer invent a default duration.
+- Cancel/reschedule require the exact title and current start from `get_bookings`.
+  The server fetches the UID again and rejects changed/mismatched, cancelled, or
+  already-moved bookings before writing. This is a preflight check, not an atomic
+  provider-side compare-and-swap; concurrent external edits remain possible.
+- `bun syncConfirmationDates.ts` regenerates embedded date hints from the server
+  validator. Run it after changing date validation.
+
+The expanded live sweep verified Tokyo → Chicago date rollover, occupied-slot
+rejection, missing-offset rejection, explicit-link duration mismatch rejection,
+UTC rescheduling, guarded cancellation, and an empty upcoming QA lookup. Live DST
+Sunday availability queries returned no slots; exact DST-hour behavior is covered
+by automated tests, not by successful live bookings during those hours.

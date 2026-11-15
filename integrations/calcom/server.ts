@@ -244,7 +244,7 @@ class ComposioClient {
     } catch (e: any) {
       log(`${init.method} ${path} network error after ${Date.now() - started}ms:`, e?.message);
       if (e?.name === "TimeoutError") throw new Error(init.write ? UNCERTAIN_WRITE : "Composio did not respond in time. Try again.");
-      throw new Error(`Could not reach Composio: ${e?.message || e}`);
+      throw new Error(init.write ? UNCERTAIN_WRITE : `Could not reach Composio: ${e?.message || e}`);
     }
     const text = await res.text();
     let body: any = text;
@@ -395,11 +395,24 @@ function shiftDay(ymd: string, days: number): string {
   return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
 }
 
-function toIsoOrThrow(value: string, field: string): string {
-  const d = new Date(value);
-  if (isNaN(d.getTime())) {
-    throw new Error(`${field} must be an ISO 8601 date-time like 2026-11-12T15:30:00-06:00 (got "${value}").`);
+function validateDate(value: string, field: string): void {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(Date.parse(`${value}T00:00:00Z`)) || new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) !== value) {
+    throw new Error(`${field} must be a valid calendar date in YYYY-MM-DD format (got "${value}").`);
   }
+}
+
+function toIsoOrThrow(value: string, field: string): string {
+  // Require an explicit instant: host-local parsing silently normalizes DST gaps
+  // and chooses one occurrence of a repeated hour.
+  const m = /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d{1,3})?)?(Z|[+-]\d{2}:\d{2})$/i.exec(value);
+  if (!m) throw new Error(`${field} must be an ISO 8601 date-time with Z or an explicit UTC offset. For a repeated DST hour, specify which offset you mean.`);
+  validateDate(m[1], field);
+  const offset = m[5];
+  if (+m[2] > 23 || +m[3] > 59 || +(m[4] || 0) > 59 || (offset.toUpperCase() !== "Z" && (+offset.slice(1, 3) > 23 || +offset.slice(4) > 59))) {
+    throw new Error(`${field} contains an invalid time or UTC offset.`);
+  }
+  const d = new Date(value);
+  if (isNaN(d.getTime())) throw new Error(`${field} is not a valid date-time.`);
   return d.toISOString();
 }
 
@@ -461,18 +474,27 @@ async function listEventTypes(c: ComposioClient, username?: string): Promise<Eve
   return map(raw);
 }
 
+function checkDuration(eventType: EventTypeLite, duration?: number): EventTypeLite {
+  if (duration !== undefined && eventType.length !== duration) {
+    throw new Error(`The selected booking link is ${eventType.length} minutes, but you requested ${duration}. Choose a matching link or confirm the correct duration.`);
+  }
+  return eventType;
+}
+
 /** Turn an id, a slug, or nothing (pick by duration, else first) into a numeric event type. */
 async function resolveEventType(c: ComposioClient, ref?: string, duration?: number, username?: string): Promise<EventTypeLite> {
   const asNum = ref && /^\d+$/.test(ref.trim()) ? Number(ref.trim()) : undefined;
   const list = await listEventTypes(c, username);
   if (asNum !== undefined) {
-    return list.find((e) => e.id === asNum) ?? { id: asNum, title: "Event", slug: "", length: duration ?? 30, description: "", hidden: false };
+    const hit = list.find((e) => e.id === asNum);
+    if (!hit) throw new Error(`No accessible Cal.com event type has ID ${asNum}. Refresh your booking links first.`);
+    return checkDuration(hit, duration);
   }
   if (list.length === 0) throw new Error("This Cal.com account has no event types. Create one first (create_event_type).");
   if (ref) {
     const hit = list.find((e) => e.slug === ref.trim() || e.title.toLowerCase() === ref.trim().toLowerCase());
     if (!hit) throw new Error(`No Cal.com event type matches "${ref}". Available: ${list.map((e) => e.slug).join(", ")}.`);
-    return hit;
+    return checkDuration(hit, duration);
   }
   const visible = list.filter((e) => !e.hidden);
   const pool = visible.length ? visible : list;
@@ -484,6 +506,19 @@ async function resolveEventType(c: ComposioClient, ref?: string, duration?: numb
     throw new Error(`No booking link is ${duration} minutes long. Available lengths: ${lengths} min. Pick one of those, or create a ${duration}-minute booking link first.`);
   }
   return pool.find((e) => e.length === 30) ?? pool[0];
+}
+
+/** Re-read the exact booking before a write; stale/mismatched confirmation data must not act. */
+async function verifyBooking(c: ComposioClient, args: any, timeField: string): Promise<any> {
+  if (!args.title?.trim() || !args[timeField]) throw new Error("Refresh the booking first: its exact title and current start time are required for confirmation.");
+  const raw = await c.proxy("GET", `https://api.cal.com/v2/bookings/${encodeURIComponent(args.bookingId.trim())}`, undefined, { "cal-api-version": "2026-02-25" });
+  if (Array.isArray(raw) || !raw?.uid || raw.uid !== args.bookingId.trim()) throw new Error("Could not verify this booking UID. Refresh your bookings first.");
+  if (raw.status === "cancelled" || raw.rescheduledToUid) throw new Error("This booking was already cancelled or moved. Refresh your bookings before making changes.");
+  if (raw.title !== args.title || toIsoOrThrow(raw.start, "booking start") !== toIsoOrThrow(args[timeField], timeField) ||
+      (args.attendeeName && !raw.attendees?.some((a: any) => a.name === args.attendeeName))) {
+    throw new Error("Booking details changed or do not match the confirmation. Refresh your bookings and confirm the correct meeting.");
+  }
+  return raw;
 }
 
 // --- Date & Formatting Helpers ---
@@ -843,7 +878,7 @@ server.registerTool(
     description: "Retrieve upcoming scheduled Cal.com bookings and meetings for the authenticated user. Use when the user asks what meetings, calls, or appointments are scheduled; for my next meeting pass limit 1. Each booking's id is its Cal.com UID, used by cancel_booking and reschedule_booking.",
     inputSchema: {
       status: z.enum(["upcoming", "past", "cancelled"]).optional().describe("Booking status filter (default: 'upcoming')."),
-      limit: z.number().min(1).max(10).optional().describe("Number of bookings to retrieve (default: 10, max 10)."),
+      limit: z.number().int().min(1).max(10).optional().describe("Number of bookings to retrieve (default: 10, max 10)."),
       attendeeEmail: z.string().email().optional().describe("Optional attendee email filter."),
     } as any,
   },
@@ -890,7 +925,7 @@ server.registerTool(
       start: z.string().min(1).describe("Start time as ISO 8601 with timezone (e.g. 2026-11-12T15:30:00-06:00)."),
       name: z.string().min(1).describe("Attendee full name."),
       email: z.string().email().describe("Attendee email address."),
-      duration: z.number().optional().describe("Duration in minutes, used to pick the event type (default: 30)."),
+      duration: z.number().int().min(5).max(480).optional().describe("Duration in minutes, used to pick the event type (default: 30)."),
       eventTypeId: z.string().optional().describe("Optional Cal.com event type ID or slug (from get_event_types)."),
       notes: z.string().optional().describe("Optional meeting notes."),
     } as any,
@@ -938,8 +973,8 @@ server.registerTool(
     description: "Cancel an existing Cal.com booking by its UID (the id from get_bookings) with an optional reason. Use when the user requests to cancel or remove a meeting; call get_bookings first if you don't have the UID.",
     inputSchema: {
       bookingId: z.string().min(1).describe("Booking UID to cancel (the id returned by get_bookings)."),
-      title: z.string().optional().describe("Meeting title for verification."),
-      startTime: z.string().optional().describe("Scheduled start time string."),
+      title: z.string().min(1).describe("Exact meeting title from get_bookings, verified before execution."),
+      startTime: z.string().min(1).describe("Exact current start time with timezone from get_bookings."),
       attendeeName: z.string().optional().describe("Attendee name for confirmation."),
       reason: z.string().optional().describe("Cancellation reason."),
     } as any,
@@ -947,6 +982,7 @@ server.registerTool(
   async (args: any) => {
     try {
       const c = getComposio();
+      await verifyBooking(c, args, "startTime");
       const raw = await c.run("CAL_CANCEL_BOOKING_VIA_UID", {
         bookingUid: args.bookingId.trim(),
         cancellationReason: args.reason,
@@ -974,9 +1010,9 @@ server.registerTool(
     inputSchema: {
       bookingId: z.string().min(1).describe("Booking UID to reschedule (the id returned by get_bookings)."),
       newStartTime: z.string().min(1).describe("New start time as ISO 8601 with timezone (e.g. 2026-11-12T15:30:00-06:00)."),
-      title: z.string().optional().describe("Meeting title for verification."),
+      title: z.string().min(1).describe("Exact meeting title from get_bookings, verified before execution."),
       attendeeName: z.string().optional().describe("Attendee name."),
-      currentStartTime: z.string().optional().describe("Current scheduled time."),
+      currentStartTime: z.string().min(1).describe("Exact current start time with timezone from get_bookings."),
       reason: z.string().optional().describe("Optional reason for rescheduling."),
     } as any,
   },
@@ -984,6 +1020,7 @@ server.registerTool(
     try {
       const c = getComposio();
       const start = toIsoOrThrow(args.newStartTime, "newStartTime");
+      await verifyBooking(c, args, "currentStartTime");
       const raw = await c.run("CAL_RESCHEDULE_BOOKING_BY_UID", {
         bookingUid: args.bookingId.trim(),
         start,
@@ -1014,7 +1051,7 @@ server.registerTool(
     title: "Get event types",
     description: "Fetch configured Cal.com event types showing durations and booking link slugs. Use when the user asks what booking links or event types are set up.",
     inputSchema: {
-      limit: z.number().min(1).max(15).optional().describe("Max event types to return (default: 15)."),
+      limit: z.number().int().min(1).max(15).optional().describe("Max event types to return (default: 15)."),
     } as any,
   },
   async (args: any) => {
@@ -1050,8 +1087,9 @@ server.registerTool(
       const dateFrom = args?.dateFrom || today;
       const dateTo = args?.dateTo || dateFrom;
       for (const [k, v] of [["dateFrom", dateFrom], ["dateTo", dateTo]]) {
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) throw new Error(`${k} must be YYYY-MM-DD (got "${v}").`);
+        validateDate(v, k);
       }
+      if (dateTo < dateFrom) throw new Error("dateTo must be on or after dateFrom.");
       const et = await resolveEventType(c, args?.eventTypeId, undefined, args?.username);
 
       const raw = await c.run("CAL_GET_AVAILABLE_SLOTS_INFO", {
@@ -1095,7 +1133,7 @@ server.registerTool(
     inputSchema: {
       title: z.string().min(1).describe("Event type title (e.g. Quick Chat)."),
       slug: z.string().min(1).describe("URL slug (e.g. quick-chat)."),
-      length: z.number().min(5).max(480).describe("Meeting duration in minutes (e.g. 15, 30, 45, 60)."),
+      length: z.number().int().min(5).max(480).describe("Meeting duration in minutes (e.g. 15, 30, 45, 60)."),
       description: z.string().optional().describe("Optional description for this booking link."),
     } as any,
   },
@@ -1130,4 +1168,4 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   await server.connect(new StdioServerTransport());
   log(`server ready (Composio ${normalizeBaseUrl(process.env.COMPOSIO_BASE_URL)}, tz ${LOCAL_TZ})`);
 }
-export { renderBookingsCard, renderEventTypesCard };
+export { renderBookingsCard, renderEventTypesCard, toIsoOrThrow, validateDate, resolveEventType, server };

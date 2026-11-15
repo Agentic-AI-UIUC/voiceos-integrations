@@ -29,3 +29,16 @@ test('event type cards keep full descriptions and valid links; empty cards stay 
  expect(renderEventTypesCard([]).html).toContain('No booking links yet');
  expect(renderBookingsCard([],'upcoming').html).toContain('No upcoming bookings');
 });
+
+import manifest from './voiceos.integration.json';
+for (const tool of manifest.tools.filter((t:any)=>t.confirmation)) {
+ test(`${tool.name} confirmation rejects ambiguous dates and preserves DST labels`,()=>{
+  const html=(tool as any).confirmation.root.html;
+  const code=html.match(/<script>\(function\(\)\{([\s\S]*?)function hint/)[1];
+  const fmt=new Function(code+';return fmt;')();
+  expect(fmt('2027-03-14T02:30:00')).toBeNull();
+  expect(fmt('2027-02-29T12:00:00Z')).toBeNull();
+  expect(fmt('2027-11-07T01:30:00-05:00')).toContain('CDT');
+  expect(fmt('2027-11-07T01:30:00-06:00')).toContain('CST');
+ });
+}
