@@ -27,6 +27,28 @@ test("a damaged state file is an error, not a silent new identity (which would o
   expect(() => resolveUserId(undefined, file)).toThrow(/\.composio-user\.json/);
 });
 
+test("the file goes in a folder that may not exist yet (~/.voiceos on a fresh machine)", () => {
+  const file = join(mkdtempSync(join(tmpdir(), "asana-user-")), "new-dir", "user.json");
+  const id = resolveUserId(undefined, file);
+  expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({ userId: id });
+});
+
+test("an id saved by 1.2.0 next to server.ts is carried over, so the existing connection keeps working", () => {
+  const legacy = stateFile();
+  writeFileSync(legacy, JSON.stringify({ userId: "voiceos-00000000-0000-0000-0000-000000000001" }));
+  const file = stateFile();
+  expect(resolveUserId(undefined, file, legacy)).toBe("voiceos-00000000-0000-0000-0000-000000000001");
+  expect(JSON.parse(readFileSync(file, "utf8")).userId).toBe("voiceos-00000000-0000-0000-0000-000000000001");
+});
+
+test("the new file wins over the old one", () => {
+  const legacy = stateFile();
+  writeFileSync(legacy, JSON.stringify({ userId: "voiceos-00000000-0000-0000-0000-000000000001" }));
+  const file = stateFile();
+  writeFileSync(file, JSON.stringify({ userId: "voiceos-00000000-0000-0000-0000-000000000002" }));
+  expect(resolveUserId(undefined, file, legacy)).toBe("voiceos-00000000-0000-0000-0000-000000000002");
+});
+
 /** A fake Composio REST API: answers by path prefix, records the calls. */
 function api(answers: Record<string, unknown>) {
   const calls: string[] = [];

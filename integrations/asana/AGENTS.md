@@ -47,7 +47,8 @@ card** declared in the manifest, which the user can edit and approve.
 2. That's all. The first connect creates a Composio-managed Asana auth config
    if the project has none, and users connect by saying "connect Asana"
    (`connect_account`), or from the **Connect Asana** link on an error card. Each install has its own Composio user (`voiceos-<id>`
-   in the gitignored `.composio-user.json`).
+   in `~/.voiceos/asana-composio-user.json`, outside the integration folder so
+   an update keeps it).
 
 ## Rules that make integrations feel native
 

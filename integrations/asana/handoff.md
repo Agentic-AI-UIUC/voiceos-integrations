@@ -109,6 +109,9 @@ and has the same Connect Asana link.
   and the result tells the user to remove Composio under Apps in their Asana settings.
 - **After a revoke outside VoiceOS, Composio still says connected**, so `connection_status` can say "connected" until
   a tool fails and shows the Connect Asana link.
+- **The Composio user ID lives in `~/.voiceos/asana-composio-user.json`**, outside the integration folder, so an
+  update can't lose it. If only the old `.composio-user.json` next to `server.ts` exists, its ID is copied over on
+  start.
 - **Lists stop at 100.** Each spot where that happens has a `shortcut:` comment in the code.
 
 ## Dev notes

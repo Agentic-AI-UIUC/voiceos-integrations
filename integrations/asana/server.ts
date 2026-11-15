@@ -19,7 +19,7 @@
  *     local dev, a `.env` next to this file works too:
  *       COMPOSIO_API_KEY=<project key: platform.composio.dev → API Keys>
  *     Each install gets its own Composio user (voiceos-<id>, saved in
- *     .composio-user.json next to this file). COMPOSIO_USER_ID in .env
+ *     ~/.voiceos/asana-composio-user.json). COMPOSIO_USER_ID in .env
  *     overrides it, e.g. `default` to reuse an old connection.
  *     .env never ships with Publish; each developer keeps their own.
  *   - The Setup field wins over .env.
@@ -35,7 +35,9 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
-import { readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { renderCustom, markHtml, esc, clip, type RenderedWidget } from "./widgetKit.ts";
@@ -79,21 +81,33 @@ export function loadEnvFile(path: string): void {
  * own `voiceos-<uuid>`, saved in `stateFile`, so installs never share an Asana
  * account (the same pattern as Todoist). A damaged file throws instead of
  * minting a new id, which would silently orphan the user's connection.
+ * `legacyFile` is where 1.2.0 and earlier saved it; its id is carried over so
+ * an existing connection keeps working.
  */
-export function resolveUserId(configured: string | undefined, stateFile: string): string {
+export function resolveUserId(configured: string | undefined, stateFile: string, legacyFile?: string): string {
   if (configured?.trim()) return configured.trim();
-  let text: string;
+  const saved = readIfExists(stateFile);
+  if (saved !== undefined) return parseUserId(saved, stateFile);
+  const legacy = legacyFile ? readIfExists(legacyFile) : undefined;
+  const userId = legacy !== undefined ? parseUserId(legacy, legacyFile!) : `voiceos-${randomUUID()}`;
+  mkdirSync(dirname(stateFile), { recursive: true, mode: 0o700 });
+  writeFileSync(stateFile, JSON.stringify({ userId }) + "\n", { mode: 0o600 });
+  return userId;
+}
+
+function readIfExists(file: string): string | undefined {
   try {
-    text = readFileSync(stateFile, "utf8");
+    return readFileSync(file, "utf8");
   } catch (err: any) {
-    if (err?.code !== "ENOENT") throw err;
-    const userId = `voiceos-${randomUUID()}`;
-    writeFileSync(stateFile, JSON.stringify({ userId }) + "\n", { mode: 0o600 });
-    return userId;
+    if (err?.code === "ENOENT") return undefined;
+    throw err;
   }
+}
+
+function parseUserId(text: string, file: string): string {
   const userId = (() => { try { return JSON.parse(text)?.userId; } catch { return undefined; } })();
   if (typeof userId !== "string" || !/^voiceos-[0-9a-f-]{36}$/.test(userId)) {
-    throw new Error(`${stateFile} is damaged. Delete it to start a new Asana connection, or set COMPOSIO_USER_ID.`);
+    throw new Error(`${file} is damaged. Delete it to start a new Asana connection, or set COMPOSIO_USER_ID.`);
   }
   return userId;
 }
@@ -1884,7 +1898,12 @@ export async function describeError(
 async function main(): Promise<void> {
   loadEnvFile(fileURLToPath(new URL(".env", import.meta.url)));
 
-  const userId = resolveUserId(process.env.COMPOSIO_USER_ID, fileURLToPath(new URL(".composio-user.json", import.meta.url)));
+  // In the home folder, not next to this file: an update replaces the integration folder.
+  const userId = resolveUserId(
+    process.env.COMPOSIO_USER_ID,
+    join(homedir(), ".voiceos", "asana-composio-user.json"),
+    fileURLToPath(new URL(".composio-user.json", import.meta.url)),
+  );
   const composio = createComposio({ apiKey: process.env.COMPOSIO_API_KEY?.trim(), userId });
   const asana = createAsana(composio.execute, {
     workspaceGid: process.env.ASANA_WORKSPACE_GID?.trim() || undefined,
