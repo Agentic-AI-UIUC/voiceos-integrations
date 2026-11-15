@@ -233,6 +233,77 @@
         "additionalProperties": false,
         "$schema": "http://json-schema.org/draft-07/schema#"
       }
+    },
+    {
+      "name": "connect_account",
+      "title": "Connect account",
+      "description": "Sign in to Google so VoiceOS can read your Analytics.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "connection_status",
+      "title": "Connection status",
+      "description": "Check whether Google Analytics is connected.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "disconnect_account",
+      "title": "Disconnect account",
+      "description": "Sign out of Google Analytics in VoiceOS.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "confirmation": {
+        "schemaVersion": 1,
+        "root": {
+          "type": "card",
+          "title": "Disconnect Google Analytics",
+          "children": [
+            {
+              "type": "stack",
+              "direction": "vertical",
+              "gap": "xs",
+              "children": [
+                {
+                  "type": "text",
+                  "text": "VoiceOS will stop reading your Google Analytics data."
+                },
+                {
+                  "type": "text",
+                  "text": "Nothing in Google Analytics is changed. You can connect again any time.",
+                  "color": "muted"
+                }
+              ]
+            }
+          ],
+          "footer": [
+            {
+              "type": "actions",
+              "items": [
+                {
+                  "label": "Cancel",
+                  "role": "cancel"
+                },
+                {
+                  "label": "Disconnect",
+                  "role": "confirm",
+                  "color": "danger"
+                }
+              ]
+            }
+          ]
+        }
+      }
     }
   ],
   "icon": "icon.png"

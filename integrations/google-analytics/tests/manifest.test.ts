@@ -23,9 +23,11 @@ test("the manifest and the server declare the same tools with the same input sch
   expect(fromManifest).toEqual(fromServer);
 });
 
-test("only the three approved tools exist, and none has a confirmation card (all read-only)", () => {
-  expect(manifest.tools.map((t: any) => t.name)).toEqual(["run_report", "run_realtime_report", "get_metadata"]);
-  expect(manifest.tools.filter((t: any) => t.confirmation)).toEqual([]);
+test("the three approved GA tools, plus only the account tools the connect/disconnect UI needs", () => {
+  expect(manifest.tools.map((t: any) => t.name)).toEqual([
+    "run_report", "run_realtime_report", "get_metadata",
+    "connect_account", "connection_status", "disconnect_account",
+  ]);
 });
 
 test("Actions panel descriptions are short enough for two lines", () => {

@@ -1,8 +1,9 @@
 /**
  * Google Analytics — the MCP server VoiceOS launches via run.sh (stdio; stdout
  * is the MCP wire, so log with console.error). Tools: run_report,
- * run_realtime_report and get_metadata — the only three approved GA actions.
- * All are read-only, so none has a confirmation card.
+ * run_realtime_report and get_metadata — the only three approved GA actions,
+ * all read-only — plus connect_account, connection_status and
+ * disconnect_account for the connect/disconnect UI. Only disconnect asks first.
  *
  * Why one file: VoiceOS "Publish" ships only server.ts, widgetKit.ts,
  * voiceos.integration.json, package.json and icon.png. Every runtime line
@@ -133,7 +134,7 @@ export class ComposioError extends Error {
 export type ExecuteTool = (slug: string, args: Record<string, unknown>) => Promise<any>;
 
 /** A REST call against the Composio API; resolves to the parsed JSON body. */
-export type ComposioRequest = (method: "GET" | "POST", path: string, body?: unknown) => Promise<any>;
+export type ComposioRequest = (method: "GET" | "POST" | "DELETE", path: string, body?: unknown) => Promise<any>;
 
 export interface ComposioConfig {
   /** Project API key (COMPOSIO_API_KEY: Setup field, else .env). Checked per call, so a missing key becomes a tool error, not a crash at startup. */
@@ -387,6 +388,28 @@ export async function gaReconnectUrl(request: ComposioRequest, userId: string): 
   return (await request("POST", "/connected_accounts/link", { auth_config_id: authConfigId, user_id: userId }))?.redirect_url;
 }
 
+/**
+ * Disconnects this install: for each of its Google Analytics connections,
+ * revokes Composio's access at Google, then deletes the connection. If Composio
+ * can't revoke one (400/409), it is still deleted, so VoiceOS loses access
+ * either way; revokedAtGoogle then says Google's grant may linger.
+ */
+export async function gaDisconnect(request: ComposioRequest, userId: string): Promise<{ removed: number; revokedAtGoogle: boolean }> {
+  const query = new URLSearchParams({ toolkit_slugs: "google_analytics", user_ids: userId });
+  const accounts: { id: string }[] = (await request("GET", `/connected_accounts?${query}`))?.items ?? [];
+  let revokedAtGoogle = true;
+  for (const { id } of accounts) {
+    try {
+      await request("POST", `/connected_accounts/${id}/revoke`);
+    } catch (err) {
+      if (!(err instanceof ComposioError && [400, 409].includes(err.status ?? 0))) throw err;
+      revokedAtGoogle = false;
+    }
+    await request("DELETE", `/connected_accounts/${id}`);
+  }
+  return { removed: accounts.length, revokedAtGoogle };
+}
+
 /** A Composio-managed OAuth2 auth config, so a new Composio project needs no dashboard step (as GitHub and Todoist do). */
 async function createAuthConfig(request: ComposioRequest): Promise<string> {
   try {
@@ -587,12 +610,49 @@ export function metadataCard(r: { dimensions: Record<string, string[]>; metrics:
   ]);
 }
 
+/**
+ * The sign-in link as a button. The kit has no button block, so this is a
+ * plain <a>: the kit already sends every https link click to VoiceOS to open.
+ */
+function connectButton(url: string | undefined) {
+  if (!url?.startsWith("https://")) return undefined;
+  return {
+    h: 34,
+    html: `<style>.ga-cta{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 14px;border-radius:999px;background:#F9AB00;color:#202124;font-size:12.5px;font-weight:600;text-decoration:none}.ga-cta:hover{filter:brightness(0.94)}.ga-cta:focus-visible{outline:2px solid var(--ink-1);outline-offset:2px}</style><a class="ga-cta" href="${esc(url)}">Connect Google Analytics<span aria-hidden="true">↗</span></a>`,
+  };
+}
+
 export function errorCard(error: string, reconnect: boolean, reconnectUrl?: string): RenderedWidget {
   return card([
     vHeader({ title: "Google Analytics", trailing: reconnect ? "Connect needed" : undefined }),
     vNote(error),
-    reconnectUrl && vList([{ title: "Connect Google Analytics", trailing: "Open", href: reconnectUrl }]),
+    connectButton(reconnectUrl),
   ]);
+}
+
+export interface AccountResult {
+  connected: boolean;
+  message: string;
+  status?: string;
+  /** The sign-in link, for the card only (see guarded). */
+  reconnect_url?: string;
+}
+
+export function accountCard(r: AccountResult): RenderedWidget {
+  return card([
+    vHeader({ title: "Google Analytics", trailing: r.connected ? "Connected" : "Not connected" }),
+    vNote(r.message),
+    connectButton(r.reconnect_url),
+  ]);
+}
+
+/** What connection_status says for each Composio status (see gaLinkStatus). */
+function statusMessage(status: string): string {
+  if (status === "ACTIVE") return "Google Analytics is connected.";
+  if (status === "NONE") return "Google Analytics isn't connected. Say \"connect Google Analytics\" to sign in.";
+  if (["INITIALIZING", "INITIATED"].includes(status)) return "Google sign-in isn't finished. Say \"connect Google Analytics\" for a new link.";
+  if (status === "EXPIRED") return "The Google Analytics connection has expired. Say \"connect Google Analytics\" to sign in again.";
+  return "The Google Analytics connection isn't working. Say \"connect Google Analytics\" to sign in again.";
 }
 
 // ============================================================================
@@ -626,6 +686,7 @@ export function createServer(
   ga: ReturnType<typeof createGa>,
   linkStatus: () => Promise<string>,
   reconnectUrl?: () => Promise<string | undefined>,
+  disconnect?: () => Promise<{ removed: number; revokedAtGoogle: boolean }>,
 ): McpServer {
   const server = new McpServer({ name: "google-analytics", version: "1.0.0" });
 
@@ -653,7 +714,9 @@ export function createServer(
     async (args: A) => {
       try {
         const result = await body(args);
-        return textResult(withCard(result, () => render(result, args)));
+        // Like an error's link below: a sign-in link goes on the card only.
+        const { reconnect_url, ...forModel } = result as R & { reconnect_url?: string };
+        return textResult(withCard(forModel, () => render(result, args)));
       } catch (err) {
         console.error(`${tool} failed:`, err);
         // The link binds whoever opens it to this install's Google account, so it goes on the
@@ -723,6 +786,54 @@ export function createServer(
     guarded("get_metadata", (args: MetadataArgs) => ga.getMetadata(args), metadataCard),
   );
 
+  // Account tools. The task asks for a connect/disconnect UI, which allows these
+  // on top of the three approved GA tools; they manage the link only, never GA data.
+  server.registerTool(
+    "connect_account",
+    {
+      title: "Connect account",
+      description: "Connect the user's Google account to Google Analytics. Use when the user asks to connect, link or sign in to Google Analytics. Returns a sign-in link on the card: tell the user in one sentence to open Connect Google Analytics on the card. If Google Analytics is already connected, it only says so.",
+      inputSchema: {},
+    },
+    guarded("connect_account", async (): Promise<AccountResult> => {
+      if ((await linkStatus()) === "ACTIVE") return { connected: true, message: statusMessage("ACTIVE") };
+      return { connected: false, message: "Open Connect Google Analytics on this card to sign in to Google.", reconnect_url: await reconnectUrl?.() };
+    }, accountCard),
+  );
+
+  server.registerTool(
+    "connection_status",
+    {
+      title: "Connection status",
+      description: "Check whether Google Analytics is connected. Use when the user asks about their Google Analytics connection. Read only: it never starts a sign-in. If Google access was revoked outside VoiceOS, this can still say connected; a report then returns reconnect: true with a link.",
+      inputSchema: {},
+    },
+    guarded("connection_status", async (): Promise<AccountResult> => {
+      const status = await linkStatus();
+      return { connected: status === "ACTIVE", status, message: statusMessage(status) };
+    }, accountCard),
+  );
+
+  server.registerTool(
+    "disconnect_account",
+    {
+      title: "Disconnect account",
+      description: "Disconnect Google Analytics from VoiceOS: revokes Composio's Google access where possible and removes the connection. Use only when the user explicitly asks to disconnect, unlink or sign out of Google Analytics. Never changes anything in Google Analytics.",
+      inputSchema: {},
+    },
+    guarded("disconnect_account", async (): Promise<AccountResult> => {
+      if (!disconnect) throw new Error("Disconnect isn't available.");
+      const { removed, revokedAtGoogle } = await disconnect();
+      if (removed === 0) return { connected: false, message: "Google Analytics wasn't connected." };
+      return {
+        connected: false,
+        message: revokedAtGoogle
+          ? "Google Analytics is disconnected. Nothing in Google Analytics was changed."
+          : "Google Analytics is disconnected. Nothing in Google Analytics was changed. Google may still list Composio at myaccount.google.com/connections until you remove it there.",
+      };
+    }, accountCard),
+  );
+
   return server;
 }
 
@@ -736,7 +847,8 @@ async function main(): Promise<void> {
   const ga = createGa(composio.execute, process.env.GA4_PROPERTY_ID?.trim() || undefined);
   const linkStatus = () => gaLinkStatus(composio.request, userId);
   const reconnectUrl = () => gaReconnectUrl(composio.request, userId);
-  await createServer(ga, linkStatus, reconnectUrl).connect(new StdioServerTransport());
+  const disconnect = () => gaDisconnect(composio.request, userId);
+  await createServer(ga, linkStatus, reconnectUrl, disconnect).connect(new StdioServerTransport());
 }
 
 const isEntryPoint = !!process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
