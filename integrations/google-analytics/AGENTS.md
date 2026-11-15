@@ -29,7 +29,7 @@ card** declared in the manifest, which the user can edit and approve.
   Actions panel (cut off after two lines), so the two differ on purpose.
 - `tests/` — `bun test` (local only, not shipped). `manifest.test.ts` fails
   when the manifest's tool names or input schemas drift from server.ts.
-- `handoff.md` — setup, QA checklist, known limits and the open question.
+- `handoff.md` — setup, QA checklist and known limits.
 - `run.sh` / `run.cmd` — the launchers VoiceOS invokes (macOS / Windows);
   leave them alone.
 - `package.json` — add dependencies here, then `bun install`.
@@ -38,11 +38,9 @@ card** declared in the manifest, which the user can edit and approve.
 
 ## Composio setup
 
-Composio credentials belong to whoever runs this integration, not to the end
-user, so they are **not** VoiceOS setup fields:
-
-1. Copy `.env.example` to `.env` and set `COMPOSIO_API_KEY` (a full-access
-   project key). `server.ts` loads it on start.
+1. The Composio API key is a required Setup field for now (#24). For local
+   dev, `.env` (copied from `.env.example`) with `COMPOSIO_API_KEY` works too;
+   the Setup field wins.
 2. That's all. The first connect creates a Composio-managed Google Analytics
    auth config if the project has none, and users connect from **Connect Google
    Analytics** on the card. Each install has its own Composio user
