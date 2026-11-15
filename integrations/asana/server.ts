@@ -1917,7 +1917,7 @@ async function main(): Promise<void> {
     return result;
   };
 
-  const server = new McpServer({ name: "asana-tasks", version: "1.2.0" });
+  const server = new McpServer({ name: "asana-tasks", version: "1.3.0" });
 
   /** A tool result: JSON the model reads (plus `_voiceos_glance` when the notch should show a card). */
   const textResult = (payload: unknown, isError = false) => ({

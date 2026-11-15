@@ -62,7 +62,7 @@ The connect/disconnect UI is three more tools. They manage the connection only:
 ## Current status
 
 - **All 9 tools work end to end against a real Asana workspace**, run through MCP with VoiceOS's bundled Bun. Each
-  one was tested that way. 78 unit tests pass (`bun test`).
+  one was tested that way. 109 unit tests pass (`bun test`).
 - **Measured times** (one user, US network, includes Composio):
   - Creating a task: about 4 s from the lookup to the result.
   - Rescheduling a task: about 1.7 s.
