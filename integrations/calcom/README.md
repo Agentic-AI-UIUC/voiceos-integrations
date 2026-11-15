@@ -38,6 +38,13 @@ Windows execution has not yet been verified. The tests cover disclosure renderin
 escaping, URL construction, long content, and empty states. They do not establish
 end-to-end coverage of all Composio operations.
 
+Live Mac testing on November 14, 2026 exercised all seven tools: listing bookings
+and event types, availability, creating an event type, and creating → rescheduling
+→ cancelling a disposable QA booking. Fresh lookups verified the moved time and
+that no upcoming QA booking remained after cancellation. Screenshots include each
+write confirmation/result and an invalid-email provider error. The QA event type
+`voiceos-qa-20261114` remains for reviewer testing. See [live test evidence](screenshots/README.md).
+
 ## Remaining review items
 
 - Publish the integration and add its VoiceOS share link before submission.
