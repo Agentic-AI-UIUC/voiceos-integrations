@@ -36,7 +36,7 @@ test("a 400 keeps GA's message and points the agent at get_metadata, not at GA's
 test("a rejected Composio API key points at the key, not at reconnecting", async () => {
   const badKey = new ComposioError("Invalid API key", "composio", 401, "APIKey_InvalidAPIKey");
   expect(await describeError(badKey, linkStatus("ACTIVE"))).toEqual({
-    error: "The Composio API key was rejected. Check COMPOSIO_API_KEY in this integration's .env.",
+    error: "The Composio API key was rejected. Check the Composio API key on this integration's Setup page.",
     reconnect: false,
   });
 });

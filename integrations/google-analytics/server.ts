@@ -13,15 +13,15 @@
  *   2. Composio client     5. Glance cards
  *   3. GA queries          6. Tools (MCP wiring, entry point)
  *
- * Composio setup (credentials are the developer's, never VoiceOS setup fields):
- *   - Create a `.env` next to this file with
- *       COMPOSIO_API_KEY=<project key: platform.composio.dev → Settings → API Keys>
+ * Composio setup:
+ *   - The Composio API key is a required Setup field for now (see #24). For
+ *     local dev, a `.env` next to this file works too:
+ *       COMPOSIO_API_KEY=<project key: platform.composio.dev → API Keys>
  *     Each install gets its own Composio user (voiceos-<id>, saved in
  *     .composio-user.json next to this file), so installs never share a Google
  *     account. COMPOSIO_USER_ID in .env overrides it.
  *     .env never ships with Publish; each developer keeps their own.
- *   - TEMPORARY, for testing: the Setup page also has an optional "Composio API
- *     key" field that wins over .env. Remove it from the manifest before release.
+ *   - The Setup field wins over .env.
  *   - No dashboard step: the first connect creates a Composio-managed Google
  *     Analytics auth config if the project has none (needs a full-access key).
  *     Users connect from Connect Google Analytics on the error card. Composio
@@ -137,7 +137,7 @@ export type ExecuteTool = (slug: string, args: Record<string, unknown>) => Promi
 export type ComposioRequest = (method: "GET" | "POST" | "DELETE", path: string, body?: unknown) => Promise<any>;
 
 export interface ComposioConfig {
-  /** Project API key (COMPOSIO_API_KEY: Setup field, else .env). Checked per call, so a missing key becomes a tool error, not a crash at startup. */
+  /** Project API key (COMPOSIO_API_KEY: the required Setup field; .env still works for local dev). Checked per call, so a missing key becomes a tool error, not a crash at startup. */
   apiKey?: string;
   /** The Composio user_id Google Analytics is connected under. */
   userId: string;
@@ -147,7 +147,7 @@ export interface ComposioConfig {
 
 export function createComposio(config: ComposioConfig): { execute: ExecuteTool; request: ComposioRequest } {
   const request: ComposioRequest = async (method, path, body) => {
-    if (!config.apiKey) throw new ComposioError("Missing Composio API key — set COMPOSIO_API_KEY in this integration's .env (or, for testing, its Setup page).", "composio");
+    if (!config.apiKey) throw new ComposioError("Missing Composio API key. Add it on this integration's Setup page.", "composio");
 
     const res = await (config.fetch ?? fetch)(`${BASE_URL}${path}`, {
       method,
@@ -463,7 +463,7 @@ export async function describeError(
     return fail(`${why} Ask whoever set up this integration to ${AUTH_CONFIG_HELP}.`, true);
   }
   if (err instanceof ComposioError && err.source === "composio" && err.status === 401) {
-    return fail("The Composio API key was rejected. Check COMPOSIO_API_KEY in this integration's .env.");
+    return fail("The Composio API key was rejected. Check the Composio API key on this integration's Setup page.");
   }
   if (err instanceof ComposioError && err.source === "tool") {
     if (err.status === 403) return fail("The connected Google account can't access this GA4 property. Check the property ID, or ask for at least Viewer access to it.");
