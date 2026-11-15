@@ -1,13 +1,14 @@
 {
   "schemaVersion": 1,
   "id": "com.voiceos.generated.microsoft-onedrive",
-  "version": "1.6.0",
+  "version": "1.6.1",
   "name": "OneDrive",
   "summary": "Manage your Microsoft OneDrive files with voice: list, search, read, download, upload, and share.",
-  "description": "Connect your Microsoft account through Composio OAuth2 to browse folders, search documents, read and summarize Word, Excel, PowerPoint, PDF and text files, download files to your Mac Downloads folder, upload notes, create directories, share links, and manage OneDrive items.",
+  "description": "Connect your Microsoft account through Composio OAuth2 to browse folders, search documents, read and summarize Word, Excel, PowerPoint, PDF and text files, download files to your Downloads folder, upload notes, create directories, share links, and manage OneDrive items.",
   "icon": "icon.png",
   "supportedPlatforms": [
-    "darwin"
+    "darwin",
+    "win32"
   ],
   "publisher": {
     "id": "pub_user",
@@ -127,7 +128,7 @@
     {
       "name": "download_file",
       "title": "Download file",
-      "description": "Download a file from Microsoft OneDrive into the Mac's ~/Downloads folder (never overwrites; adds ' (1)' if the name is taken). Use when the user asks to download, save locally, or fetch a OneDrive file. Call it directly with the name the user said (with or without extension, optionally with its folder); don't search first. If several files match, the error lists them.",
+      "description": "Download a file from Microsoft OneDrive into the computer's Downloads folder (never overwrites; adds ' (1)' if the name is taken). Use when the user asks to download, save locally, or fetch a OneDrive file. Call it directly with the name the user said (with or without extension, optionally with its folder); don't search first. If several files match, the error lists them.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -137,7 +138,7 @@
           },
           "file_name": {
             "type": "string",
-            "description": "Optional file name to save as inside ~/Downloads"
+            "description": "Optional file name to save as inside the Downloads folder"
           }
         },
         "required": [
@@ -234,7 +235,7 @@
     {
       "name": "create_share_link",
       "title": "Create share link",
-      "description": "Create a sharing link for a Microsoft OneDrive file or folder and copy it to the Mac clipboard. Use when the user asks to share a file, get a link to it, or let someone view or edit it. By default anyone who has the link can open it; pass audience 'organization' when the user wants only people in their work or school organization. Call it directly with the name the user said (with or without extension, optionally with its folder); don't search first. If several files match, the error lists them.",
+      "description": "Create a sharing link for a Microsoft OneDrive file or folder and copy it to the clipboard. Use when the user asks to share a file, get a link to it, or let someone view or edit it. By default anyone who has the link can open it; pass audience 'organization' when the user wants only people in their work or school organization. Call it directly with the name the user said (with or without extension, optionally with its folder); don't search first. If several files match, the error lists them.",
       "inputSchema": {
         "type": "object",
         "properties": {

@@ -13,6 +13,7 @@ import {
   looksLikeItemId,
   normPath,
   safeLocalName,
+  clipboardCommand,
   spokenName,
   summarizeItem,
   themePin,
@@ -112,6 +113,33 @@ describe("safeLocalName", () => {
   test("keeps the OneDrive extension when the requested name has none", () => {
     expect(safeLocalName("report", "Q3.pdf")).toBe("report.pdf");
     expect(safeLocalName(undefined, "Q3.pdf")).toBe("Q3.pdf");
+  });
+  test("replaces characters Windows doesn't allow in file names", () => {
+    const name = safeLocalName('Q3: plan <draft> "v2" | what? *final*', "x.docx");
+    expect(name).not.toMatch(/[<>:"\/\\|?*]/);
+    expect(name).toBe("Q3_ plan _draft_ _v2_ _ what_ _final_.docx");
+  });
+  test("drops trailing dots and spaces, which Windows strips silently", () => {
+    expect(safeLocalName("notes. . ", "a.txt")).toBe("notes.txt");
+  });
+  test("avoids Windows device names", () => {
+    for (const reserved of ["CON", "nul.txt", "com1", "LPT9.pdf", "aux"]) {
+      expect(safeLocalName(reserved, "a.txt").startsWith("_")).toBe(true);
+    }
+    expect(safeLocalName("console", "a.txt")).toBe("console.txt");
+  });
+  test("caps very long names and keeps the extension", () => {
+    const name = safeLocalName("a".repeat(400), "b.pdf");
+    expect(name.length).toBeLessThanOrEqual(200);
+    expect(name.endsWith(".pdf")).toBe(true);
+  });
+});
+
+describe("clipboardCommand", () => {
+  test("uses pbcopy on macOS and clip on Windows", () => {
+    expect(clipboardCommand("darwin")).toBe("pbcopy");
+    expect(clipboardCommand("win32")).toBe("clip");
+    expect(clipboardCommand("linux")).toBeNull();
   });
 });
 
