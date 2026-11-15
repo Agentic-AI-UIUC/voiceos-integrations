@@ -701,7 +701,7 @@ export function createServer(
   reconnectUrl?: () => Promise<string | undefined>,
   disconnect?: () => Promise<{ removed: number; revokedAtGoogle: boolean }>,
 ): McpServer {
-  const server = new McpServer({ name: "google-analytics", version: "1.0.0" });
+  const server = new McpServer({ name: "google-analytics", version: "1.1.0" });
 
   /** A tool result: JSON the model reads. */
   const textResult = (payload: unknown, isError = false) => ({

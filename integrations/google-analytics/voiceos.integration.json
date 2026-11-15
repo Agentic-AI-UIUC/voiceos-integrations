@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "com.voiceos.generated.google-analytics",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "name": "Google Analytics",
   "summary": "Ask about your Google Analytics 4 traffic: reports, live visitors and metrics.",
   "description": "Ask VoiceOS about your website or app traffic in Google Analytics 4: visitors, page views, top pages, sources and countries for any date range, compared with an earlier period, and who is on your site right now. Read-only. Connects to your Google account through Composio (OAuth2).",
