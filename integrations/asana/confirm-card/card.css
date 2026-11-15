@@ -69,6 +69,22 @@ html[data-k-theme=light] .as { --pop: #fff; }
 }
 html[data-k-theme=light] .as-pop { box-shadow: 0 0 0 1px var(--line), 0 12px 28px rgba(0,0,0,.16); }
 .as-pop[hidden] { display: none; }
+/*
+ * Reveal the popover top-down over 160ms, the same `height 160ms ease` VoiceOS
+ * uses to grow the card frame when place() raises min-height. Shown at once,
+ * the calendar ran past the frame and was cut off until the frame caught up,
+ * which on Windows (fixed notch window, all of it repainted in the page) read
+ * as the card lagging behind the picker (issue #29). `backwards`, not `both`:
+ * once done the clip-path must go, or it would keep shaving the box-shadow.
+ * Opt-in under no-preference, like widgetKit's entrance.
+ */
+@media (prefers-reduced-motion: no-preference) {
+  .as-pop:not([hidden]) { animation: as-pop-in 160ms ease backwards; }
+}
+@keyframes as-pop-in {
+  from { opacity: 0; clip-path: inset(0 0 100% 0 round 12px); }
+  to { opacity: 1; clip-path: inset(0 0 0 0 round 12px); }
+}
 
 /* Option lists (time, project, section) */
 .as-list { max-height: 180px; overflow-y: auto; }
