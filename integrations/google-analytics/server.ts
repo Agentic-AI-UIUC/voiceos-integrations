@@ -18,7 +18,7 @@
  *     local dev, a `.env` next to this file works too:
  *       COMPOSIO_API_KEY=<project key: platform.composio.dev → API Keys>
  *     Each install gets its own Composio user (voiceos-<id>, saved in
- *     .composio-user.json next to this file), so installs never share a Google
+ *     ~/.voiceos/google-analytics-composio-user.json), so installs never share a Google
  *     account. COMPOSIO_USER_ID in .env overrides it.
  *     .env never ships with Publish; each developer keeps their own.
  *   - The Setup field wins over .env.
@@ -34,7 +34,9 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { randomUUID } from "node:crypto";
-import { readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { esc, renderWidget, setIntegrationMark, vEmpty, vHeader, vList, vNote, vStats, type Block, type RenderedWidget, type Tone } from "./widgetKit.ts";
@@ -77,22 +79,33 @@ export function loadEnvFile(path: string): void {
  * (.env) wins. Otherwise each install gets its own `voiceos-<uuid>`, saved in
  * `stateFile`, so installs never share a Google account (as in Todoist). A
  * damaged file throws instead of minting a new id, which would silently orphan
- * the user's connection.
+ * the user's connection. `legacyFile` is where 1.0.0 saved it; its id is carried
+ * over so an existing connection keeps working.
  */
-export function resolveUserId(configured: string | undefined, stateFile: string): string {
+export function resolveUserId(configured: string | undefined, stateFile: string, legacyFile?: string): string {
   if (configured?.trim()) return configured.trim();
-  let text: string;
+  const saved = readIfExists(stateFile);
+  if (saved !== undefined) return parseUserId(saved, stateFile);
+  const legacy = legacyFile ? readIfExists(legacyFile) : undefined;
+  const userId = legacy !== undefined ? parseUserId(legacy, legacyFile!) : `voiceos-${randomUUID()}`;
+  mkdirSync(dirname(stateFile), { recursive: true, mode: 0o700 });
+  writeFileSync(stateFile, JSON.stringify({ userId }) + "\n", { mode: 0o600 });
+  return userId;
+}
+
+function readIfExists(file: string): string | undefined {
   try {
-    text = readFileSync(stateFile, "utf8");
+    return readFileSync(file, "utf8");
   } catch (err: any) {
-    if (err?.code !== "ENOENT") throw err;
-    const userId = `voiceos-${randomUUID()}`;
-    writeFileSync(stateFile, JSON.stringify({ userId }) + "\n", { mode: 0o600 });
-    return userId;
+    if (err?.code === "ENOENT") return undefined;
+    throw err;
   }
+}
+
+function parseUserId(text: string, file: string): string {
   const userId = (() => { try { return JSON.parse(text)?.userId; } catch { return undefined; } })();
   if (typeof userId !== "string" || !/^voiceos-[0-9a-f-]{36}$/.test(userId)) {
-    throw new Error(`${stateFile} is damaged. Delete it to start a new Google Analytics connection, or set COMPOSIO_USER_ID.`);
+    throw new Error(`${file} is damaged. Delete it to start a new Google Analytics connection, or set COMPOSIO_USER_ID.`);
   }
   return userId;
 }
@@ -842,7 +855,12 @@ async function main(): Promise<void> {
   // The cards' logo comes from icon.png, so it can never drift from the icon VoiceOS shows.
   setIntegrationMark(`data:image/png;base64,${readFileSync(new URL("icon.png", import.meta.url)).toString("base64")}`);
 
-  const userId = resolveUserId(process.env.COMPOSIO_USER_ID, fileURLToPath(new URL(".composio-user.json", import.meta.url)));
+  // In the home folder, not next to this file: an update replaces the integration folder.
+  const userId = resolveUserId(
+    process.env.COMPOSIO_USER_ID,
+    join(homedir(), ".voiceos", "google-analytics-composio-user.json"),
+    fileURLToPath(new URL(".composio-user.json", import.meta.url)),
+  );
   const composio = createComposio({ apiKey: process.env.COMPOSIO_API_KEY?.trim(), userId });
   const ga = createGa(composio.execute, process.env.GA4_PROPERTY_ID?.trim() || undefined);
   const linkStatus = () => gaLinkStatus(composio.request, userId);

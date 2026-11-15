@@ -45,8 +45,9 @@ user, so they are **not** VoiceOS setup fields:
    project key). `server.ts` loads it on start.
 2. That's all. The first connect creates a Composio-managed Google Analytics
    auth config if the project has none, and users connect from **Connect Google
-   Analytics** on the error card. Each install has its own Composio user
-   (`voiceos-<id>` in the gitignored `.composio-user.json`).
+   Analytics** on the card. Each install has its own Composio user
+   (`voiceos-<id>` in `~/.voiceos/google-analytics-composio-user.json`, outside the
+   integration folder so an update keeps it).
 
 ## Rules that make integrations feel native
 

@@ -84,5 +84,8 @@ While a tool runs, the notch shows "Google Analytics: <tool>". That's VoiceOS's 
   the 401 as "reconnect".
 - **The connect link appears only on the card.** VoiceOS strips the card before the model
   reads a result, so the agent never sees the link.
+- **The Composio user ID lives in `~/.voiceos/google-analytics-composio-user.json`**, not the
+  integration folder, so an update can't lose it (as in Granola 1.0.4). 1.0.0 saved it next to
+  `server.ts`; on first start the old ID is copied over, so existing connections keep working.
 - **GA totals count each user once**, so a grouped query's totals are the real user count.
 - Run `bun test` before every change. The tests use response shapes captured from real GA calls.
