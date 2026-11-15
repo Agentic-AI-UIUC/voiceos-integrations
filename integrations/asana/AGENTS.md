@@ -41,14 +41,14 @@ card** declared in the manifest, which the user can edit and approve.
 
 ## Composio setup
 
-Composio credentials belong to whoever runs this integration, not to the end
-user, so they are **not** VoiceOS setup fields:
-
-1. Copy `.env.example` to `.env` and set `COMPOSIO_API_KEY` (and
-   `COMPOSIO_USER_ID` if not `default`). `server.ts` loads it on start.
-2. In platform.composio.dev → Connected accounts, connect **Asana** (OAuth2,
-   Composio-managed) for that user_id. Re-connect there if it expires or is
-   revoked; tool errors say which one happened.
+1. The Composio API key is a required Setup field for now (#24). For local
+   dev, `.env` (copied from `.env.example`) with `COMPOSIO_API_KEY` works too;
+   the Setup field wins.
+2. That's all. The first connect creates a Composio-managed Asana auth config
+   if the project has none, and users connect by saying "connect Asana"
+   (`connect_account`), or from the **Connect Asana** link on an error card. Each install has its own Composio user (`voiceos-<id>`
+   in `~/.voiceos/asana-composio-user.json`, outside the integration folder so
+   an update keeps it).
 
 ## Rules that make integrations feel native
 

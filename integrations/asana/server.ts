@@ -14,17 +14,18 @@
  *   3. Due date → Asana    7. Tools (MCP wiring, entry point)
  *   4. Asana operations
  *
- * Composio setup (credentials are the developer's, never VoiceOS setup fields):
- *   - Create a `.env` next to this file with
- *       COMPOSIO_API_KEY=<project key: platform.composio.dev → Settings → API Keys>
- *       COMPOSIO_USER_ID=default   # the user_id Asana is connected under
+ * Composio setup:
+ *   - The Composio API key is a required Setup field for now (see #24). For
+ *     local dev, a `.env` next to this file works too:
+ *       COMPOSIO_API_KEY=<project key: platform.composio.dev → API Keys>
+ *     Each install gets its own Composio user (voiceos-<id>, saved in
+ *     ~/.voiceos/asana-composio-user.json). COMPOSIO_USER_ID in .env
+ *     overrides it, e.g. `default` to reuse an old connection.
  *     .env never ships with Publish; each developer keeps their own.
- *   - TEMPORARY, for testing: the integration's Setup page also has an optional
- *     "Composio API key" field. When filled it wins over .env. Remove it from
- *     voiceos.integration.json `preferences` before release.
- *   - In platform.composio.dev → Connected accounts, connect Asana (OAuth2,
- *     Composio-managed) for that user_id. Reconnect there if it expires or is
- *     revoked; tool errors say which one happened.
+ *   - The Setup field wins over .env.
+ *   - No dashboard step: the first connect creates a Composio-managed Asana
+ *     auth config if the project has none (needs a full-access key). Users
+ *     connect by saying "connect Asana" or from the "Connect Asana" link on an error card.
  *
  * Tool names, descriptions and input schemas must stay identical to
  * voiceos.integration.json — VoiceOS routes and confirms from the manifest.
@@ -33,8 +34,10 @@
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
-import { readFileSync, realpathSync } from "node:fs";
+import { createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { renderCustom, markHtml, esc, clip, type RenderedWidget } from "./widgetKit.ts";
@@ -70,6 +73,43 @@ export function loadEnvFile(path: string): void {
   for (const [key, value] of Object.entries(parseEnv(text))) {
     if (!process.env[key]?.trim()) process.env[key] = value;
   }
+}
+
+/**
+ * The Composio user_id this install's Asana account lives under. A
+ * COMPOSIO_USER_ID in .env wins. Otherwise each install gets its
+ * own `voiceos-<uuid>`, saved in `stateFile`, so installs never share an Asana
+ * account (the same pattern as Todoist). A damaged file throws instead of
+ * minting a new id, which would silently orphan the user's connection.
+ * `legacyFile` is where 1.2.0 and earlier saved it; its id is carried over so
+ * an existing connection keeps working.
+ */
+export function resolveUserId(configured: string | undefined, stateFile: string, legacyFile?: string): string {
+  if (configured?.trim()) return configured.trim();
+  const saved = readIfExists(stateFile);
+  if (saved !== undefined) return parseUserId(saved, stateFile);
+  const legacy = legacyFile ? readIfExists(legacyFile) : undefined;
+  const userId = legacy !== undefined ? parseUserId(legacy, legacyFile!) : `voiceos-${randomUUID()}`;
+  mkdirSync(dirname(stateFile), { recursive: true, mode: 0o700 });
+  writeFileSync(stateFile, JSON.stringify({ userId }) + "\n", { mode: 0o600 });
+  return userId;
+}
+
+function readIfExists(file: string): string | undefined {
+  try {
+    return readFileSync(file, "utf8");
+  } catch (err: any) {
+    if (err?.code === "ENOENT") return undefined;
+    throw err;
+  }
+}
+
+function parseUserId(text: string, file: string): string {
+  const userId = (() => { try { return JSON.parse(text)?.userId; } catch { return undefined; } })();
+  if (typeof userId !== "string" || !/^voiceos-[0-9a-f-]{36}$/.test(userId)) {
+    throw new Error(`${file} is damaged. Delete it to start a new Asana connection, or set COMPOSIO_USER_ID.`);
+  }
+  return userId;
 }
 
 // ============================================================================
@@ -110,7 +150,7 @@ export class ComposioError extends Error {
 export type ExecuteTool = (slug: string, args: Record<string, unknown>) => Promise<any>;
 
 /** A REST call against the Composio API; resolves to the parsed JSON body. */
-export type ComposioRequest = (method: "GET" | "POST", path: string, body?: unknown) => Promise<any>;
+export type ComposioRequest = (method: "GET" | "POST" | "DELETE", path: string, body?: unknown) => Promise<any>;
 
 /**
  * Calls an app's own REST API through Composio with the user's connected
@@ -128,9 +168,9 @@ export interface ComposioConfig {
   fetch?: typeof fetch;
 }
 
-export function createComposio(config: ComposioConfig): { execute: ExecuteTool; request: ComposioRequest; proxy: ProxyCall } {
+export function createComposio(config: ComposioConfig): { execute: ExecuteTool; request: ComposioRequest; proxy: ProxyCall; forgetAccounts: () => void } {
   const request: ComposioRequest = async (method, path, body) => {
-    if (!config.apiKey) throw new ComposioError("Missing Composio API key — set COMPOSIO_API_KEY in this integration's .env (or, for testing, its Setup page).", "composio");
+    if (!config.apiKey) throw new ComposioError("Missing Composio API key. Add it on this integration's Setup page.", "composio");
 
     const res = await (config.fetch ?? fetch)(`${BASE_URL}${path}`, {
       method,
@@ -187,7 +227,8 @@ export function createComposio(config: ComposioConfig): { execute: ExecuteTool; 
     return json.data;
   };
 
-  return { execute, request, proxy };
+  // After a disconnect the cached id points at a deleted connection.
+  return { execute, request, proxy, forgetAccounts: () => accountIds.clear() };
 }
 
 /**
@@ -1159,6 +1200,11 @@ html[data-k-theme=light] .as-card-err{
   line-height:1.4;
   color:var(--ink-2);
 }
+.as-msg{
+  font-size:13px;
+  line-height:1.4;
+  color:var(--ink-1);
+}
 .as-meta{
   display:flex;
   align-items:center;
@@ -1628,7 +1674,7 @@ export function itemCard(kind: "PROJECT" | "GOAL", item: CreatedItem, status = "
 }
 
 /** The card when a tool failed; the message is the same text the model gets. */
-export function errorCard(title: string, message: string, chip = "MY TASKS"): RenderedWidget {
+export function errorCard(title: string, message: string, chip = "MY TASKS", connectUrl?: string): RenderedWidget {
   const body = `
     <div class="as">
       <div class="as-head">
@@ -1642,21 +1688,42 @@ export function errorCard(title: string, message: string, chip = "MY TASKS"): Re
           <div class="as-title">${esc(clip(title, 60))}</div>
         </div>
         <div class="as-err-msg">${esc(clip(message, 180))}</div>
+        ${connectUrl ? `<a class="as-link" href="${esc(connectUrl)}"><span>Connect Asana</span>${OPEN_ICON}</a>` : ""}
       </div>
     </div>
   `;
-  return renderCustom({ accent: ACCENT, css: CSS, body, height: 140 });
+  return renderCustom({ accent: ACCENT, css: CSS, body, height: connectUrl ? 172 : 140 });
+}
+
+/** connect_account / connection_status / disconnect_account: whether Asana is connected, and a Connect Asana link when signing in is next. */
+export function accountCard(r: { connected: boolean; message: string }, connectUrl?: string): RenderedWidget {
+  const body = `
+    <div class="as">
+      <div class="as-head">
+        ${markHtml()}
+        <span class="as-chip">ACCOUNT</span>
+        <span class="as-tag${r.connected ? " as-success" : ""}">${r.connected ? "Connected" : "Not connected"}</span>
+      </div>
+      <div class="as-card"><div class="as-msg">${esc(clip(r.message, 180))}</div></div>
+      ${connectUrl ? `<div class="as-meta"><a class="as-link" style="margin-left:0" href="${esc(connectUrl)}"><span>Connect Asana</span>${OPEN_ICON}</a></div>` : ""}
+    </div>
+  `;
+  // About 46 characters fit on a line of the message.
+  const lines = Math.ceil(Math.min(r.message.length, 180) / 46);
+  return renderCustom({ accent: ACCENT, css: CSS, body, height: 80 + 18 * lines + (connectUrl ? 26 : 0) });
 }
 
 // ============================================================================
 // 6. Errors in plain words
-// Linking Asana happens once in the Composio dashboard (OAuth2, Composio-managed):
-// the account shows up as a "connected account" for a user_id and toolkit
-// "asana", and Composio refreshes its tokens. Tools only work while it is ACTIVE.
+// The user links Asana from the "Connect Asana" link on an error card
+// (OAuth2, Composio-managed). The account shows up as a "connected account" for
+// the user_id and toolkit "asana", and Composio refreshes its tokens. Tools
+// only work while it is ACTIVE.
 // ============================================================================
 
-// Where whoever owns the Composio project links the Asana account.
-export const DASHBOARD = "platform.composio.dev → Connected accounts";
+// The one dashboard step left, for whoever owns the Composio project (issue #28:
+// "Connected accounts" is gone from the Composio Platform menu).
+const AUTH_CONFIG_HELP = "add an Asana auth config in platform.composio.dev → Auth Configs (OAuth2, Composio managed)";
 
 /**
  * Why the Asana link isn't working: ACTIVE if any account of the user is,
@@ -1672,14 +1739,119 @@ export async function asanaLinkStatus(request: ComposioRequest, userId: string):
 }
 
 /**
+ * A sign-in link that makes the connection work. An existing account is
+ * re-authorized in place (refresh → INITIATED until the user finishes), so no
+ * dead account is left next to a new one; with none, a first link goes through
+ * the project's enabled Asana auth config, created if missing.
+ */
+export async function asanaConnectUrl(request: ComposioRequest, userId: string): Promise<string> {
+  const query = new URLSearchParams({ toolkit_slugs: "asana", user_ids: userId });
+  const accounts: { id: string; created_at?: string }[] = (await request("GET", `/connected_accounts?${query}`))?.items ?? [];
+  const newest = [...accounts].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0];
+  if (newest) return (await request("POST", `/connected_accounts/${newest.id}/refresh`, {}))?.redirect_url;
+
+  const configs: { id: string; status?: string }[] = (await request("GET", "/auth_configs?toolkit_slug=asana"))?.items ?? [];
+  const authConfigId = configs.find((c) => c.status === "ENABLED")?.id ?? (await createAuthConfig(request));
+  return (await request("POST", "/connected_accounts/link", { auth_config_id: authConfigId, user_id: userId }))?.redirect_url;
+}
+
+/** A Composio-managed OAuth2 auth config, so a new Composio project needs no dashboard step (as GitHub and Todoist do). */
+async function createAuthConfig(request: ComposioRequest): Promise<string> {
+  try {
+    const res = await request("POST", "/auth_configs", {
+      toolkit: { slug: "asana" },
+      auth_config: { type: "use_composio_managed_auth", name: "Asana (VoiceOS)" },
+    });
+    const id = res?.auth_config?.id ?? res?.id;
+    if (typeof id !== "string") throw new Error("Composio created an Asana auth config without an id.");
+    return id;
+  } catch (err) {
+    if (err instanceof ComposioError && err.status === 403) {
+      throw new Error("This Composio API key can't create the Asana auth config. Use a full-access project key.");
+    }
+    throw err;
+  }
+}
+
+/**
+ * disconnect_account: revokes Asana's token at Composio, then deletes every Asana
+ * connection of this user. A 400/409 on revoke means Composio can't revoke for this
+ * provider; the connection is still deleted and the result says so.
+ */
+export async function asanaDisconnect(request: ComposioRequest, userId: string): Promise<{ removed: number; revokedAtAsana: boolean }> {
+  const query = new URLSearchParams({ toolkit_slugs: "asana", user_ids: userId });
+  const accounts: { id: string }[] = (await request("GET", `/connected_accounts?${query}`))?.items ?? [];
+  let revokedAtAsana = true;
+  for (const { id } of accounts) {
+    try {
+      await request("POST", `/connected_accounts/${id}/revoke`);
+    } catch (err) {
+      if (!(err instanceof ComposioError && [400, 409].includes(err.status ?? 0))) throw err;
+      revokedAtAsana = false;
+    }
+    await request("DELETE", `/connected_accounts/${id}`);
+  }
+  return { removed: accounts.length, revokedAtAsana };
+}
+
+export interface AccountResult {
+  connected: boolean;
+  message: string;
+  status?: string;
+  _voiceos_glance?: unknown;
+}
+
+function statusMessage(status: string): string {
+  if (status === "ACTIVE") return "Asana is connected.";
+  if (status === "NONE") return "Asana isn't connected. Say \"connect Asana\" to sign in.";
+  if (["INITIALIZING", "INITIATED"].includes(status)) return "Asana sign-in isn't finished. Say \"connect Asana\" for a new link.";
+  if (status === "EXPIRED") return "The Asana connection has expired. Say \"connect Asana\" to sign in again.";
+  return "The Asana connection isn't working. Say \"connect Asana\" to sign in again.";
+}
+
+/** The result plus its card. A sign-in link goes on the card only: it binds whoever opens it to this install's Asana user. */
+const withAccountCard = (r: AccountResult, connectUrl?: string): AccountResult => ({ ...r, _voiceos_glance: glance(accountCard(r, connectUrl)) });
+
+export async function connectAccount(linkStatus: () => Promise<string>, connectUrl: () => Promise<string | undefined>): Promise<AccountResult> {
+  if ((await linkStatus()) === "ACTIVE") return withAccountCard({ connected: true, message: statusMessage("ACTIVE") });
+  return withAccountCard({ connected: false, message: "Open Connect Asana on this card to sign in." }, await connectUrl());
+}
+
+/** Read only: never starts a sign-in. */
+export async function connectionStatus(linkStatus: () => Promise<string>): Promise<AccountResult> {
+  const status = await linkStatus();
+  return withAccountCard({ connected: status === "ACTIVE", status, message: statusMessage(status) });
+}
+
+export async function disconnectAccount(disconnect: () => Promise<{ removed: number; revokedAtAsana: boolean }>): Promise<AccountResult> {
+  const { removed, revokedAtAsana } = await disconnect();
+  if (removed === 0) return withAccountCard({ connected: false, message: "Asana wasn't connected." });
+  return withAccountCard({
+    connected: false,
+    message: revokedAtAsana
+      ? "Asana is disconnected. Nothing in Asana was changed."
+      : "Asana is disconnected. Nothing in Asana was changed. Asana may still list Composio under Apps in your Asana settings until you remove it there.",
+  });
+}
+
+export interface DescribedError {
+  error: string;
+  reconnect: boolean;
+  /** Present when connecting is the fix and Composio gave a sign-in link. */
+  connect_url?: string;
+}
+
+/**
  * Turns a failure into words the user can act on. `reconnect` is true when
- * linking Asana again in the Composio dashboard is the fix.
+ * linking Asana (again) is the fix; then `connectUrl`, when given, is asked
+ * for a sign-in link.
  */
 export async function describeError(
   err: any,
   linkStatus: () => Promise<string>,
   userId: string,
-): Promise<{ error: string; reconnect: boolean }> {
+  connectUrl?: () => Promise<string | undefined>,
+): Promise<DescribedError> {
   // A timed-out create may still have reached Asana; retrying blindly would duplicate the task.
   if (err?.name === "TimeoutError") {
     return { error: "Composio did not answer in time. It may still have gone through — check Asana before retrying.", reconnect: false };
@@ -1690,10 +1862,12 @@ export async function describeError(
     const why = status === "NONE" || status === "INITIALIZING" || status === "INITIATED" ? "Asana isn't connected yet."
       : status === "EXPIRED" ? "The Asana connection has expired."
       : "Asana access was revoked or disabled.";
-    return { error: `${why} Connect Asana for Composio user "${userId}" in ${DASHBOARD}.`, reconnect: true };
+    const url = await connectUrl?.().catch((e) => (console.error("connect link failed:", e), undefined));
+    if (url) return { error: `${why} Open Connect Asana on this card to sign in.`, reconnect: true, connect_url: url };
+    return { error: `${why} Ask whoever set up this integration to ${AUTH_CONFIG_HELP}. Composio user: "${userId}".`, reconnect: true };
   }
   if (err instanceof ComposioError && err.source === "composio" && err.status === 401) {
-    return { error: "The Composio API key was rejected — check the key in this integration's Setup page or .env.", reconnect: false };
+    return { error: "The Composio API key was rejected. Check the Composio API key on this integration's Setup page.", reconnect: false };
   }
   return { error: err?.message || "Network error while connecting to Composio.", reconnect: false };
 }
@@ -1715,6 +1889,8 @@ export async function describeError(
 // extra features: a confirmation card can only show what the tool's arguments
 // carry, so the agent looks the choices up first. set_task_done exists
 // because a card-initiated approval would show VoiceOS's raw JSON dialog.
+// connect_account, connection_status and disconnect_account are the
+// connect/disconnect UI; they manage the connection only.
 // Only runs when this file is the program (VoiceOS / run.sh), not when tests
 // import it. import.meta.main is missing under tsx, so compare paths instead.
 // ============================================================================
@@ -1722,15 +1898,26 @@ export async function describeError(
 async function main(): Promise<void> {
   loadEnvFile(fileURLToPath(new URL(".env", import.meta.url)));
 
-  const userId = process.env.COMPOSIO_USER_ID?.trim() || "default";
+  // In the home folder, not next to this file: an update replaces the integration folder.
+  const userId = resolveUserId(
+    process.env.COMPOSIO_USER_ID,
+    join(homedir(), ".voiceos", "asana-composio-user.json"),
+    fileURLToPath(new URL(".composio-user.json", import.meta.url)),
+  );
   const composio = createComposio({ apiKey: process.env.COMPOSIO_API_KEY?.trim(), userId });
   const asana = createAsana(composio.execute, {
     workspaceGid: process.env.ASANA_WORKSPACE_GID?.trim() || undefined,
     proxy: composio.proxy,
   });
   const linkStatus = () => asanaLinkStatus(composio.request, userId);
+  const connectUrl = () => asanaConnectUrl(composio.request, userId);
+  const disconnect = async () => {
+    const result = await asanaDisconnect(composio.request, userId);
+    composio.forgetAccounts();
+    return result;
+  };
 
-  const server = new McpServer({ name: "asana-tasks", version: "1.0.0" });
+  const server = new McpServer({ name: "asana-tasks", version: "1.3.0" });
 
   /** A tool result: JSON the model reads (plus `_voiceos_glance` when the notch should show a card). */
   const textResult = (payload: unknown, isError = false) => ({
@@ -1749,9 +1936,11 @@ async function main(): Promise<void> {
         return textResult(await body(args));
       } catch (err) {
         console.error(`${tool} failed:`, err);
-        const { error, reconnect } = await describeError(err, linkStatus, userId);
-        const card = cardTitle ? { _voiceos_glance: glance(errorCard(cardTitle(args), error, chip)) } : {};
-        return textResult({ error, reconnect, ...card }, true);
+        // The connect link binds whoever opens it to this install's Asana user, so it goes on
+        // the card for the user only; the model just learns that reconnecting is the fix.
+        const { connect_url, ...forModel } = await describeError(err, linkStatus, userId, connectUrl);
+        const card = cardTitle ? { _voiceos_glance: glance(errorCard(cardTitle(args), forModel.error, chip, connect_url)) } : {};
+        return textResult({ ...forModel, ...card }, true);
       }
     };
 
@@ -2014,6 +2203,38 @@ async function main(): Promise<void> {
       return { success: true, deleted: project, _voiceos_glance: glance(itemCard("PROJECT", project, "Deleted")) };
     }, "PROJECT"),
   );
+
+  // The connect/disconnect UI. Only disconnect asks first.
+  server.registerTool(
+    "connect_account",
+    {
+      title: "Connect account",
+      description: "Connect the user's Asana account. Use when the user asks to connect, link or sign in to Asana. Returns a sign-in link on the card: tell the user in one sentence to open Connect Asana on the card. If Asana is already connected, it only says so.",
+      inputSchema: {},
+    },
+    guarded("connect_account", () => "Connect Asana", () => connectAccount(linkStatus, connectUrl), "ACCOUNT"),
+  );
+
+  server.registerTool(
+    "connection_status",
+    {
+      title: "Connection status",
+      description: "Check whether Asana is connected. Use when the user asks about their Asana connection. Read only: it never starts a sign-in.",
+      inputSchema: {},
+    },
+    guarded("connection_status", () => "Asana connection", () => connectionStatus(linkStatus), "ACCOUNT"),
+  );
+
+  server.registerTool(
+    "disconnect_account",
+    {
+      title: "Disconnect account",
+      description: "Disconnect Asana from VoiceOS: revokes Composio's Asana access where possible and removes the connection. Use only when the user explicitly asks to disconnect, unlink or sign out of Asana. Never changes anything in Asana.",
+      inputSchema: {},
+    },
+    guarded("disconnect_account", () => "Disconnect Asana", () => disconnectAccount(disconnect), "ACCOUNT"),
+  );
+
   await server.connect(new StdioServerTransport());
 }
 
