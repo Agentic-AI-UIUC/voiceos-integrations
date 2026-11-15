@@ -13,7 +13,7 @@ access goes through Composio (OAuth2, Composio managed). All runtime code is in 
    Paste it into the Setup page's "Composio API key" field (local dev can use `.env` instead).
    Nothing else to set up in Composio: the first connect creates the Google Analytics auth
    config if the project has none.
-2. **Property ID.** On the Setup page, enter the GA4 property ID: Google Analytics → Admin →
+2. **Property ID (required).** On the Setup page, enter the GA4 property ID: Google Analytics → Admin →
    Property → Property details. It's digits only. The `G-…` code is the Measurement ID and won't work.
 3. **Connect.** Say "connect Google Analytics" (or just ask a GA question). The card has a
    **Connect Google Analytics** link; open it and sign in to Google. Each install has its own Composio user, so

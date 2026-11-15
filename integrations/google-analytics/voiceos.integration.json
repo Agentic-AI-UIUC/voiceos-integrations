@@ -39,10 +39,10 @@
     },
     {
       "name": "GA4_PROPERTY_ID",
-      "title": "Default GA4 property ID",
-      "description": "Digits only, e.g. 123456789.",
+      "title": "GA4 property ID",
+      "description": "Google Analytics → Admin → Property details. Digits only, e.g. 123456789 (not the G-… Measurement ID).",
       "type": "text",
-      "required": false,
+      "required": true,
       "placeholder": "123456789"
     }
   ],
