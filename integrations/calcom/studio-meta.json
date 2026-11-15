@@ -1,0 +1,284 @@
+{
+  "originalPrompt": "## Context & Goal\n\nIntegrate the Cal.com toolkit into VoiceOS via Composio using OAuth2. This enables the VoiceOS agent to manage bookings, event types, and availability on behalf of authenticated users. James will need to implement UX/UI flows including OAuth2 connection screens, confirmation pop-ups before cancelling bookings, and action feedback toasts.\n\n## Implementation Requirements\n\n- Use **Composio** as the MCP provider for all Cal.com tool calls\n- Auth method: **OAuth2** — implement the Composio OAuth2 connection flow for Cal.com\n- Expose only the following **approved tools** (no others):\n    - `Get bookings`\n    - `Create booking`\n    - `Cancel booking`\n    - `Reschedule booking`\n    - `Get event types`\n    - `Get availability`\n    - `Create event type`\n- UX/UI requirements:\n    - OAuth2 connect/disconnect UI for Cal.com account linking\n    - Confirmation pop-up before `Cancel booking` and `Reschedule booking` (irreversible/impactful actions)\n    - Success/error toast notifications for all write operations\n    - Loading states during API calls\n    - Clear error messaging if OAuth token expires or is revoked\n\n## Relevant Files / Code Paths\n\n- Composio SDK integration layer\n- OAuth2 connection flow component\n- Tool execution handler\n\n## Acceptance Criteria\n\n- [ ]  Cal.com OAuth2 connection flow works end-to-end via Composio\n- [ ]  All 7 approved tools are callable by the VoiceOS agent\n- [ ]  No unapproved tools are exposed\n- [ ]  Confirmation dialog appears before `Cancel booking` and `Reschedule booking`\n- [ ]  Success/error toasts render correctly for all write operations\n- [ ]  OAuth token refresh is handled gracefully",
+  "preview": {
+    "utterances": [
+      "What upcoming meetings do I have on Cal.com?",
+      "Check my Cal.com availability for tomorrow",
+      "Show my Cal.com event types"
+    ],
+    "toolPreviews": [
+      {
+        "tool": "get_bookings",
+        "sampleArgs": {
+          "status": "upcoming",
+          "limit": 5
+        },
+        "stressCases": [
+          {
+            "state": "empty",
+            "sampleArgs": {
+              "status": "upcoming",
+              "limit": 5
+            },
+            "sampleData": {
+              "count": 0,
+              "status": "upcoming",
+              "bookings": []
+            },
+            "expected": "Cal.com branded empty state with calendar icon and 'No upcoming bookings'"
+          },
+          {
+            "state": "single",
+            "sampleArgs": {
+              "status": "upcoming",
+              "limit": 1
+            },
+            "sampleData": {
+              "count": 1,
+              "status": "upcoming",
+              "bookings": [
+                {
+                  "id": "b1",
+                  "title": "Product Strategy & Technical Architecture Review",
+                  "startTime": "2025-05-15T14:30:00Z",
+                  "status": "CONFIRMED",
+                  "attendeeName": "Sarah Connor",
+                  "attendeeEmail": "sarah@acme.corp"
+                }
+              ]
+            },
+            "expected": "Hero card with full date, attendee email, and video platform pill"
+          },
+          {
+            "state": "long-text",
+            "sampleArgs": {
+              "status": "upcoming",
+              "limit": 3
+            },
+            "sampleData": {
+              "count": 2,
+              "status": "upcoming",
+              "bookings": [
+                {
+                  "id": "b2",
+                  "title": "Quarterly Enterprise Architecture Deep Dive and Cross-Functional Engineering Alignment Discussion Regarding Next-Gen Infrastructure",
+                  "startTime": "2025-05-16T10:00:00Z",
+                  "status": "CONFIRMED",
+                  "attendeeName": "Maximilian Alexander Bartholomew-Montgomery",
+                  "attendeeEmail": "maximilian.alexander.bartholomew.montgomery@enterprise-synergy-solutions.corp"
+                }
+              ]
+            },
+            "expected": "Title and attendee email truncate smoothly with single-line ellipsis at 34ch"
+          }
+        ]
+      },
+      {
+        "tool": "create_booking",
+        "sampleArgs": {
+          "title": "Product Strategy Sync",
+          "start": "2025-05-18T14:30:00Z",
+          "name": "Alex Rivera",
+          "email": "alex@example.com",
+          "duration": 30
+        },
+        "stressCases": [
+          {
+            "state": "long-text",
+            "sampleArgs": {
+              "title": "Executive Strategic Platform Migration Oversight Committee Meeting and Quarterly Budget Review Across Distributed Engineering",
+              "start": "2025-05-18T14:30:00Z",
+              "name": "Dr. Elizabeth Montgomery-Sterling III",
+              "email": "elizabeth.montgomery.sterling@verylongdomaincompanyname.example.com",
+              "duration": 45
+            },
+            "sampleData": {
+              "status": "created",
+              "booking": {
+                "id": "b_new_123",
+                "title": "Executive Strategic Platform Migration Oversight Committee Meeting and Quarterly Budget Review Across Distributed Engineering",
+                "startTime": "2025-05-18T14:30:00Z",
+                "duration": 45,
+                "name": "Dr. Elizabeth Montgomery-Sterling III",
+                "email": "elizabeth.montgomery.sterling@verylongdomaincompanyname.example.com",
+                "status": "ACCEPTED"
+              }
+            },
+            "expected": "Meeting title and attendee wrap and clip cleanly in summary panel"
+          }
+        ]
+      },
+      {
+        "tool": "cancel_booking",
+        "sampleArgs": {
+          "bookingId": "book_12345",
+          "title": "Intro Chat",
+          "startTime": "2025-05-14T14:30:00Z",
+          "attendeeName": "Mark Radic",
+          "reason": "Schedule conflict"
+        },
+        "stressCases": [
+          {
+            "state": "long-text",
+            "sampleArgs": {
+              "bookingId": "book_9876543210_enterprise_uid_long",
+              "title": "Emergency Multi-Stakeholder Incident Review and Post-Mortem Root Cause Analysis Session for Platform Outage",
+              "startTime": "2025-05-15T16:00:00Z",
+              "attendeeName": "Christopher Henderson-Vanderbilt",
+              "reason": "Unforeseen executive emergency requiring complete realignment of calendar commitments across all regional engineering divisions worldwide."
+            },
+            "sampleData": {
+              "status": "cancelled",
+              "bookingId": "book_9876543210_enterprise_uid_long",
+              "message": "The booking 'Emergency Multi-Stakeholder Incident Review and Post-Mortem Root Cause Analysis Session for Platform Outage' has been cancelled across all attendee calendars worldwide."
+            },
+            "expected": "Reason text clips cleanly with single line ellipsis at 38ch"
+          }
+        ]
+      },
+      {
+        "tool": "reschedule_booking",
+        "sampleArgs": {
+          "bookingId": "book_12345",
+          "title": "Design Review",
+          "attendeeName": "Elena Rostova",
+          "currentStartTime": "2025-05-16T14:00:00Z",
+          "newStartTime": "2025-05-18T15:30:00Z",
+          "reason": "Need more time to prepare slides"
+        },
+        "stressCases": [
+          {
+            "state": "long-text",
+            "sampleArgs": {
+              "bookingId": "book_resched_88291",
+              "title": "Comprehensive Q3 Financial Modelling and Strategic Planning Alignment Workshop for Senior Leadership",
+              "attendeeName": "Alexander-Perez Williamson",
+              "currentStartTime": "2025-06-01T10:00:00Z",
+              "newStartTime": "2025-06-03T14:30:00Z",
+              "reason": "Quarterly board presentation slides need extended sign-off cycle before sharing with institutional banking and investment partners."
+            },
+            "sampleData": {
+              "status": "rescheduled",
+              "bookingId": "book_resched_88291",
+              "newStartTime": "2025-06-03T14:30:00Z",
+              "message": "The session 'Comprehensive Q3 Financial Modelling and Strategic Planning Alignment Workshop for Senior Leadership' has been moved to Wednesday, June 3rd at 2:30 PM with updated video call links."
+            },
+            "expected": "Comparative transition chips align with right arrow and tabular badges"
+          }
+        ]
+      },
+      {
+        "tool": "get_event_types",
+        "sampleArgs": {
+          "limit": 5
+        },
+        "stressCases": [
+          {
+            "state": "empty",
+            "sampleArgs": {
+              "limit": 5
+            },
+            "sampleData": {
+              "count": 0,
+              "eventTypes": []
+            },
+            "expected": "Cal.com empty state with link icon and 'No booking links found'"
+          },
+          {
+            "state": "single",
+            "sampleArgs": {
+              "limit": 1
+            },
+            "sampleData": {
+              "count": 1,
+              "eventTypes": [
+                {
+                  "id": "et_1",
+                  "title": "30 Min Meeting",
+                  "slug": "30-min",
+                  "length": 30,
+                  "description": "Quick 30 minute conversation for initial project discussion"
+                }
+              ]
+            },
+            "expected": "Single event type row with duration badge and link slug"
+          }
+        ]
+      },
+      {
+        "tool": "get_availability",
+        "sampleArgs": {
+          "dateFrom": "2025-05-15",
+          "dateTo": "2025-05-17"
+        },
+        "stressCases": [
+          {
+            "state": "empty",
+            "sampleArgs": {
+              "dateFrom": "2025-05-15",
+              "dateTo": "2025-05-17"
+            },
+            "sampleData": {
+              "count": 0,
+              "dateFrom": "2025-05-15",
+              "dateTo": "2025-05-17",
+              "slots": []
+            },
+            "expected": "Calm empty state with clock icon and 'No open slots available'"
+          },
+          {
+            "state": "single",
+            "sampleArgs": {
+              "dateFrom": "2025-05-15",
+              "dateTo": "2025-05-15"
+            },
+            "sampleData": {
+              "count": 1,
+              "dateFrom": "2025-05-15",
+              "dateTo": "2025-05-15",
+              "slots": [
+                {
+                  "date": "2025-05-15",
+                  "time": "2025-05-15T14:30:00Z"
+                }
+              ]
+            },
+            "expected": "Grid with available slot time pill"
+          }
+        ]
+      },
+      {
+        "tool": "create_event_type",
+        "sampleArgs": {
+          "title": "Architecture Review",
+          "slug": "arch-review",
+          "length": 45,
+          "description": "Technical architecture evaluation and roadmap discussion"
+        },
+        "stressCases": [
+          {
+            "state": "long-text",
+            "sampleArgs": {
+              "title": "Cross-Functional Strategic Alignment and Enterprise System Architecture Evaluation Session for Engineering",
+              "slug": "cross-functional-strategic-alignment-enterprise-system-arch",
+              "length": 60,
+              "description": "Comprehensive evaluation of technical infrastructure and architectural decisions across distributed multi-region enterprise service teams."
+            },
+            "sampleData": {
+              "status": "created",
+              "eventType": {
+                "id": "cross-functional-strategic-alignment-enterprise-system-arch",
+                "title": "Cross-Functional Strategic Alignment and Enterprise System Architecture Evaluation Session for Engineering",
+                "slug": "cross-functional-strategic-alignment-enterprise-system-arch",
+                "length": 60,
+                "description": "Comprehensive evaluation of technical infrastructure and architectural decisions across distributed multi-region enterprise service teams."
+              }
+            },
+            "expected": "Slug and title render with clean ellipsis without breaking tabular metrics"
+          }
+        ]
+      }
+    ]
+  },
+  "updatedAt": "2026-11-09T21:31:09.137Z"
+}
