@@ -1,4 +1,4 @@
-# Monday.com integration — 0.1.4
+# Monday.com integration — 1.0.0
 
 ## Platform and setup
 

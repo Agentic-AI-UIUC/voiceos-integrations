@@ -10,7 +10,7 @@ import { link, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
 import { isDeepStrictEqual } from "node:util";
 
-const server = new McpServer({ name: "composio-monday", version: "0.1.4" });
+const server = new McpServer({ name: "composio-monday", version: "1.0.0" });
 const stateDirectory = join(homedir(), ".voiceos");
 const stateFile = join(stateDirectory, "monday-composio-user.json");
 const legacyStateFile = new URL("./.composio-auth.json", import.meta.url);

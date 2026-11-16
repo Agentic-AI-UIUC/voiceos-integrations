@@ -1,6 +1,6 @@
 {
   "name": "composio-monday",
-  "version": "0.1.4",
+  "version": "1.0.0",
   "private": true,
   "description": "Connect Monday.com and read or create boards, items, and comments through Composio OAuth in VoiceOS.",
   "type": "module",

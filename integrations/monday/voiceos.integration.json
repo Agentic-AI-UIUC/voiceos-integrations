@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "com.voiceos.generated.composio-monday",
-  "version": "0.1.4",
+  "version": "1.0.0",
   "name": "Monday.com",
   "summary": "Connect Monday.com and read or create boards, items, and comments through Composio OAuth.",
   "description": "Link Monday.com, browse boards/items, create items/boards/comments, and update item columns through Composio. Board and item actions show progress and result cards. Desktop notifications are used for Monday.com connection results.",
