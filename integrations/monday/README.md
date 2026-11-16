@@ -39,6 +39,11 @@ Three account/setup tools support all ten categories. `connect_account` opens
 browser authorization, `connection_status` checks the connection, and
 `disconnect_account` unlinks it.
 
+Monday.com saves its Composio user ID and connection references in
+`~/.voiceos/monday-composio-user.json`, outside the integration install folder.
+On first use, it copies any existing `.composio-auth.json` from the install
+folder and leaves the original in place.
+
 ## Confirmation cards
 
 All write confirmation cards use native Cancel and action buttons. Item,

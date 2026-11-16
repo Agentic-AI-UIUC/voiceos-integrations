@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -16,7 +16,10 @@ const IDENTITY = { userId: "voiceos-monday-test" };
 const ACTIVE = { ...IDENTITY, accountId: "ca_test" };
 const TOOLS = ["connect_account", "connection_status", "disconnect_account", "get_boards", "get_items", "prepare_create_item", "create_item", "prepare_update_item", "update_item_values", "get_comments", "prepare_comment", "create_comment", "edit_comment", "delete_comment", "prepare_create_board", "create_board", "prepare_create_group", "create_group", "prepare_archive_board", "archive_board", "prepare_delete_board", "delete_board", "list_board_members", "prepare_manage_users", "manage_users"].sort();
 const directory = mkdtempSync(join(tmpdir(), "voiceos-monday-tests-"));
-const statePath = join(directory, ".composio-auth.json");
+const installDirectory = join(directory, "installation");
+const stateDirectory = join(directory, ".voiceos");
+const statePath = join(stateDirectory, "monday-composio-user.json");
+const legacyStatePath = join(installDirectory, ".composio-auth.json");
 const scenarioPath = join(directory, "scenario.json");
 const eventsPath = join(directory, "events.jsonl");
 let client: Client;
@@ -28,7 +31,10 @@ let notifications: {
 let rejectNotification = false;
 
 function scenario(value: Scenario = {}) { writeFileSync(scenarioPath, JSON.stringify(value)); }
-function state(value: object = ACTIVE) { writeFileSync(statePath, JSON.stringify(value), { mode: 0o600 }); }
+function state(value: object = ACTIVE) {
+  mkdirSync(stateDirectory, { recursive: true });
+  writeFileSync(statePath, JSON.stringify(value), { mode: 0o600 });
+}
 function saved() { return JSON.parse(readFileSync(statePath, "utf8")); }
 function events(): Event[] { return readFileSync(eventsPath, "utf8").trim().split("\n").filter(Boolean).map(line => JSON.parse(line)); }
 function browsers() { return events().filter(event => event.kind === "browser"); }
@@ -42,18 +48,22 @@ async function invoke(name: string, args: Record<string, unknown> = {}) {
 }
 
 beforeAll(async () => {
-  // Only the browser import changes. The real MCP server and Composio SDK execute in a disposable directory.
+  // Redirect the home directory and browser launch in the disposable copy of the real server.
   const source = readFileSync(join(ROOT, "server.ts"), "utf8");
   expect(source.split('from "node:child_process"')).toHaveLength(2);
-  writeFileSync(join(directory, "server.ts"), source.replace('from "node:child_process"', `from ${JSON.stringify(join(ROOT, "tests/mock-composio.ts"))}`));
-  symlinkSync(join(ROOT, "node_modules"), join(directory, "node_modules"), "dir");
+  expect(source.split("homedir()")).toHaveLength(2);
+  mkdirSync(installDirectory);
+  writeFileSync(join(installDirectory, "server.ts"), source
+    .replace('from "node:child_process"', `from ${JSON.stringify(join(ROOT, "tests/mock-composio.ts"))}`)
+    .replace("homedir()", JSON.stringify(directory)));
+  symlinkSync(join(ROOT, "node_modules"), join(installDirectory, "node_modules"), "dir");
   scenario();
   state();
   writeFileSync(eventsPath, "");
   transport = new StdioClientTransport({
     command: process.execPath,
-    args: ["--preload", join(ROOT, "tests/mock-composio.ts"), join(directory, "server.ts")],
-    cwd: directory, stderr: "pipe",
+    args: ["--preload", join(ROOT, "tests/mock-composio.ts"), join(installDirectory, "server.ts")],
+    cwd: installDirectory, stderr: "pipe",
     env: { PATH: process.env.PATH ?? "", COMPOSIO_API_KEY: KEY, MONDAY_TEST_SCENARIO: scenarioPath, MONDAY_TEST_EVENTS: eventsPath },
   });
   transport.stderr?.on("data", chunk => { stderr += String(chunk); });
@@ -74,6 +84,7 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
+  rmSync(legacyStatePath, { force: true });
   scenario(); state(); writeFileSync(eventsPath, ""); notifications = []; rejectNotification = false;
 });
 afterEach(() => {
@@ -477,6 +488,39 @@ describe("Monday read tools", () => {
 });
 
 describe("connection status", () => {
+  test("copies the full legacy connection outside the install folder and keeps it usable without sign-in", async () => {
+    rmSync(stateDirectory, { recursive: true });
+    const legacy = { ...ACTIVE, pending: { id: "ca_pending", url: "https://example.invalid/monday-consent" } };
+    const contents = JSON.stringify(legacy);
+    writeFileSync(legacyStatePath, contents);
+    expect((await invoke("get_boards")).isError).toBe(false);
+    expect(saved()).toEqual(legacy);
+    expect(statSync(statePath).mode & 0o777).toBe(0o600);
+    expect(readFileSync(legacyStatePath, "utf8")).toBe(contents);
+    rmSync(legacyStatePath);
+    expect((await invoke("get_boards")).isError).toBe(false);
+    expect(browsers()).toEqual([]);
+  });
+
+  test("disconnect clears the new state without restoring or modifying the legacy connection", async () => {
+    const contents = JSON.stringify(ACTIVE);
+    writeFileSync(legacyStatePath, contents);
+    expect((await invoke("disconnect_account")).body.status).toBe("Disconnected");
+    expect((await invoke("connection_status")).body.status).toBe("Disconnected");
+    expect(saved()).toEqual(IDENTITY);
+    expect(readFileSync(legacyStatePath, "utf8")).toBe(contents);
+  });
+
+  test("does not replace malformed legacy state with a fresh identity", async () => {
+    rmSync(statePath);
+    writeFileSync(legacyStatePath, "invalid JSON");
+    const result = await invoke("connection_status");
+    expect(result.isError).toBe(true);
+    expect(result.body.error).toContain("Restore or reset .composio-auth.json");
+    expect(existsSync(statePath)).toBe(false);
+    expect(events()).toEqual([]);
+  });
+
   test("status is read-only and reports a disconnected account without starting OAuth", async () => {
     state(IDENTITY);
     const result = await invoke("connection_status");
@@ -541,13 +585,14 @@ describe("OAuth connection", () => {
     expect(events().some(event => event.path?.includes("tool_router"))).toBe(false);
   });
   test("starts OAuth, allows only Monday, disables business tools, and saves references with private permissions", async () => {
-    rmSync(statePath);
+    rmSync(stateDirectory, { recursive: true });
     scenario({ accountStatus: "INITIATED", activateAfterBrowser: true });
     const result = await invoke("connect_account");
     expect(result.isError).toBe(false);
     expect(result.body.connected).toBe(false);
     expect(saved()).toEqual({ userId: expect.stringMatching(/^voiceos-monday-/), pending: { id: "ca_pending", url: "https://example.invalid/monday-consent" } });
     expect(statSync(statePath).mode & 0o777).toBe(0o600);
+    expect(existsSync(legacyStatePath)).toBe(false);
     expect(browsers()).toEqual([{ kind: "browser", url: "https://example.invalid/monday-consent" }]);
     const session = events().find(event => event.path?.endsWith("/session"));
     expect(session?.body).toMatchObject({ toolkits: { enable: ["monday"] }, tools: { monday: { enable: [] } }, workbench: { enable: false } });

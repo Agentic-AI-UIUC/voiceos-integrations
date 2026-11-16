@@ -4,14 +4,17 @@ import { Composio } from "@composio/core";
 import { z } from "zod";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { platform } from "node:os";
-import { readFile, writeFile, rename } from "node:fs/promises";
+import { homedir, platform } from "node:os";
+import { join } from "node:path";
+import { link, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { setTimeout as delay } from "node:timers/promises";
 import { isDeepStrictEqual } from "node:util";
 
 const server = new McpServer({ name: "composio-monday", version: "0.1.4" });
-const stateFile = new URL("./.composio-auth.json", import.meta.url);
+const stateDirectory = join(homedir(), ".voiceos");
+const stateFile = join(stateDirectory, "monday-composio-user.json");
+const legacyStateFile = new URL("./.composio-auth.json", import.meta.url);
 const stateSchema = z
   .object({
     userId: z.string().startsWith("voiceos-monday-"),
@@ -488,32 +491,47 @@ function api() {
   }));
 }
 
-// Composio holds provider tokens. Only this installation's identity and connection references are saved locally.
-async function save(state: State) {
-  const temporary = new URL(
-    `./.composio-auth.${randomUUID()}.tmp`,
-    import.meta.url,
-  );
-  await writeFile(temporary, JSON.stringify(state, null, 2), { mode: 0o600 });
-  await rename(temporary, stateFile);
+// Composio holds provider tokens. Save identity and connection references outside the replaceable install folder.
+async function save(state: State, initialize = false) {
+  await mkdir(stateDirectory, { recursive: true, mode: 0o700 });
+  const temporary = `${stateFile}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(temporary, JSON.stringify(state, null, 2), { mode: 0o600, flag: "wx" });
+    // Initialization must not replace a file created by another running instance.
+    if (initialize) await link(temporary, stateFile);
+    else await rename(temporary, stateFile);
+  } finally {
+    await rm(temporary, { force: true });
+  }
+}
+
+async function readState(file: string | URL): Promise<State | undefined> {
+  let text: string;
+  try {
+    text = await readFile(file, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  }
+  let data: unknown;
+  try { data = JSON.parse(text); } catch { /* Report malformed state without exposing its contents. */ }
+  const parsed = stateSchema.safeParse(data);
+  if (parsed.success) return parsed.data;
+  const name = file === legacyStateFile ? ".composio-auth.json" : "monday-composio-user.json";
+  throw new Error(`Invalid local Monday.com connection state. Restore or reset ${name} before reconnecting.`);
 }
 
 async function load(): Promise<State> {
-  let text: string;
+  const saved = await readState(stateFile);
+  if (saved) return saved;
+  const state = await readState(legacyStateFile) ?? { userId: `voiceos-monday-${randomUUID()}` };
   try {
-    text = await readFile(stateFile, "utf8");
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    const state = { userId: `voiceos-monday-${randomUUID()}` };
-    await save(state);
+    await save(state, true);
     return state;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    return load();
   }
-  const parsed = stateSchema.safeParse(JSON.parse(text));
-  if (!parsed.success)
-    throw new Error(
-      "Invalid local Monday.com connection state. Restore or reset .composio-auth.json before reconnecting.",
-    );
-  return parsed.data;
 }
 
 function httpStatus(error: unknown): number | undefined {
