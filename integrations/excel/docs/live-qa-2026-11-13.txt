@@ -1,0 +1,58 @@
+[12:25:36] Opening your app…
+[12:25:36] Connecting…
+[12:25:36] First launch: installing dependencies (this can take a few minutes on slow networks)…
+[12:25:37] bun install v1.3.14 (0d9b296a)
+[12:25:46] Saved lockfile
+
++ @composio/core@0.29.0
++ @modelcontextprotocol/sdk@1.32.2
++ tsx@4.23.15
++ zod@3.25.76 (v4.6.7 available)
+
+109 packages installed [9.12s]
+[12:25:47] [microsoft-excel] Loaded excel-qa-v11-compact-confirmations - Manual account execution path active
+[12:25:47] Connected — discovered 10 tools
+[12:25:47] Draft installed on your computer. Try it live in Preview.
+[12:25:53] “Get my default workbook.”
+[12:25:55] → excel_get_workbook({"workbook_id":"FIXTURE_WORKBOOK_ID"})
+[12:25:56] ✓ excel_get_workbook returned {"content":[{"type":"text","text":"{\"name\":\"Workbook (AF3F7AC4C1C3588…)\",\"id\":\"FIXTURE_WORKBOOK_ID\",\"worksheets\":[],\"raw_data\":{\"@odata.context\":\"https://graph.microsoft.com/v1.0/$metadata#drives('FIXTURE_DRIVE_ID')/items('FIXTURE_WORKBOOK_ID')/workbook/$entity\",\"@odata.id\":\"/drives('FIXTURE_DRIVE_ID')/items('FIXTURE_WORKBOOK_ID')/workbook/\"},\"_voiceos_glance\":\"[ui card omitted — 28.0 KB]\"}"}]}
+[12:26:10] “List worksheets in my default workbook.”
+[12:26:13] → excel_list_worksheets({"workbook_id":"FIXTURE_WORKBOOK_ID"})
+[12:26:15] ✓ excel_list_worksheets returned {"content":[{"type":"text","text":"{\"worksheets\":[{\"name\":\"Sheet1\",\"position\":0,\"visibility\":\"Visible\"},{\"name\":\"VoiceOS QA Verified\",\"position\":1,\"visibility\":\"Visible\"},{\"name\":\"VoiceOS Review QA Verified\",\"position\":2,\"visibility\":\"Visible\"}],\"count\":3,\"_voiceos_glance\":\"[ui card omitted — 28.3 KB]\"}"}]}
+[12:26:32] “List worksheets in my default workbook.”
+[12:26:34] → excel_list_worksheets({"workbook_id":"FIXTURE_WORKBOOK_ID"})
+[12:26:35] ✓ excel_list_worksheets returned {"content":[{"type":"text","text":"{\"worksheets\":[{\"name\":\"Sheet1\",\"position\":0,\"visibility\":\"Visible\"},{\"name\":\"VoiceOS QA Verified\",\"position\":1,\"visibility\":\"Visible\"},{\"name\":\"VoiceOS Review QA Verified\",\"position\":2,\"visibility\":\"Visible\"}],\"count\":3,\"_voiceos_glance\":\"[ui card omitted — 28.3 KB]\"}"}]}
+[12:26:41] “List worksheets in my default workbook.”
+[12:26:43] → excel_list_worksheets({"workbook_id":"FIXTURE_WORKBOOK_ID"})
+[12:26:44] ✓ excel_list_worksheets returned {"content":[{"type":"text","text":"{\"worksheets\":[{\"name\":\"Sheet1\",\"position\":0,\"visibility\":\"Visible\"},{\"name\":\"VoiceOS QA Verified\",\"position\":1,\"visibility\":\"Visible\"}],\"count\":2,\"_voiceos_glance\":\"[ui card omitted — 28.1 KB]\"}"}]}
+[12:26:58] “Get the properties of Sheet1 in my default workbook.”
+[12:27:01] → excel_get_worksheet({"worksheet_name":"Sheet1","workbook_id":"FIXTURE_WORKBOOK_ID"})
+[12:27:03] ✓ excel_get_worksheet returned {"content":[{"type":"text","text":"{\"name\":\"Sheet1\",\"position\":0,\"visibility\":\"Visible\",\"id\":\"{FIXTURE_RESOURCE_ID}\",\"raw_data\":{\"id\":\"{FIXTURE_RESOURCE_ID}\",\"name\":\"Sheet1\",\"position\":0,\"visibility\":\"Visible\"},\"_voiceos_glance\":\"[ui card omitted — 27.8 KB]\"}"}]}
+[12:27:16] “Create a worksheet named VoiceOS Review QA 01 in my default workbook.”
+[12:27:36] “Create a worksheet named VoiceOS Review QA 01 in my default workbook.”
+[12:27:41] → excel_create_worksheet({"name":"VoiceOS Review QA 01","workbook_id":"FIXTURE_WORKBOOK_ID"})
+[12:27:43] ✓ excel_create_worksheet returned {"content":[{"type":"text","text":"{\"status\":\"created\",\"name\":\"VoiceOS Review QA 01\",\"original_requested_name\":\"VoiceOS Review QA 01\",\"renamed_due_to_collision\":false,\"raw_data\":{\"@odata.context\":\"https://graph.microsoft.com/v1.0/$metadata#drives('FIXTURE_DRIVE_ID')/items('FIXTURE_WORKBOOK_ID')/workbook/worksheets/$entity\",\"@odata.id\":\"/drives('FIXTURE_DRIVE_ID')/items('FIXTURE_WORKBOOK_ID')/workbook/worksheets(%27%7B609ADD71-F17E-44CF-82A3-286C6349FFAD%7D%27)\",\"id\":\"{FIXTURE_RESOURCE_ID}\",\"name\":\"VoiceOS Review QA 01\",\"position\":2,\"visibility\":\"Visible\"},\"_voiceos_glance\":\"[ui card omitted — 27.8 KB]\"}"}]}
+[12:27:57] “On VoiceOS Review QA 01, set A1:B4 to these rows: Product, Quantity; Laptop, 2; Mouse, 5; Keyboard, 3.”
+[12:28:17] “On VoiceOS Review QA 01, set A1:B4 to these rows: Product, Quantity; Laptop, 2; Mouse, 5; Keyboard, 3.”
+[12:28:22] → excel_update_range({"range":"'VoiceOS Review QA 01'!A1:B4","values":[["Product","Quantity"],["Laptop",2],["Mouse",5],["Keyboard",3]],"workbook_id":"FIXTURE_WORKBOOK_ID"})
+[12:28:23] ✓ excel_update_range returned {"content":[{"type":"text","text":"{\"status\":\"updated\",\"range\":\"VoiceOS Review QA 01!A1:B4\",\"rows_written\":4,\"raw_data\":{\"@odata.context\":\"https://graph.microsoft.com/v1.0/$metadata#microsoft.graph.workbookRange\",\"@odata.id\":\"/drives('FIXTURE_DRIVE_ID')/items('FIXTURE_WORKBOOK_ID')/workbook/worksheets(%27%7B609ADD71-F17E-44CF-82A3-286C6349FFAD%7D%27)/range(address=%27A1:B4%27)\",\"address\":\"'VoiceOS Review QA 01'!A1:B4\",\"addressLocal\":\"'VoiceOS Review QA 01'!A1:B4\",\"cellCount\":8,\"columnCount\":2,\"columnHidden\":false,\"columnIndex\":0,\"formulas\":[[\"Product\",\"Quantity\"],[\"Laptop\",2],[\"Mouse\",5],[\"Keyboard\",3]],\"formulasLocal\":[[\"Product\",\"Quantity\"],[\"Laptop\",2],[\"Mouse\",5],[\"Keyboard\",3]],\"formulasR1C1\":[[\"Product\",\"Quantity\"],[\"Laptop\",2],[\"Mouse\",5],[\"Keyboard\",3]],\"hidden\":false,\"numberFormat\":[[\"General\",\"General\"],[\"General\",\"General\"],[\"General\",\"General\"],[\"General\",\"General\"]],\"rowCount\":4,\"rowHidden\":false,\"rowIndex\":0,\"text\":[[\"Product\",\"Quantity\"],[\"Laptop\",\"2\"],[\"Mouse\",\"5\"],[\"Keyboard\",\"3\"]],\"valueTypes\":[[\"String\",\"String\"],[\"String\",\"Double\"],[\"String\",\"Double\"],[\"String\",\"Double\"]],\"values\":[[\"Product\",\"Quantity\"],[\"Laptop\",2],[\"Mouse\",5],[\"Keyboard\",3]]},\"_voiceos_glance\":\"[ui card omitted — 27.7 KB]\"}"}]}
+[12:28:36] “Read 'VoiceOS Review QA 01'!A1:B4 in my default workbook.”
+[12:28:39] → excel_get_range({"range":"'VoiceOS Review QA 01'!A1:B4","workbook_id":"FIXTURE_WORKBOOK_ID"})
+[12:28:40] ✓ excel_get_range returned {"content":[{"type":"text","text":"{\"address\":\"'VoiceOS Review QA 01'!A1:B4\",\"rowCount\":4,\"columnCount\":2,\"values\":[[\"Product\",\"Quantity\"],[\"Laptop\",2],[\"Mouse\",5],[\"Keyboard\",3]],\"raw_data\":{\"address\":\"'VoiceOS Review QA 01'!A1:B4\",\"addressLocal\":\"'VoiceOS Review QA 01'!A1:B4\",\"cellCount\":8,\"columnCount\":2,\"columnHidden\":false,\"columnIndex\":0,\"formulas\":[[\"Product\",\"Quantity\"],[\"Laptop\",2],[\"Mouse\",5],[\"Keyboard\",3]],\"formulasLocal\":[[\"Product\",\"Quantity\"],[\"Laptop\",2],[\"Mouse\",5],[\"Keyboard\",3]],\"formulasR1C1\":[[\"Product\",\"Quantity\"],[\"Laptop\",2],[\"Mouse\",5],[\"Keyboard\",3]],\"hidden\":false,\"numberFormat\":[[\"General\",\"General\"],[\"General\",\"General\"],[\"General\",\"General\"],[\"General\",\"General\"]],\"rowCount\":4,\"rowHidden\":false,\"rowIndex\":0,\"text\":[[\"Product\",\"Quantity\"],[\"Laptop\",\"2\"],[\"Mouse\",\"5\"],[\"Keyboard\",\"3\"]],\"valueTypes\":[[\"String\",\"String\"],[\"String\",\"Double\"],[\"String\",\"Double\"],[\"String\",\"Double\"]],\"values\":[[\"Product\",\"Quantity\"],[\"Laptop\",2],[\"Mouse\",5],[\"Keyboard\",3]]},\"_voiceos_glance\":\"[ui card omitted — 28.2 KB]\"}"}]}
+[12:28:53] “Rename worksheet VoiceOS Review QA 01 to VoiceOS Review QA Verified.”
+[12:29:13] “Rename worksheet VoiceOS Review QA 01 to VoiceOS Review QA Verified.”
+[12:29:18] → excel_rename_worksheet({"current_name":"VoiceOS Review QA 01","new_name":"VoiceOS Review QA Verified","workbook_id":"FIXTURE_WORKBOOK_ID"})
+[12:29:19] ✓ excel_rename_worksheet returned {"content":[{"type":"text","text":"{\"status\":\"renamed\",\"current_name\":\"VoiceOS Review QA 01\",\"new_name\":\"VoiceOS Review QA Verified\",\"raw_data\":{\"id\":\"{FIXTURE_RESOURCE_ID}\",\"name\":\"VoiceOS Review QA Verified\",\"position\":2,\"visibility\":\"Visible\"},\"_voiceos_glance\":\"[ui card omitted — 27.8 KB]\"}"}]}
+[12:30:04] “Append exactly one row to table VoiceOSReviewTable01 in my default workbook: Product is Review Marker 01 and Quantity is 7.”
+[12:30:41] “Append exactly one row to table VoiceOSReviewTable01 in my default workbook: Product is Review Marker 01 and Quantity is 7.”
+[12:30:47] → excel_add_table_rows({"table_name":"VoiceOSReviewTable01","rows":[["Review Marker 01",7]],"workbook_id":"FIXTURE_WORKBOOK_ID"})
+[12:30:53] ✓ excel_add_table_rows returned {"content":[{"type":"text","text":"{\"status\":\"rows_added\",\"table_id\":\"VoiceOSReviewTable01\",\"table_name\":\"VoiceOSReviewTable01\",\"rows_count\":1,\"raw_data\":{\"index\":3,\"values\":[[\"Review Marker 01\",7]]},\"_voiceos_glance\":\"[ui card omitted — 27.8 KB]\"}"}]}
+[12:31:07] “Create a ColumnClustered chart on VoiceOS Review QA Verified using A1:B4, with series grouped by Columns.”
+[12:31:54] “Create a ColumnClustered chart on VoiceOS Review QA Verified using A1:B4, with series grouped by Columns.”
+[12:32:06] “Create a ColumnClustered chart on VoiceOS Review QA Verified using A1:B4, with series grouped by Columns.”
+[12:32:11] → excel_create_chart({"range":"'VoiceOS Review QA Verified'!A1:B4","chart_type":"ColumnClustered","series_by":"Columns","worksheet_name":"VoiceOS Review QA Verified","workbook_id":"FIXTURE_WORKBOOK_ID"})
+[12:32:14] ✓ excel_create_chart returned {"content":[{"type":"text","text":"{\"status\":\"chart_created\",\"title\":\"Excel Chart\",\"chart_type\":\"ColumnClustered\",\"series_by\":\"Columns\",\"range\":\"VoiceOS Review QA Verified!A1:B4\",\"raw_data\":{\"height\":216,\"id\":\"{FIXTURE_RESOURCE_ID}\",\"left\":0,\"name\":\"Chart 1\",\"top\":0,\"width\":360},\"_voiceos_glance\":\"[ui card omitted — 27.9 KB]\"}"}]}
+[12:32:27] “Delete worksheet VoiceOS Review QA Verified.”
+[12:32:47] “Delete worksheet VoiceOS Review QA Verified.”
+[12:32:51] → excel_delete_worksheet({"worksheet_name":"VoiceOS Review QA Verified","workbook_id":"FIXTURE_WORKBOOK_ID"})
+[12:32:55] ✓ excel_delete_worksheet returned {"content":[{"type":"text","text":"{\"status\":\"deleted\",\"worksheet_name\":\"VoiceOS Review QA Verified\",\"raw_data\":{\"success\":true},\"_voiceos_glance\":\"[ui card omitted — 27.8 KB]\"}"}]}

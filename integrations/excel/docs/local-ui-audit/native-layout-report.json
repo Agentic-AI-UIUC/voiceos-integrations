@@ -1,0 +1,1406 @@
+[
+  {
+    "tool": "excel_create_worksheet",
+    "width": 360,
+    "long": false,
+    "height": 211,
+    "overflow": false,
+    "inputs": [
+      {
+        "top": 61,
+        "bottom": 93,
+        "left": 14,
+        "right": 346
+      }
+    ],
+    "buttons": [
+      {
+        "top": 171,
+        "bottom": 201,
+        "left": 120.890625,
+        "right": 193.53125
+      },
+      {
+        "top": 171,
+        "bottom": 201,
+        "left": 201.53125,
+        "right": 348
+      }
+    ],
+    "textareas": 0
+  },
+  {
+    "tool": "excel_rename_worksheet",
+    "width": 360,
+    "long": false,
+    "height": 211,
+    "overflow": false,
+    "inputs": [
+      {
+        "top": 61,
+        "bottom": 93,
+        "left": 14,
+        "right": 176
+      },
+      {
+        "top": 61,
+        "bottom": 93,
+        "left": 184,
+        "right": 346
+      }
+    ],
+    "buttons": [
+      {
+        "top": 171,
+        "bottom": 201,
+        "left": 110.78125,
+        "right": 183.421875
+      },
+      {
+        "top": 171,
+        "bottom": 201,
+        "left": 191.421875,
+        "right": 348
+      }
+    ],
+    "textareas": 0
+  },
+  {
+    "tool": "excel_delete_worksheet",
+    "width": 360,
+    "long": false,
+    "height": 257.75,
+    "overflow": false,
+    "inputs": [
+      {
+        "top": 107.75,
+        "bottom": 139.75,
+        "left": 14,
+        "right": 346
+      }
+    ],
+    "buttons": [
+      {
+        "top": 217.75,
+        "bottom": 247.75,
+        "left": 122.34375,
+        "right": 194.984375
+      },
+      {
+        "top": 217.75,
+        "bottom": 247.75,
+        "left": 202.984375,
+        "right": 348
+      }
+    ],
+    "textareas": 0
+  },
+  {
+    "tool": "excel_update_range",
+    "width": 360,
+    "long": false,
+    "height": 272,
+    "overflow": false,
+    "inputs": [
+      {
+        "top": 61,
+        "bottom": 93,
+        "left": 14,
+        "right": 176
+      },
+      {
+        "top": 61,
+        "bottom": 93,
+        "left": 184,
+        "right": 346
+      },
+      {
+        "top": 122,
+        "bottom": 154,
+        "left": 14,
+        "right": 346
+      }
+    ],
+    "buttons": [
+      {
+        "top": 232,
+        "bottom": 262,
+        "left": 146.71875,
+        "right": 219.359375
+      },
+      {
+        "top": 232,
+        "bottom": 262,
+        "left": 227.359375,
+        "right": 348
+      }
+    ],
+    "textareas": 0
+  },
+  {
+    "tool": "excel_add_table_rows",
+    "width": 360,
+    "long": false,
+    "height": 272,
+    "overflow": false,
+    "inputs": [
+      {
+        "top": 61,
+        "bottom": 93,
+        "left": 14,
+        "right": 176
+      },
+      {
+        "top": 61,
+        "bottom": 93,
+        "left": 184,
+        "right": 346
+      },
+      {
+        "top": 122,
+        "bottom": 154,
+        "left": 14,
+        "right": 176
+      },
+      {
+        "top": 122,
+        "bottom": 154,
+        "left": 184,
+        "right": 346
+      }
+    ],
+    "buttons": [
+      {
+        "top": 232,
+        "bottom": 262,
+        "left": 171.09375,
+        "right": 243.734375
+      },
+      {
+        "top": 232,
+        "bottom": 262,
+        "left": 251.734375,
+        "right": 348
+      }
+    ],
+    "textareas": 0
+  },
+  {
+    "tool": "excel_create_chart",
+    "width": 360,
+    "long": false,
+    "height": 287,
+    "overflow": false,
+    "inputs": [
+      {
+        "top": 61,
+        "bottom": 93,
+        "left": 14,
+        "right": 176
+      },
+      {
+        "top": 61,
+        "bottom": 93,
+        "left": 184,
+        "right": 346
+      },
+      {
+        "top": 122,
+        "bottom": 154,
+        "left": 14,
+        "right": 175.203125
+      },
+      {
+        "top": 137,
+        "bottom": 169,
+        "left": 183.203125,
+        "right": 346
+      }
+    ],
+    "buttons": [
+      {
+        "top": 247,
+        "bottom": 277,
+        "left": 153.921875,
+        "right": 226.5625
+      },
+      {
+        "top": 247,
+        "bottom": 277,
+        "left": 234.5625,
+        "right": 348
+      }
+    ],
+    "textareas": 0
+  },
+  {
+    "tool": "excel_create_worksheet",
+    "width": 360,
+    "long": true,
+    "height": 239,
+    "overflow": false,
+    "inputs": [
+      {
+        "top": 61,
+        "bottom": 93,
+        "left": 14,
+        "right": 346
+      }
+    ],
+    "buttons": [
+      {
+        "top": 199,
+        "bottom": 229,
+        "left": 120.890625,
+        "right": 193.53125
+      },
+      {
+        "top": 199,
+        "bottom": 229,
+        "left": 201.53125,
+        "right": 348
+      }
+    ],
+    "textareas": 0
+  },
+  {
+    "tool": "excel_rename_worksheet",
+    "width": 360,
+    "long": true,
+    "height": 239,
+    "overflow": false,
+    "inputs": [
+      {
+        "top": 61,
+        "bottom": 93,
+        "left": 14,
+        "right": 176
+      },
+      {
+        "top": 61,
+        "bottom": 93,
+        "left": 184,
+        "right": 346
+      }
+    ],
+    "buttons": [
+      {
+        "top": 199,
+        "bottom": 229,
+        "left": 110.78125,
+        "right": 183.421875
+      },
+      {
+        "top": 199,
+        "bottom": 229,
+        "left": 191.421875,
+        "right": 348
+      }
+    ],
+    "textareas": 0
+  },
+  {
+    "tool": "excel_delete_worksheet",
+    "width": 360,
+    "long": true,
+    "height": 285.75,
+    "overflow": false,
+    "inputs": [
+      {
+        "top": 107.75,
+        "bottom": 139.75,
+        "left": 14,
+        "right": 346
+      }
+    ],
+    "buttons": [
+      {
+        "top": 245.75,
+        "bottom": 275.75,
+        "left": 122.34375,
+        "right": 194.984375
+      },
+      {
+        "top": 245.75,
+        "bottom": 275.75,
+        "left": 202.984375,
+        "right": 348
+      }
+    ],
+    "textareas": 0
+  },
+  {
+    "tool": "excel_update_range",
+    "width": 360,
+    "long": true,
+    "height": 300,
+    "overflow": false,
+    "inputs": [
+      {
+        "top": 61,
+        "bottom": 93,
+        "left": 14,
+        "right": 176
+      },
+      {
+        "top": 61,
+        "bottom": 93,
+        "left": 184,
+        "right": 346
+      },
+      {
+        "top": 122,
+        "bottom": 154,
+        "left": 14,
+        "right": 346
+      }
+    ],
+    "buttons": [
+      {
+        "top": 260,
+        "bottom": 290,
+        "left": 146.71875,
+        "right": 219.359375
+      },
+      {
+        "top": 260,
+        "bottom": 290,
+        "left": 227.359375,
+        "right": 348
+      }
+    ],
+    "textareas": 0
+  },
+  {
+    "tool": "excel_add_table_rows",
+    "width": 360,
+    "long": true,
+    "height": 300,
+    "overflow": false,
+    "inputs": [
+      {
+        "top": 61,
+        "bottom": 93,
+        "left": 14,
+        "right": 176
+      },
+      {
+        "top": 61,
+        "bottom": 93,
+        "left": 184,
+        "right": 346
+      },
+      {
+        "top": 122,
+        "bottom": 154,
+        "left": 14,
+        "right": 176
+      },
+      {
+        "top": 122,
+        "bottom": 154,
+        "left": 184,
+        "right": 346
+      }
+    ],
+    "buttons": [
+      {
+        "top": 260,
+        "bottom": 290,
+        "left": 171.09375,
+        "right": 243.734375
+      },
+      {
+        "top": 260,
+        "bottom": 290,
+        "left": 251.734375,
+        "right": 348
+      }
+    ],
+    "textareas": 0
+  },
+  {
+    "tool": "excel_create_chart",
+    "width": 360,
+    "long": true,
+    "height": 315,
+    "overflow": false,
+    "inputs": [
+      {
+        "top": 61,
+        "bottom": 93,
+        "left": 14,
+        "right": 176
+      },
+      {
+        "top": 61,
+        "bottom": 93,
+        "left": 184,
+        "right": 346
+      },
+      {
+        "top": 122,
+        "bottom": 154,
+        "left": 14,
+        "right": 175.203125
+      },
+      {
+        "top": 137,
+        "bottom": 169,
+        "left": 183.203125,
+        "right": 346
+      }
+    ],
+    "buttons": [
+      {
+        "top": 275,
+        "bottom": 305,
+        "left": 153.921875,
+        "right": 226.5625
+      },
+      {
+        "top": 275,
+        "bottom": 305,
+        "left": 234.5625,
+        "right": 348
+      }
+    ],
+    "textareas": 0
+  },
+  {
+    "tool": "excel_create_worksheet",
+    "width": 480,
+    "long": false,
+    "height": 197,
+    "overflow": false,
+    "inputs": [
+      {
+        "top": 61,
+        "bottom": 93,
+        "left": 14,
+        "right": 466
+      }
+    ],
+    "buttons": [
+      {
+        "top": 157,
+        "bottom": 187,
+        "left": 240.890625,
+        "right": 313.53125
+      },
+      {
+        "top": 157,
+        "bottom": 187,
+        "left": 321.53125,
+        "right": 468
+      }
+    ],
+    "textareas": 0
+  },
+  {
+    "tool": "excel_rename_worksheet",
+    "width": 480,
+    "long": false,
+    "height": 197,
+    "overflow": false,
+    "inputs": [
+      {
+        "top": 61,
+        "bottom": 93,
+        "left": 14,
+        "right": 180
+      },
+      {
+        "top": 61,
+        "bottom": 93,
+        "left": 188,
+        "right": 354
+      }
+    ],
+    "buttons": [
+      {
+        "top": 157,
+        "bottom": 187,
+        "left": 230.78125,
+        "right": 303.421875
+      },
+      {
+        "top": 157,
+        "bottom": 187,
+        "left": 311.421875,
+        "right": 468
+      }
+    ],
+    "textareas": 0
+  },
+  {
+    "tool": "excel_delete_worksheet",
+    "width": 480,
+    "long": false,
+    "height": 224.375,
+    "overflow": false,
+    "inputs": [
+      {
+        "top": 88.375,
+        "bottom": 120.375,
+        "left": 14,
+        "right": 466
+      }
+    ],
+    "buttons": [
+      {
+        "top": 184.375,
+        "bottom": 214.375,
+        "left": 242.34375,
+        "right": 314.984375
+      },
+      {
+        "top": 184.375,
+        "bottom": 214.375,
+        "left": 322.984375,
+        "right": 468
+      }
+    ],
+    "textareas": 0
+  },
+  {
+    "tool": "excel_update_range",
+    "width": 480,
+    "long": false,
+    "height": 258,
+    "overflow": false,
+    "inputs": [
+      {
+        "top": 61,
+        "bottom": 93,
+        "left": 14,
+        "right": 180
+      },
+      {
+        "top": 61,
+        "bottom": 93,
+        "left": 188,
+        "right": 354
+      },
+      {
+        "top": 122,
+        "bottom": 154,
+        "left": 14,
+        "right": 466
+      }
+    ],
+    "buttons": [
+      {
+        "top": 218,
+        "bottom": 248,
+        "left": 266.71875,
+        "right": 339.359375
+      },
+      {
+        "top": 218,
+        "bottom": 248,
+        "left": 347.359375,
+        "right": 468
+      }
+    ],
+    "textareas": 0
+  },
+  {
+    "tool": "excel_add_table_rows",
+    "width": 480,
+    "long": false,
+    "height": 258,
+    "overflow": false,
+    "inputs": [
+      {
+        "top": 61,
+        "bottom": 93,
+        "left": 14,
+        "right": 180
+      },
+      {
+        "top": 61,
+        "bottom": 93,
+        "left": 188,
+        "right": 354
+      },
+      {
+        "top": 122,
+        "bottom": 154,
+        "left": 14,
+        "right": 180
+      },
+      {
+        "top": 122,
+        "bottom": 154,
+        "left": 188,
+        "right": 354
+      }
+    ],
+    "buttons": [
+      {
+        "top": 218,
+        "bottom": 248,
+        "left": 291.09375,
+        "right": 363.734375
+      },
+      {
+        "top": 218,
+        "bottom": 248,
+        "left": 371.734375,
+        "right": 468
+      }
+    ],
+    "textareas": 0
+  },
+  {
+    "tool": "excel_create_chart",
+    "width": 480,
+    "long": false,
+    "height": 258,
+    "overflow": false,
+    "inputs": [
+      {
+        "top": 61,
+        "bottom": 93,
+        "left": 14,
+        "right": 180
+      },
+      {
+        "top": 61,
+        "bottom": 93,
+        "left": 188,
+        "right": 354
+      },
+      {
+        "top": 122,
+        "bottom": 154,
+        "left": 14,
+        "right": 180
+      },
+      {
+        "top": 122,
+        "bottom": 154,
+        "left": 188,
+        "right": 355.65625
+      }
+    ],
+    "buttons": [
+      {
+        "top": 218,
+        "bottom": 248,
+        "left": 273.921875,
+        "right": 346.5625
+      },
+      {
+        "top": 218,
+        "bottom": 248,
+        "left": 354.5625,
+        "right": 468
+      }
+    ],
+    "textareas": 0
+  },
+  {
+    "tool": "excel_create_worksheet",
+    "width": 480,
+    "long": true,
+    "height": 225,
+    "overflow": false,
+    "inputs": [
+      {
+        "top": 61,
+        "bottom": 93,
+        "left": 14,
+        "right": 466
+      }
+    ],
+    "buttons": [
+      {
+        "top": 185,
+        "bottom": 215,
+        "left": 240.890625,
+        "right": 313.53125
+      },
+      {
+        "top": 185,
+        "bottom": 215,
+        "left": 321.53125,
+        "right": 468
+      }
+    ],
+    "textareas": 0
+  },
+  {
+    "tool": "excel_rename_worksheet",
+    "width": 480,
+    "long": true,
+    "height": 225,
+    "overflow": false,
+    "inputs": [
+      {
+        "top": 61,
+        "bottom": 93,
+        "left": 14,
+        "right": 180
+      },
+      {
+        "top": 61,
+        "bottom": 93,
+        "left": 188,
+        "right": 354
+      }
+    ],
+    "buttons": [
+      {
+        "top": 185,
+        "bottom": 215,
+        "left": 230.78125,
+        "right": 303.421875
+      },
+      {
+        "top": 185,
+        "bottom": 215,
+        "left": 311.421875,
+        "right": 468
+      }
+    ],
+    "textareas": 0
+  },
+  {
+    "tool": "excel_delete_worksheet",
+    "width": 480,
+    "long": true,
+    "height": 252.375,
+    "overflow": false,
+    "inputs": [
+      {
+        "top": 88.375,
+        "bottom": 120.375,
+        "left": 14,
+        "right": 466
+      }
+    ],
+    "buttons": [
+      {
+        "top": 212.375,
+        "bottom": 242.375,
+        "left": 242.34375,
+        "right": 314.984375
+      },
+      {
+        "top": 212.375,
+        "bottom": 242.375,
+        "left": 322.984375,
+        "right": 468
+      }
+    ],
+    "textareas": 0
+  },
+  {
+    "tool": "excel_update_range",
+    "width": 480,
+    "long": true,
+    "height": 286,
+    "overflow": false,
+    "inputs": [
+      {
+        "top": 61,
+        "bottom": 93,
+        "left": 14,
+        "right": 180
+      },
+      {
+        "top": 61,
+        "bottom": 93,
+        "left": 188,
+        "right": 354
+      },
+      {
+        "top": 122,
+        "bottom": 154,
+        "left": 14,
+        "right": 466
+      }
+    ],
+    "buttons": [
+      {
+        "top": 246,
+        "bottom": 276,
+        "left": 266.71875,
+        "right": 339.359375
+      },
+      {
+        "top": 246,
+        "bottom": 276,
+        "left": 347.359375,
+        "right": 468
+      }
+    ],
+    "textareas": 0
+  },
+  {
+    "tool": "excel_add_table_rows",
+    "width": 480,
+    "long": true,
+    "height": 286,
+    "overflow": false,
+    "inputs": [
+      {
+        "top": 61,
+        "bottom": 93,
+        "left": 14,
+        "right": 180
+      },
+      {
+        "top": 61,
+        "bottom": 93,
+        "left": 188,
+        "right": 354
+      },
+      {
+        "top": 122,
+        "bottom": 154,
+        "left": 14,
+        "right": 180
+      },
+      {
+        "top": 122,
+        "bottom": 154,
+        "left": 188,
+        "right": 354
+      }
+    ],
+    "buttons": [
+      {
+        "top": 246,
+        "bottom": 276,
+        "left": 291.09375,
+        "right": 363.734375
+      },
+      {
+        "top": 246,
+        "bottom": 276,
+        "left": 371.734375,
+        "right": 468
+      }
+    ],
+    "textareas": 0
+  },
+  {
+    "tool": "excel_create_chart",
+    "width": 480,
+    "long": true,
+    "height": 286,
+    "overflow": false,
+    "inputs": [
+      {
+        "top": 61,
+        "bottom": 93,
+        "left": 14,
+        "right": 180
+      },
+      {
+        "top": 61,
+        "bottom": 93,
+        "left": 188,
+        "right": 354
+      },
+      {
+        "top": 122,
+        "bottom": 154,
+        "left": 14,
+        "right": 180
+      },
+      {
+        "top": 122,
+        "bottom": 154,
+        "left": 188,
+        "right": 355.65625
+      }
+    ],
+    "buttons": [
+      {
+        "top": 246,
+        "bottom": 276,
+        "left": 273.921875,
+        "right": 346.5625
+      },
+      {
+        "top": 246,
+        "bottom": 276,
+        "left": 354.5625,
+        "right": 468
+      }
+    ],
+    "textareas": 0
+  },
+  {
+    "tool": "excel_create_worksheet",
+    "width": 520,
+    "long": false,
+    "height": 197,
+    "overflow": false,
+    "inputs": [
+      {
+        "top": 61,
+        "bottom": 93,
+        "left": 14,
+        "right": 506
+      }
+    ],
+    "buttons": [
+      {
+        "top": 157,
+        "bottom": 187,
+        "left": 280.890625,
+        "right": 353.53125
+      },
+      {
+        "top": 157,
+        "bottom": 187,
+        "left": 361.53125,
+        "right": 508
+      }
+    ],
+    "textareas": 0
+  },
+  {
+    "tool": "excel_rename_worksheet",
+    "width": 520,
+    "long": false,
+    "height": 197,
+    "overflow": false,
+    "inputs": [
+      {
+        "top": 61,
+        "bottom": 93,
+        "left": 14,
+        "right": 180
+      },
+      {
+        "top": 61,
+        "bottom": 93,
+        "left": 188,
+        "right": 354
+      }
+    ],
+    "buttons": [
+      {
+        "top": 157,
+        "bottom": 187,
+        "left": 270.78125,
+        "right": 343.421875
+      },
+      {
+        "top": 157,
+        "bottom": 187,
+        "left": 351.421875,
+        "right": 508
+      }
+    ],
+    "textareas": 0
+  },
+  {
+    "tool": "excel_delete_worksheet",
+    "width": 520,
+    "long": false,
+    "height": 224.375,
+    "overflow": false,
+    "inputs": [
+      {
+        "top": 88.375,
+        "bottom": 120.375,
+        "left": 14,
+        "right": 506
+      }
+    ],
+    "buttons": [
+      {
+        "top": 184.375,
+        "bottom": 214.375,
+        "left": 282.34375,
+        "right": 354.984375
+      },
+      {
+        "top": 184.375,
+        "bottom": 214.375,
+        "left": 362.984375,
+        "right": 508
+      }
+    ],
+    "textareas": 0
+  },
+  {
+    "tool": "excel_update_range",
+    "width": 520,
+    "long": false,
+    "height": 258,
+    "overflow": false,
+    "inputs": [
+      {
+        "top": 61,
+        "bottom": 93,
+        "left": 14,
+        "right": 180
+      },
+      {
+        "top": 61,
+        "bottom": 93,
+        "left": 188,
+        "right": 354
+      },
+      {
+        "top": 122,
+        "bottom": 154,
+        "left": 14,
+        "right": 506
+      }
+    ],
+    "buttons": [
+      {
+        "top": 218,
+        "bottom": 248,
+        "left": 306.71875,
+        "right": 379.359375
+      },
+      {
+        "top": 218,
+        "bottom": 248,
+        "left": 387.359375,
+        "right": 508
+      }
+    ],
+    "textareas": 0
+  },
+  {
+    "tool": "excel_add_table_rows",
+    "width": 520,
+    "long": false,
+    "height": 258,
+    "overflow": false,
+    "inputs": [
+      {
+        "top": 61,
+        "bottom": 93,
+        "left": 14,
+        "right": 180
+      },
+      {
+        "top": 61,
+        "bottom": 93,
+        "left": 188,
+        "right": 354
+      },
+      {
+        "top": 122,
+        "bottom": 154,
+        "left": 14,
+        "right": 180
+      },
+      {
+        "top": 122,
+        "bottom": 154,
+        "left": 188,
+        "right": 354
+      }
+    ],
+    "buttons": [
+      {
+        "top": 218,
+        "bottom": 248,
+        "left": 331.09375,
+        "right": 403.734375
+      },
+      {
+        "top": 218,
+        "bottom": 248,
+        "left": 411.734375,
+        "right": 508
+      }
+    ],
+    "textareas": 0
+  },
+  {
+    "tool": "excel_create_chart",
+    "width": 520,
+    "long": false,
+    "height": 258,
+    "overflow": false,
+    "inputs": [
+      {
+        "top": 61,
+        "bottom": 93,
+        "left": 14,
+        "right": 180
+      },
+      {
+        "top": 61,
+        "bottom": 93,
+        "left": 188,
+        "right": 354
+      },
+      {
+        "top": 122,
+        "bottom": 154,
+        "left": 14,
+        "right": 180
+      },
+      {
+        "top": 122,
+        "bottom": 154,
+        "left": 188,
+        "right": 355.65625
+      }
+    ],
+    "buttons": [
+      {
+        "top": 218,
+        "bottom": 248,
+        "left": 313.921875,
+        "right": 386.5625
+      },
+      {
+        "top": 218,
+        "bottom": 248,
+        "left": 394.5625,
+        "right": 508
+      }
+    ],
+    "textareas": 0
+  },
+  {
+    "tool": "excel_create_worksheet",
+    "width": 520,
+    "long": true,
+    "height": 225,
+    "overflow": false,
+    "inputs": [
+      {
+        "top": 61,
+        "bottom": 93,
+        "left": 14,
+        "right": 506
+      }
+    ],
+    "buttons": [
+      {
+        "top": 185,
+        "bottom": 215,
+        "left": 280.890625,
+        "right": 353.53125
+      },
+      {
+        "top": 185,
+        "bottom": 215,
+        "left": 361.53125,
+        "right": 508
+      }
+    ],
+    "textareas": 0
+  },
+  {
+    "tool": "excel_rename_worksheet",
+    "width": 520,
+    "long": true,
+    "height": 225,
+    "overflow": false,
+    "inputs": [
+      {
+        "top": 61,
+        "bottom": 93,
+        "left": 14,
+        "right": 180
+      },
+      {
+        "top": 61,
+        "bottom": 93,
+        "left": 188,
+        "right": 354
+      }
+    ],
+    "buttons": [
+      {
+        "top": 185,
+        "bottom": 215,
+        "left": 270.78125,
+        "right": 343.421875
+      },
+      {
+        "top": 185,
+        "bottom": 215,
+        "left": 351.421875,
+        "right": 508
+      }
+    ],
+    "textareas": 0
+  },
+  {
+    "tool": "excel_delete_worksheet",
+    "width": 520,
+    "long": true,
+    "height": 252.375,
+    "overflow": false,
+    "inputs": [
+      {
+        "top": 88.375,
+        "bottom": 120.375,
+        "left": 14,
+        "right": 506
+      }
+    ],
+    "buttons": [
+      {
+        "top": 212.375,
+        "bottom": 242.375,
+        "left": 282.34375,
+        "right": 354.984375
+      },
+      {
+        "top": 212.375,
+        "bottom": 242.375,
+        "left": 362.984375,
+        "right": 508
+      }
+    ],
+    "textareas": 0
+  },
+  {
+    "tool": "excel_update_range",
+    "width": 520,
+    "long": true,
+    "height": 286,
+    "overflow": false,
+    "inputs": [
+      {
+        "top": 61,
+        "bottom": 93,
+        "left": 14,
+        "right": 180
+      },
+      {
+        "top": 61,
+        "bottom": 93,
+        "left": 188,
+        "right": 354
+      },
+      {
+        "top": 122,
+        "bottom": 154,
+        "left": 14,
+        "right": 506
+      }
+    ],
+    "buttons": [
+      {
+        "top": 246,
+        "bottom": 276,
+        "left": 306.71875,
+        "right": 379.359375
+      },
+      {
+        "top": 246,
+        "bottom": 276,
+        "left": 387.359375,
+        "right": 508
+      }
+    ],
+    "textareas": 0
+  },
+  {
+    "tool": "excel_add_table_rows",
+    "width": 520,
+    "long": true,
+    "height": 286,
+    "overflow": false,
+    "inputs": [
+      {
+        "top": 61,
+        "bottom": 93,
+        "left": 14,
+        "right": 180
+      },
+      {
+        "top": 61,
+        "bottom": 93,
+        "left": 188,
+        "right": 354
+      },
+      {
+        "top": 122,
+        "bottom": 154,
+        "left": 14,
+        "right": 180
+      },
+      {
+        "top": 122,
+        "bottom": 154,
+        "left": 188,
+        "right": 354
+      }
+    ],
+    "buttons": [
+      {
+        "top": 246,
+        "bottom": 276,
+        "left": 331.09375,
+        "right": 403.734375
+      },
+      {
+        "top": 246,
+        "bottom": 276,
+        "left": 411.734375,
+        "right": 508
+      }
+    ],
+    "textareas": 0
+  },
+  {
+    "tool": "excel_create_chart",
+    "width": 520,
+    "long": true,
+    "height": 286,
+    "overflow": false,
+    "inputs": [
+      {
+        "top": 61,
+        "bottom": 93,
+        "left": 14,
+        "right": 180
+      },
+      {
+        "top": 61,
+        "bottom": 93,
+        "left": 188,
+        "right": 354
+      },
+      {
+        "top": 122,
+        "bottom": 154,
+        "left": 14,
+        "right": 180
+      },
+      {
+        "top": 122,
+        "bottom": 154,
+        "left": 188,
+        "right": 355.65625
+      }
+    ],
+    "buttons": [
+      {
+        "top": 246,
+        "bottom": 276,
+        "left": 313.921875,
+        "right": 386.5625
+      },
+      {
+        "top": 246,
+        "bottom": 276,
+        "left": 394.5625,
+        "right": 508
+      }
+    ],
+    "textareas": 0
+  }
+]
