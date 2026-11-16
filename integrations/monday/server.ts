@@ -7,7 +7,6 @@ import { randomUUID } from "node:crypto";
 import { homedir, platform } from "node:os";
 import { join } from "node:path";
 import { link, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { readFileSync } from "node:fs";
 import { setTimeout as delay } from "node:timers/promises";
 import { isDeepStrictEqual } from "node:util";
 
@@ -394,30 +393,6 @@ function stopBackgroundConnectWatcher() {
   }
 }
 
-function shouldWatchBackgroundConnect(): boolean {
-  if (!process.env.MONDAY_TEST_SCENARIO) return true;
-  try {
-    const scenario = JSON.parse(
-      readFileSync(process.env.MONDAY_TEST_SCENARIO, "utf8"),
-    );
-    return Boolean(scenario.watchBackgroundConnect);
-  } catch {
-    return false;
-  }
-}
-
-function getPollIntervalMs(): number {
-  if (!process.env.MONDAY_TEST_SCENARIO) return 2000;
-  try {
-    const scenario = JSON.parse(
-      readFileSync(process.env.MONDAY_TEST_SCENARIO, "utf8"),
-    );
-    return scenario.pollIntervalMs ?? 50;
-  } catch {
-    return 50;
-  }
-}
-
 async function notify(message: string) {
   try {
     await server.server.request(
@@ -440,11 +415,10 @@ async function notify(message: string) {
 }
 
 function startBackgroundConnectWatcher(connectionId: string) {
-  if (!shouldWatchBackgroundConnect()) return;
+  const pollIntervalMs = 2000;
   stopBackgroundConnectWatcher();
   const controller = new AbortController();
   activeConnectWatcher = controller;
-  const pollIntervalMs = getPollIntervalMs();
 
   (async () => {
     const startTime = Date.now();

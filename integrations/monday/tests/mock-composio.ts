@@ -43,6 +43,12 @@ const scenarioPath = process.env.MONDAY_TEST_SCENARIO;
 const eventsPath = process.env.MONDAY_TEST_EVENTS;
 if (!scenarioPath || !eventsPath) throw new Error("This preload is only for the isolated Monday.com tests.");
 const scenario = (): Scenario => JSON.parse(readFileSync(scenarioPath, "utf8"));
+
+export function oauthPollInterval() {
+  const { watchBackgroundConnect, pollIntervalMs = 50 } = scenario();
+  return watchBackgroundConnect ? pollIntervalMs : undefined;
+}
+
 function record(event: Event) { appendFileSync(eventsPath!, JSON.stringify(event) + "\n"); }
 const respond = (data: unknown, status = 200) => new Response(JSON.stringify(data), {
   status, headers: { "content-type": "application/json" },

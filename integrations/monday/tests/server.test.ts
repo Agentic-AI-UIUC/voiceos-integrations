@@ -48,14 +48,18 @@ async function invoke(name: string, args: Record<string, unknown> = {}) {
 }
 
 beforeAll(async () => {
-  // Redirect the home directory and browser launch in the disposable copy of the real server.
+  // Keep home directory, browser launch, and polling controls in the disposable server.
   const source = readFileSync(join(ROOT, "server.ts"), "utf8");
-  expect(source.split('from "node:child_process"')).toHaveLength(2);
+  const browserImport = 'import { execFile } from "node:child_process";';
+  const pollIntervalDeclaration = "const pollIntervalMs = 2000;";
+  expect(source.split(browserImport)).toHaveLength(2);
   expect(source.split("homedir()")).toHaveLength(2);
+  expect(source.split(pollIntervalDeclaration)).toHaveLength(2);
   mkdirSync(installDirectory);
   writeFileSync(join(installDirectory, "server.ts"), source
-    .replace('from "node:child_process"', `from ${JSON.stringify(join(ROOT, "tests/mock-composio.ts"))}`)
-    .replace("homedir()", JSON.stringify(directory)));
+    .replace(browserImport, `import { execFile, oauthPollInterval } from ${JSON.stringify(join(ROOT, "tests/mock-composio.ts"))};`)
+    .replace("homedir()", JSON.stringify(directory))
+    .replace(pollIntervalDeclaration, "const pollIntervalMs = oauthPollInterval();\n  if (pollIntervalMs === undefined) return;"));
   symlinkSync(join(ROOT, "node_modules"), join(installDirectory, "node_modules"), "dir");
   scenario();
   state();
@@ -695,19 +699,29 @@ describe("OAuth connection", () => {
     const result = await invoke("connect_account");
     expect(result.body.status).toBe("Authorization pending");
     let attempts = 0;
-    while (attempts++ < 30 && saved().accountId !== "ca_pending") {
+    const notified = () => notifications.some(n => n.message.includes("Connected successfully"));
+    while (attempts++ < 30 && !notified()) {
       await new Promise(r => setTimeout(r, 50));
     }
     expect(saved().accountId).toBe("ca_pending");
     expect(saved().pending).toBeUndefined();
-    expect(notifications.some(n => n.message.includes("Connected successfully"))).toBe(true);
+    expect(notified()).toBe(true);
   });
   test("disconnect cleanly stops background connect watcher", async () => {
     state(IDENTITY);
     scenario({ accountStatus: "INITIATED", watchBackgroundConnect: true, pollIntervalMs: 20 });
     await invoke("connect_account");
+    const polls = () => events().filter(event => event.method === "GET" && event.path?.endsWith("/connected_accounts/ca_pending"));
+    let attempts = 0;
+    while (attempts++ < 30 && !polls().length) {
+      await new Promise(r => setTimeout(r, 20));
+    }
+    expect(polls().length).toBeGreaterThan(0);
     const dis = await invoke("disconnect_account");
     expect(dis.isError).toBe(false);
+    const pollCount = polls().length;
+    await new Promise(r => setTimeout(r, 60));
+    expect(polls()).toHaveLength(pollCount);
     expect(saved().pending).toBeUndefined();
     expect(saved().accountId).toBeUndefined();
   });
