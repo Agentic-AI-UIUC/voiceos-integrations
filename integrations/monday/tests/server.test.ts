@@ -104,62 +104,34 @@ describe("account tools contract", () => {
         expect(actual.annotations?.readOnlyHint).toBe(true);
       } else if (["create_item", "update_item_values", "create_comment", "edit_comment", "delete_comment", "create_board", "create_group", "archive_board", "delete_board", "manage_users"].includes(actual.name)) {
         const card = declared.confirmation.root;
-        // Publishing rejects action blocks anywhere in a widget confirmation.
-        const collectBlocks = (nodes: { type: string; children?: unknown[]; height?: number }[]): typeof nodes =>
-          nodes.flatMap(node => [node, ...collectBlocks((node.children ?? []) as typeof nodes)]);
-        const cardBlocks = collectBlocks(card.children);
-        expect(card.footer).toBeUndefined();
-        expect(cardBlocks.some(block => block.type === "button" || block.type === "actions")).toBe(false);
-        expect(cardBlocks.filter(block => block.type === "widget").every(block => (block.height ?? 0) >= 60)).toBe(true);
-        if (actual.name === "create_item" || actual.name === "create_board") {
-          const item = actual.name === "create_item";
-          const root = declared.confirmation.root;
-          const fields = root.children.filter((block: { type: string }) => block.type === "textField");
-          expect(fields).toEqual([
-            { type: "textField", bind: item ? "{{item_name}}" : "{{board_name}}", label: item ? "Item name" : "Board name", required: true },
-            ...(!item ? [{ type: "textField", bind: "{{description}}", label: "Description", multiline: true }] : []),
-          ]);
-          const widget = root.children.find((block: { type: string }) => block.type === "widget");
-          expect(widget.confirmLabel).toBe(item ? "Create item" : "Create board");
-          expect(widget.visibleIf).toBeUndefined();
-          expect(declared.visibility).toBeUndefined();
-          if (!item) expect(root.children[0]).toMatchObject({
-            type: "text", text: "{{submission_error}}", visibleIf: "{{submission_error}}", color: "danger",
-          });
-        } else if (actual.name === "create_group") {
-          const children = declared.confirmation.root.children;
-          expect(children.map((block: { type: string }) => block.type)).toEqual(["textField", "widget"]);
-          expect(children[0]).toMatchObject({ bind: "{{group_name}}", label: "Name", required: true });
-          expect(children[1].confirmLabel).toBe("Create group");
-          expect(children[1].html).toContain("<label>Board");
-          expect(children[1].html).toContain("<label>Position");
-        } else if (actual.name === "archive_board" || actual.name === "delete_board") {
-          const children = declared.confirmation.root.children;
-          const deleting = actual.name === "delete_board";
-          expect(children.map((block: { type: string }) => block.type)).toEqual(deleting ? ["text", "widget"] : ["widget"]);
-          if (deleting) expect(children[0].text).toContain("recovered for 30 days");
-          const widget = children.at(-1);
-          expect(widget.confirmLabel).toBe(deleting ? "Delete board" : "Archive board");
-          expect(widget.html).toContain('<select id="board_choice"');
+        expect(card.type).toBe("card");
+        expect(card.footer[0].items.map((item: { role: string }) => item.role)).toEqual(["cancel", "confirm"]);
+        expect(card.footer[0].items[0].label).toBe("Cancel");
+        expect(JSON.stringify(card.children)).not.toContain('"type":"widget"');
+        if (["create_item", "create_board", "create_group"].includes(actual.name)) {
+          const field = { create_item: "item_name", create_board: "board_name", create_group: "group_name" }[actual.name];
+          expect(card.children).toContainEqual(expect.objectContaining({ type: "textField", bind: `{{${field}}}`, required: true }));
+        }
+        if (actual.name === "archive_board" || actual.name === "delete_board") {
+          expect(card.children).toContainEqual({ type: "keyValue", rows: [{ label: "Board", value: "{{board_label}}" }] });
+          if (actual.name === "delete_board") expect(card.children[1].text).toContain("recovered for 30 days");
           expect(actual.annotations?.destructiveHint).toBe(true);
+        }
+        if (actual.name === "update_item_values") {
+          expect(card.children).toContainEqual({ type: "text", text: "{{preview.change_summary}}" });
         } else if (actual.name === "manage_users") {
-          const { children } = declared.confirmation.root;
-          expect(children[0].html).toContain('id="warnings"');
-          expect(children[0].confirmLabel).toBe("Apply change");
+          expect(card.children).toContainEqual({
+            type: "text", text: "{{warnings_summary}}", visibleIf: "{{warnings_summary}}", color: "warning",
+          });
+          expect(card.children).toContainEqual({
+            type: "text", text: "{{self_removal_warning}}", visibleIf: "{{self_removal_warning}}", color: "danger",
+          });
+        } else if (actual.name === "create_comment" || actual.name === "edit_comment") {
+          expect(card.children).toContainEqual(expect.objectContaining({ type: "textField", bind: "{{body}}", multiline: true }));
+        } else if (actual.name === "delete_comment") {
+          expect(card.children).toContainEqual({ type: "text", text: "{{old_body}}" });
+          expect(card.children).toContainEqual({ type: "text", text: "{{reply_warning}}", visibleIf: "{{reply_warning}}", color: "danger" });
           expect(actual.annotations?.destructiveHint).toBe(true);
-        } else if (actual.name === "update_item_values") {
-          expect(declared.confirmation.root.children.find((block: { type: string }) => block.type === "widget").confirmLabel).toBe("Save changes");
-        } else if (actual.name.endsWith("_comment")) {
-          const root = declared.confirmation.root;
-          expect(root.footer).toBeUndefined();
-          expect(root.children.find((block: { type: string }) => block.type === "widget").confirmLabel).toBe(root.title);
-          if (actual.name !== "delete_comment")
-            expect(root.children).toContainEqual(expect.objectContaining({ type: "textField", bind: "{{body}}", multiline: true }));
-          expect(actual.annotations?.destructiveHint).toBe(actual.name === "delete_comment");
-          if (actual.name === "delete_comment")
-            expect(root.children).toContainEqual({ type: "text", text: "This permanently deletes the update from Monday.com.", color: "danger" });
-        } else {
-          expect(declared.confirmation).toBeUndefined();
         }
         expect(actual.annotations?.readOnlyHint).toBe(false);
         expect(actual.annotations?.idempotentHint).toBe(false);
@@ -321,6 +293,30 @@ describe("Monday read tools", () => {
     expect(failure.body.error).toContain("Board access denied");
   });
 
+  test.each(["LIN ALG", "lin al"])("lists items directly for a named board: %s", async board_name => {
+    scenario({ toolDataByAction: {
+      MONDAY_BOARDS: { boards: [{ id: "123", name: "lin alg" }] },
+      MONDAY_ITEMS_PAGE: { items: [{ id: "456", name: "hw" }], cursor: null },
+    } });
+    const result = await invoke("get_items", { board_name });
+    expect(result.isError).toBe(false);
+    expect(result.body).toMatchObject({ boardName: "lin alg", records: [{ id: "456", name: "hw" }] });
+    expect(executions().map(entry => entry.body?.arguments)).toEqual([
+      { state: "active", page: 1, limit: 100 },
+      { board_id: 123, limit: 25, include_column_values: true },
+    ]);
+  });
+
+  test.each(["lin", "missing"])("asks for a board when %s does not identify one board", async board_name => {
+    scenario({ toolDataByAction: {
+      MONDAY_BOARDS: { boards: [{ id: "123", name: "lin alg" }, { id: "777", name: "Linear models" }] },
+    } });
+    const result = await invoke("get_items", { board_name });
+    expect(result.isError).toBe(false);
+    expect(result.body.question).toContain("Which Monday.com board");
+    expect(executions()).toHaveLength(1);
+  });
+
   test("uses provider board names in preference to display context and carries context through cursor reads", async () => {
     scenario({ toolData: { boards: [{ name: "Actual board", items_page: { items: [], cursor: "next" } }] } });
     const first = await invoke("get_items", { board_id: 123, board_name: "Old board name" });
@@ -395,7 +391,7 @@ describe("Monday read tools", () => {
     ["get_items", { board_id: 2, query: "mutation { delete_board }" }],
     ["get_items", { ids: [1], board_name: "Not necessarily their board" }],
     ["get_items", { board_id: 2, board_name: "  " }],
-    ["get_items", { board_name: "Cannot substitute for an ID" }],
+    ["get_items", { board_name: "Roadmap", page: 1 }],
   ])("rejects invalid %s arguments %j before network access", async (name, args) => {
     expect((await invoke(name as string, args as Record<string, unknown>)).isError).toBe(true);
     expect(events()).toEqual([]);
@@ -801,6 +797,23 @@ describe("Monday create item confirmation", () => {
       .toEqual({ board_id: "123", group_id: "planned", item_name: "study", column_values: '{"text":"Keep this"}' });
   });
 
+  test("changes only the group of a pending item by its spoken name", async () => {
+    scenario({ toolDataByAction: {
+      ...createBoardMetadata,
+      MONDAY_CREATE_ITEM: { create_item: { id: "456" } },
+    } });
+    const original = await createArguments({ item_name: "hw", column_values: { text: "Keep this" } });
+    const revised = await invoke("prepare_create_item", { replaces_draft_id: original.draft_id, group_id: "PLANNED" });
+    expect(revised.isError).toBe(false);
+    const updated = revised.body.create_item_arguments;
+    expect(updated).toMatchObject({ item_name: "hw", group_id: "planned", preview: { ...original.preview, group: "Planned" } });
+    expect((await invoke("create_item", original)).isError).toBe(true);
+    expect(providerActions()).not.toContain("MONDAY_CREATE_ITEM");
+    expect((await invoke("create_item", updated)).body.id).toBe("456");
+    expect(events().find(event => event.path?.endsWith("/execute/MONDAY_CREATE_ITEM"))?.body?.arguments)
+      .toEqual({ board_id: "123", group_id: "planned", item_name: "hw", column_values: '{"text":"Keep this"}' });
+  });
+
   test("asks for a board in one result card and keeps the item pending", async () => {
     scenario({ toolDataByAction: {
       MONDAY_BOARDS: { boards: [{ id: "123", name: "Roadmap" }, { id: "777", name: "Operations" }] },
@@ -837,11 +850,7 @@ describe("Monday create item confirmation", () => {
     const args = prepared.body.create_item_arguments;
     expect(args).toEqual({
       draft_id: expect.any(String), item_name: "task 3", group_id: "first",
-      preview: {
-        board: "Voiceos test",
-        groups: [{ id: "first", label: "First group" }, { id: "later", label: "Later" }],
-        columns: [],
-      },
+      preview: { board: "Voiceos test", group: "First group" },
     });
     expect((await invoke("prepare_create_item", selected)).isError).toBe(true);
     expect((await invoke("create_item", { ...args, selected_board_id: "123" })).isError).toBe(true);
@@ -871,7 +880,7 @@ describe("Monday create item confirmation", () => {
     const result = await invoke("prepare_create_item", { board_name: "voiceos", revises_item_name: "Carry my status" });
     const updated = result.body.create_item_arguments;
     expect(updated).toMatchObject({
-      item_name: "Carry my status", preview: { board: "Voiceos test", columns: [{ label: "Stage", value: "Done" }] },
+      item_name: "Carry my status", preview: { board: "Voiceos test", group: "New group", column_summary: "Stage: Done" },
     });
     expect((await invoke("create_item", old)).isError).toBe(true);
     expect((await invoke("create_item", updated)).body.id).toBe("456");
@@ -893,7 +902,7 @@ describe("Monday create item confirmation", () => {
     const prepare = await invoke("prepare_create_item", { item_name: "goodbye", board_name: "roadmap" });
     expect(prepare.body.create_item_arguments).toMatchObject({
       group_id: "incoming",
-      preview: { board: "Roadmap", groups: [{ id: "incoming", label: "Incoming" }], columns: [] },
+      preview: { board: "Roadmap", group: "Incoming" },
     });
     expect(providerActions()).toEqual(["MONDAY_BOARDS", "MONDAY_BOARDS"]);
   });
@@ -909,7 +918,7 @@ describe("Monday create item confirmation", () => {
     expect(providerActions()).toEqual(["MONDAY_BOARDS"]);
   });
 
-  test("writes to the group selected at confirmation with the edited name and reviewed column values", async () => {
+  test("writes to the prepared group with the edited name and reviewed column values", async () => {
     scenario({
       toolDataByAction: { ...createBoardMetadata, MONDAY_CREATE_ITEM: { create_item: { id: "456" } } },
       userPages: { 1: [{ id: "8", name: "Sam Rivera" }], 2: [{ id: "99", name: "Samira Roe" }] },
@@ -919,22 +928,22 @@ describe("Monday create item confirmation", () => {
       column_values: { Stage: { label: "Done" }, date_1: { date: "2025-09-17" }, owner: "Sam Rivera", text: " ", score: 0 },
     });
     expect(args.group_id).toBe("planned");
-    expect(args.preview).toEqual({ board: "Roadmap", groups: [
-      { id: "incoming", label: "Incoming" }, { id: "planned", label: "Planned" },
-    ], columns: [
-      { label: "Stage", value: "Done" }, { label: "Ship date", value: "Sep 17, 2025" },
-      { label: "Owner", value: "Sam Rivera" }, { label: "Score", value: "0" },
-    ] });
+    expect(args.preview).toEqual({
+      board: "Roadmap", group: "Planned", column_summary: "Stage: Done\nShip date: Sep 17, 2025\nOwner: Sam Rivera\nScore: 0",
+    });
     const writes = () => events().filter(event => event.path?.endsWith("/execute/MONDAY_CREATE_ITEM"));
     expect(writes()).toHaveLength(0);
-    expect((await invoke("create_item", { ...args, preview: { ...args.preview, columns: [] } })).isError).toBe(true);
+    expect((await invoke("create_item", { ...args, preview: { ...args.preview, column_summary: "" } })).isError).toBe(true);
     expect((await invoke("create_item", { ...args, item_name: " " })).isError).toBe(true);
+    expect((await invoke("create_item", { ...args, destination: "777:incoming" })).isError).toBe(true);
+    expect((await invoke("create_item", { ...args, group_id: "incoming" })).isError).toBe(true);
     expect(writes()).toHaveLength(0);
-    expect((await invoke("create_item", { ...args, item_name: "Edited name", group_id: "incoming" })).body.id).toBe("456");
+    expect((await invoke("create_item", { ...args, item_name: "Edited name" })).body)
+      .toMatchObject({ id: "456" });
     expect((await invoke("create_item", args)).isError).toBe(true);
     expect(writes()).toHaveLength(1);
     expect(writes()[0].body?.arguments).toEqual({
-      board_id: "123", group_id: "incoming", item_name: "Edited name",
+      board_id: "123", group_id: "planned", item_name: "Edited name",
       column_values: JSON.stringify({ status: { label: "Done" }, date_1: { date: "2025-09-17" },
         owner: { personsAndTeams: [{ id: 8, kind: "person" }] }, score: 0 }),
     });
@@ -962,8 +971,7 @@ describe("Monday create item confirmation", () => {
     expect(revised).toMatchObject({
       group_id: "intake",
       preview: {
-        board: "Operations", groups: [{ id: "intake", label: "Intake" }],
-        columns: [{ label: "Deadline", value: "Sep 18, 2025" }],
+        board: "Operations", group: "Intake", column_summary: "Deadline: Sep 18, 2025",
       },
     });
     expect((await invoke("create_item", revised)).body.id).toBe("456");
@@ -975,7 +983,7 @@ describe("Monday create item confirmation", () => {
       userPages: { 1: [{ id: "8", name: "Sam Rivera" }, { id: "9", name: "Sam Roe" }] },
     });
     const args = await createArguments({ column_values: { text: null } });
-    expect(args).toMatchObject({ group_id: "incoming", preview: { board: "Roadmap", columns: [] } });
+    expect(args).toMatchObject({ group_id: "incoming", preview: { board: "Roadmap", group: "Incoming" } });
     const status = await invoke("prepare_create_item", { board_id: 123, item_name: "Test", column_values: { Stage: "done" } });
     expect(status.body.error).toContain("Available labels: Done");
     const owner = await invoke("prepare_create_item", { board_id: 123, item_name: "Test", column_values: { Owner: "Sam" } });
@@ -1004,7 +1012,7 @@ describe("Monday create board confirmation", () => {
       replaces_draft_id: fresh.body.pending_board.draft_id, board_name: "New board",
     });
     expect(named.body.create_board_arguments).toMatchObject({
-      board_name: "New board", board_kind: "public", description: "", workspace_choice: "default",
+      board_name: "New board", board_kind: "public", description: "", workspace: "Default workspace",
     });
     expect(boardWrites()).toHaveLength(0);
   });
@@ -1022,7 +1030,7 @@ describe("Monday create board confirmation", () => {
       replaces_draft_id: visibility.body.pending_board.draft_id, board_name: "Integrations roadmap",
     });
     expect(named.body.create_board_arguments).toMatchObject({
-      board_name: "Integrations roadmap", description: "integrations", board_kind: "private", workspace_choice: "default",
+      board_name: "Integrations roadmap", description: "integrations", board_kind: "private", workspace: "Default workspace",
     });
     expect(boardWrites()).toHaveLength(0);
   });
@@ -1082,8 +1090,7 @@ describe("Monday create board confirmation", () => {
     scenario({ toolDataByAction: { MONDAY_CREATE_BOARD: { create_board: { id: "987" } } } });
     const args = await prepareBoardArguments();
     expect(args).toMatchObject({
-      board_name: "Test board", board_kind: "public", description: "", workspace_choice: "default",
-      workspace_choices: [{ value: "default", label: "Default workspace" }],
+      board_name: "Test board", board_kind: "public", description: "", workspace: "Default workspace",
     });
     expect(boardWrites()).toHaveLength(0);
     const results = await Promise.all([invoke("create_board", args), invoke("create_board", args)]);
@@ -1102,18 +1109,15 @@ describe("Monday create board confirmation", () => {
     });
     const args = await prepareBoardArguments({ workspace: "design", board_kind: "private", description: "Initial" });
     expect(args.board_kind).toBe("private");
-    expect(args.workspace_choices.find((choice: { value: string }) => choice.value === args.workspace_choice)?.label).toBe("Design");
-    expect(args.workspace_choices.some((choice: { label: string }) => choice.label === "Old")).toBe(false);
-    const engineering = args.workspace_choices.find((choice: { label: string }) => choice.label === "Engineering");
-    expect((await invoke("create_board", { ...args, workspace_choice: "456" })).isError).toBe(true);
-    expect((await invoke("create_board", { ...args, workspace_choices: [] })).isError).toBe(true);
+    expect(args.workspace).toBe("Design");
+    expect((await invoke("create_board", { ...args, workspace: "Engineering" })).isError).toBe(true);
     expect(boardWrites()).toHaveLength(0);
     const result = await invoke("create_board", {
-      ...args, board_name: "Updated board", board_kind: "share", description: "Updated description", workspace_choice: engineering.value,
+      ...args, board_name: "Updated board", board_kind: "share", description: "Updated description",
     });
     expect(result.body.id).toBe("987");
     expect(boardWrites()[0].body?.arguments).toEqual({
-      board_name: "Updated board", board_kind: "share", description: "Updated description", workspace_id: 456,
+      board_name: "Updated board", board_kind: "share", description: "Updated description", workspace_id: 123,
     });
   });
 
@@ -1134,7 +1138,7 @@ describe("Monday create board confirmation", () => {
       replaces_draft_id: result.body.pending_board.draft_id, workspace: null,
     });
     expect(resolved.body.create_board_arguments).toMatchObject({
-      board_name: "Test board", board_kind: "private", workspace_choice: "default",
+      board_name: "Test board", board_kind: "private", workspace: "Default workspace",
     });
     expect(boardWrites()).toHaveLength(0);
   });
@@ -1145,7 +1149,7 @@ describe("Monday create board confirmation", () => {
       MONDAY_CREATE_BOARD: { create_board: { id: "987" } },
     } });
     const args = await prepareBoardArguments();
-    expect(args.workspace_choice).toBe("default");
+    expect(args.workspace).toBe("Default workspace");
     expect(args.workspace_notice).toContain("unavailable");
     expect((await invoke("prepare_create_board", { board_name: "Test board", workspace: "Design" })).isError).toBe(true);
     expect((await invoke("create_board", args)).body.id).toBe("987");
@@ -1162,7 +1166,7 @@ describe("Monday create board confirmation", () => {
     const retry = result.body.retry_create_board_arguments;
     expect(retry).toMatchObject({
       board_name: "Edited board", board_kind: "private", description: "Edited description",
-      workspace_choice: args.workspace_choice, workspace_choices: args.workspace_choices,
+      workspace: args.workspace,
       submission_error: result.body.error,
     });
     expect(retry.draft_id).not.toBe(args.draft_id);
@@ -1204,7 +1208,7 @@ describe("Monday create board confirmation", () => {
       replaces_draft_id: initial.draft_id, follow_up_item_name: "study",
     });
     const args = revised.body.create_board_arguments;
-    expect(args).toMatchObject({ board_name: "Integrations", board_kind: "public", description: "", workspace_choice: "default" });
+    expect(args).toMatchObject({ board_name: "Integrations", board_kind: "public", description: "", workspace: "Default workspace" });
     expect((await invoke("create_board", initial)).isError).toBe(true);
     const board = await invoke("create_board", args);
     const followUp = "Preparing the item confirmation…";
@@ -1229,7 +1233,8 @@ describe("Monday create board confirmation", () => {
     expect((await invoke("create_item", retried.body.create_item_arguments)).body.id).toBe("654");
     expect(boardWrites()).toHaveLength(1);
     const reads = events().filter(event => event.path?.endsWith("/execute/MONDAY_BOARDS"));
-    expect(reads.map(event => event.body?.arguments)).toEqual([{ ids: [987], state: "active", limit: 1, page: 1 }]);
+    expect(reads.filter(event => event.body?.arguments?.ids).map(event => event.body?.arguments))
+      .toEqual([{ ids: [987], state: "active", limit: 1, page: 1 }]);
     expect(events().find(event => event.path?.endsWith("/execute/MONDAY_CREATE_ITEM"))?.body?.arguments)
       .toEqual({ board_id: "987", group_id: "topics", item_name: "study" });
   });
@@ -1631,17 +1636,24 @@ describe("Monday create group confirmation", () => {
   }
 
   test.each([
-    ["bottom", "before_at", null],
-    ["top", "after_at", null],
-    ["before:planned", "before_at", "planned"],
-    ["after:incoming", "after_at", "incoming"],
-  ])("creates one group at %s with the confirmed name and position", async (position, method, relativeTo) => {
+    ["bottom", "before_at", null, undefined],
+    ["top", "after_at", null, undefined],
+    ["before:planned", "before_at", "planned", { placement: "before", reference_group: "Planned" }],
+    ["after:incoming", "after_at", "incoming", { placement: "after", reference_group: "Incoming" }],
+  ])("creates one group at %s with the confirmed name and position", async (position, method, relativeTo, requestedPosition) => {
     configure();
-    const prepared = await invoke("prepare_create_group", { board_name: "Road", group_name: "Draft name" });
+    const prepared = await invoke("prepare_create_group", {
+      board_name: "Road", group_name: "Draft name", position: requestedPosition,
+    });
     expect(prepared.isError).toBe(false);
     const args = prepared.body.create_group_arguments;
-    expect(args).toMatchObject({ position: "bottom", preview: { board: "Roadmap" } });
-    expect(args.preview.positions.map((choice: { label: string }) => choice.label)).not.toContain("After Old");
+    expect(args).toMatchObject({ position: requestedPosition ? position : "bottom", preview: { board: "Roadmap" } });
+    if (requestedPosition) {
+      expect(args.preview.position_label).toMatch(/^(Before Planned|After Incoming)$/);
+      expect((await invoke("create_group", { ...args, position: "top" })).isError).toBe(true);
+    } else {
+      expect(args.preview.edit_position).toBe(true);
+    }
     expect(writes()).toHaveLength(0);
     const approved = { ...args, group_name: "QA", position };
     const created = await invoke("create_group", approved);
@@ -1682,8 +1694,12 @@ describe("Monday create group confirmation", () => {
     const { body } = await invoke("prepare_create_group", { board_id: 123, group_name: "QA" });
     const args = body.create_group_arguments;
     expect((await invoke("create_group", { ...args, position: "before:other-board" })).isError).toBe(true);
+    expect((await invoke("create_group", { ...args, position: "after:planned" })).isError).toBe(true);
+    const relative = await invoke("prepare_create_group", {
+      board_id: 123, group_name: "QA", position: { placement: "after", reference_group: "Planned" },
+    });
     configure({ proxyDestination: { ...board, groups: [] } });
-    const changed = await invoke("create_group", { ...args, position: "after:planned" });
+    const changed = await invoke("create_group", relative.body.create_group_arguments);
     expect(changed.body.error).toContain("changed after review");
     expect(writes()).toHaveLength(0);
   });
@@ -1712,19 +1728,17 @@ describe("Monday archive board confirmation", () => {
     });
   }
 
-  test("archives the board chosen on the card once, including a choice from a later page", async () => {
+  test("archives the prepared board once, including a board from a later page", async () => {
     configure({ boardPages: { 1: [roadmap, ...Array.from({ length: 99 }, (_, i) =>
       ({ id: String(1000 + i), name: `Board ${i}` }))], 2: [launch, archived] } });
-    const { body } = await invoke("prepare_archive_board", { board_name: "Road" });
-    const args = body.archive_board_arguments;
-    expect(args.board_choice).toBe(roadmap.id);
-    expect(args.board_choices).toContainEqual({ value: launch.id, label: "Launch — Marketing" });
-    expect(args.board_choices).not.toContainEqual({ value: archived.id, label: "Old" });
+    const { body } = await invoke("prepare_archive_board", { board_name: "Launch" });
+    const approval = body.archive_board_arguments;
+    expect(approval).toMatchObject({ board_choice: launch.id, board_label: "Launch — Marketing" });
     expect(writes()).toHaveLength(0);
 
-    expect((await invoke("archive_board", { ...args, board_choice: "789" })).isError).toBe(true);
-    expect((await invoke("archive_board", { ...args, board_choices: [] })).isError).toBe(true);
-    const approval = { ...args, board_choice: launch.id };
+    expect((await invoke("archive_board", { ...approval, board_choice: roadmap.id })).isError).toBe(true);
+    expect((await invoke("archive_board", { ...approval, board_label: "Roadmap" })).isError).toBe(true);
+    expect(writes()).toHaveLength(0);
     const results = await Promise.all([invoke("archive_board", approval), invoke("archive_board", approval)]);
     expect(results.filter(result => result.isError)).toHaveLength(1);
     expect(results.find(result => !result.isError)?.body).toMatchObject({
@@ -1806,16 +1820,34 @@ describe("Monday delete board confirmation", () => {
     scenario({ boardPages: { 1: [roadmap, testing] }, proxyDeletedBoard: { id: testing.id }, ...overrides });
   }
 
-  test("deletes the board selected at approval and rejects duplicate approval", async () => {
+  test("prepares a deletion when the supplied name and ID identify the same board", async () => {
+    configure({ boardPages: { 1: [{ ...roadmap, name: "CS173" }, { ...testing, name: "CS173" }] } });
+    const prepared = await invoke("prepare_delete_board", { board_name: "cs173", board_id: Number(roadmap.id) });
+    expect(prepared.isError).toBe(false);
+    expect(prepared.body.delete_board_arguments).toMatchObject({
+      board_choice: roadmap.id, board_label: "CS173 — Product",
+    });
+    expect(writes()).toHaveLength(0);
+  });
+
+  test("asks which board to delete when the supplied name and ID conflict", async () => {
     configure();
-    const prepared = await invoke("prepare_delete_board", { board_name: "Roadmap" });
-    const args = prepared.body.delete_board_arguments;
-    expect(args.board_choice).toBe(roadmap.id);
-    expect(args.board_choices).toContainEqual({ value: testing.id, label: "Testing — Engineering" });
+    const prepared = await invoke("prepare_delete_board", { board_name: "Roadmap", board_id: Number(testing.id) });
+    expect(prepared.isError).toBe(false);
+    expect(prepared.body.question).toContain("Which board should I delete?");
+    expect(prepared.body.delete_board_arguments).toBeUndefined();
+    expect(writes()).toHaveLength(0);
+  });
+
+  test("deletes the prepared board and rejects duplicate approval", async () => {
+    configure();
+    const prepared = await invoke("prepare_delete_board", { board_name: "Testing" });
+    const approval = prepared.body.delete_board_arguments;
+    expect(approval).toMatchObject({ board_choice: testing.id, board_label: "Testing — Engineering" });
     expect(writes()).toHaveLength(0);
 
-    expect((await invoke("delete_board", { ...args, board_choice: "789" })).isError).toBe(true);
-    const approval = { ...args, board_choice: testing.id };
+    expect((await invoke("delete_board", { ...approval, board_choice: roadmap.id })).isError).toBe(true);
+    expect(writes()).toHaveLength(0);
     const results = await Promise.all([invoke("delete_board", approval), invoke("delete_board", approval)]);
     expect(results.filter(result => result.isError)).toHaveLength(1);
     expect(results.find(result => !result.isError)?.body).toMatchObject({
@@ -1908,6 +1940,7 @@ describe("Monday board membership", () => {
       people: [{ name: alex.name, email: alex.email, role: "subscriber" }, { name: jamie.name, email: jamie.email, role: "owner" }],
       warnings: ["Board owners have full control of this board."],
     });
+    expect(args.self_removal_warning).toBeUndefined();
     expect(writes()).toEqual([]);
     const forged = { ...args, warnings: [] };
     expect((await invoke("manage_users", forged)).isError).toBe(true);
@@ -1924,15 +1957,42 @@ describe("Monday board membership", () => {
     expect(notifications).toEqual([]);
   });
 
-  test("warns for self-removal and sends only the reviewed subscriber ID", async () => {
+  test.each(["me", subscriber.email])("warns before removing %s and sends only the reviewed subscriber ID", async person => {
     configure({ MONDAY_DELETE_SUBSCRIBERS_FROM_BOARD: { data: { delete_subscribers_from_board: [subscriber] } } });
-    const args = (await invoke("prepare_manage_users", removeSelf)).body.manage_users_arguments;
-    expect(args.warnings).toEqual(["Removing yourself may cause you to lose access to this board."]);
+    const args = (await invoke("prepare_manage_users", { ...removeSelf, people: [{ person }] })).body.manage_users_arguments;
+    expect(args.self_removal_warning).toContain("need a new invitation to rejoin");
     expect(args.people).toEqual([{ name: subscriber.name, email: subscriber.email, role: "subscriber" }]);
     expect(writes()).toEqual([]);
     expect((await invoke("manage_users", args)).body.message).toContain("Removed Alex West");
     expect(writes()[0].body?.arguments).toEqual({ board_id: 123, user_ids: [9] });
     expect(notifications).toEqual([]);
+  });
+
+  test("tells the connected board owner how to leave without opening a confirmation", async () => {
+    configure({ MONDAY_GET_ME: { data: { me: owner } } });
+    const result = await invoke("prepare_manage_users", removeSelf);
+    expect(result.body).toMatchObject({
+      status: "Request blocked",
+      message: expect.stringContaining("You can’t remove yourself from a board you own."),
+      _voiceos_glance: { blocks: [
+        { type: "header", title: "You can’t remove yourself from a board you own" },
+        { type: "widget", label: "You own this board", html: expect.stringContaining("Assign another owner in Monday.com") },
+      ] },
+    });
+    expect(result.body._voiceos_glance.blocks[0]).not.toHaveProperty("trailing");
+    expect(result.body.manage_users_arguments).toBeUndefined();
+    expect(writes()).toEqual([]);
+  });
+
+  test("returns no change for self-removal without a direct subscription", async () => {
+    configure({ MONDAY_GET_ME: { data: { me: alex } } });
+    const result = await invoke("prepare_manage_users", removeSelf);
+    expect(result.body).toMatchObject({
+      status: "No changes",
+      message: "None of the selected people are direct subscribers.",
+    });
+    expect(result.body.manage_users_arguments).toBeUndefined();
+    expect(writes()).toEqual([]);
   });
 
   test("rejects owner removal and stale membership confirmations", async () => {

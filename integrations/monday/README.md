@@ -1,4 +1,4 @@
-# Monday.com integration — 0.1.3
+# Monday.com integration — 0.1.4
 
 ## Platform and setup
 
@@ -41,10 +41,13 @@ browser authorization, `connection_status` checks the connection, and
 
 ## Confirmation cards
 
-Connect and Disconnect use native cards with a Cancel/action footer. The ten
-Monday.com write tools use widgets with a VoiceOS-rendered confirmation button.
-Item, board, and group creation let you edit the name and review the destination
-or settings. Item updates show current and proposed values, including group moves.
+All write confirmation cards use native Cancel and action buttons. Item,
+board, and group creation let you edit the name and review the prepared
+target or settings. Board visibility and top/bottom group placement use fixed
+options. Choose the board, group, workspace, or relative position before the
+card opens. With Create item pending, ask to change the board or group to get a
+fresh confirmation for the same item. For other cards, cancel and make a new
+request. Item updates show current and proposed values, including group moves.
 Update deletion previews the text before permanent removal. Board deletion shows
 which board will move to Trash. Membership changes show each person’s role and
 warn about ownership changes or self-removal. Read-only lookups never ask for
