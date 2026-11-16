@@ -1,0 +1,103 @@
+{
+  "version": "20261101_00",
+  "inputSchema": {
+    "type": "object",
+    "title": "UpdateItemRequest",
+    "required": [
+      "board_id",
+      "item_id",
+      "column_id",
+      "value"
+    ],
+    "properties": {
+      "value": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "integer"
+          },
+          {
+            "type": "number"
+          },
+          {
+            "type": "boolean"
+          },
+          {
+            "type": "object",
+            "additionalProperties": true
+          },
+          {
+            "type": "array",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              ]
+            }
+          }
+        ],
+        "title": "Value",
+        "examples": [
+          {
+            "index": 1
+          },
+          "Sample text",
+          "3.14"
+        ],
+        "description": "New column value as a JSON-serializable object or string. This will be stringified for the GraphQL mutation. For text/number/name columns, send a plain string; for complex columns like status/timeline/people, send a JSON object (e.g., {\"index\": 1})."
+      },
+      "item_id": {
+        "type": "string",
+        "title": "Item Id",
+        "examples": [
+          "987654321"
+        ],
+        "description": "ID of the item to update."
+      },
+      "board_id": {
+        "type": "string",
+        "title": "Board Id",
+        "examples": [
+          "123456789"
+        ],
+        "description": "ID of the board containing the item."
+      },
+      "column_id": {
+        "type": "string",
+        "title": "Column Id",
+        "examples": [
+          "status_1",
+          "date_2"
+        ],
+        "description": "The unique identifier of the column to change."
+      },
+      "create_labels_if_missing": {
+        "type": "boolean",
+        "title": "Create Labels If Missing",
+        "default": false,
+        "examples": [
+          true,
+          false
+        ],
+        "description": "If true, creates missing labels for Status/Dropdown columns when the label does not exist. Requires permission to change board structure."
+      }
+    },
+    "description": "Request model for updating an existing item's column value on Monday.com."
+  }
+}

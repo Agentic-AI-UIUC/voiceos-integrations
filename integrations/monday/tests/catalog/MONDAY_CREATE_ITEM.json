@@ -1,0 +1,47 @@
+{
+  "version": "20261101_00",
+  "inputSchema": {
+    "type": "object",
+    "title": "CreateItemRequest",
+    "required": [
+      "board_id",
+      "item_name"
+    ],
+    "properties": {
+      "board_id": {
+        "type": "string",
+        "title": "Board Id",
+        "examples": [
+          "1234567890",
+          "9876543210"
+        ],
+        "description": "The board's unique identifier. Note: Subitems boards are not supported for this action; use create_subitem mutation instead."
+      },
+      "group_id": {
+        "type": "string",
+        "title": "Group Id",
+        "description": "Optional group ID where the item will be created."
+      },
+      "item_name": {
+        "type": "string",
+        "title": "Item Name",
+        "maxLength": 256,
+        "description": "Name of the new item. Maximum length is 256 characters."
+      },
+      "column_values": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "object",
+            "additionalProperties": true
+          }
+        ],
+        "title": "Column Values",
+        "description": "Column values for the new item. Accepts either a JSON string or an object/dict. Keys must be valid column IDs and values must match the column type. For date columns, use nested structure: {\"date\": {\"date\": \"YYYY-MM-DD\"}}. For people columns, use array of person IDs: {\"person\": {\"personsAndTeams\": [{\"id\": 123, \"kind\": \"person\"}]}}. For status columns, use index or label: {\"status\": {\"index\": 0}} or {\"status\": {\"label\": \"Done\"}}. Example: {\"date\": {\"date\": \"2023-12-01\"}} or {\"status\": {\"index\": 0}}."
+      }
+    },
+    "description": "Request model for creating a new item in Monday.com."
+  }
+}
