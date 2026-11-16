@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "com.voiceos.generated.microsoft-excel",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "name": "Microsoft Excel",
   "summary": "View workbooks, read and update cell ranges, manage worksheets, append table rows, and create charts via Composio.",
   "description": "Access Microsoft 365 Excel spreadsheets stored in OneDrive or SharePoint Online using Composio-managed OAuth. Inspect workbook metadata, list and manage worksheets, read and update cell ranges, append data to tables, and generate charts.",
@@ -462,13 +462,13 @@
     {
       "name": "excel_update_range",
       "title": "Update cell range",
-      "description": "Write or update cell values in an Excel worksheet range (e.g. 'A1:B2', 'Sheet1!A1:B2', or ''VoiceOS QA'!A1:B2'). Use when the user asks to write numbers, set values, or update cells in a sheet. Before confirming, resolve the default workbook with Get workbook and include its returned ID so the user sees the destination. Cancel runs no action.",
+      "description": "Write or update Excel cell values. Use when the user asks to write numbers, set values, or update cells in a sheet. When preparing a confirmation, put only the A1 cell address (e.g. A1:B4) in range and put the worksheet name in worksheet_name. Do not include the sheet name in range; the full cell address must remain visible.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "range": {
             "type": "string",
-            "description": "Target cell range address (e.g. 'A1:B2', 'Sheet1!A1:B2', or ''VoiceOS QA'!A1:B2')."
+            "description": "When preparing a confirmation, put only the A1 cell address (e.g. A1:B4) in range and put the worksheet name in worksheet_name. Do not include the sheet name in range; the full cell address must remain visible."
           },
           "values": {
             "type": "array",
@@ -476,7 +476,7 @@
           },
           "worksheet_name": {
             "type": "string",
-            "description": "Optional worksheet name if not prefixed in range address."
+            "description": "Worksheet name or ID. Supply the sheet here, separately from the A1 address in range."
           },
           "workbook_id": {
             "type": "string",
@@ -693,13 +693,13 @@
     {
       "name": "excel_create_chart",
       "title": "Create chart",
-      "description": "Create an Excel chart (e.g. ColumnClustered, Line, Pie) from a range of cell data via Composio. Use when the user asks to create, insert, or plot a chart or graph. Before confirming, resolve the default workbook with Get workbook and include its returned ID so the user sees the destination. Cancel runs no action.",
+      "description": "Create an Excel chart from worksheet cells. Use when the user asks to create, insert, or plot a chart or graph. When preparing a confirmation, put only the A1 cell address (e.g. A1:B4) in range and put the worksheet name in worksheet_name. Do not include the sheet name in range; the full cell address must remain visible.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "range": {
             "type": "string",
-            "description": "Source cell range for chart data (e.g. 'A1:C5', 'Sheet1!A1:D10', or ''VoiceOS QA'!A1:B4')."
+            "description": "When preparing a confirmation, put only the A1 cell address (e.g. A1:B4) in range and put the worksheet name in worksheet_name. Do not include the sheet name in range; the full cell address must remain visible."
           },
           "chart_type": {
             "type": "string",
@@ -709,13 +709,9 @@
             "type": "string",
             "description": "Series arrangement: 'Columns', 'Rows', or 'Auto'. Defaults to 'Auto'."
           },
-          "title": {
-            "type": "string",
-            "description": "Optional title for the chart."
-          },
           "worksheet_name": {
             "type": "string",
-            "description": "Worksheet where chart will be created."
+            "description": "Worksheet name or ID. Supply the sheet here, separately from the A1 address in range."
           },
           "workbook_id": {
             "type": "string",

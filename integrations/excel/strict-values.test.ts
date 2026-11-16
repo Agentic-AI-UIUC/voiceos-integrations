@@ -1,0 +1,6 @@
+import {test,expect} from 'bun:test';
+import {parse2DArray} from './server.ts';
+import {readFileSync} from 'node:fs';
+for(const value of ['[[123]','[123,]',' [ [1] ', '{}','null','123','"text"','', '   ', [], [[]]])test('reject unsafe matrix '+JSON.stringify(value),()=>expect(()=>parse2DArray(value)).toThrow());
+test('valid JSON arrays preserve scalar types and CSV remains supported',()=>{expect(parse2DArray('[[123,null,true,"comma,text"]]')).toEqual([[123,null,true,'comma,text']]);expect(parse2DArray('Laptop,2\nMouse,5')).toEqual([['Laptop','2'],['Mouse','5']]);});
+test('range confirmation routing uses address-only range and separate worksheet in both registries',()=>{const manifest=JSON.parse(readFileSync(new URL('./voiceos.integration.json',import.meta.url),'utf8')),source=readFileSync(new URL('./server.ts',import.meta.url),'utf8');for(const name of ['excel_update_range','excel_create_chart']){const t=manifest.tools.find((t:any)=>t.name===name);expect(t.description).toContain('put only the A1 cell address');expect(t.inputSchema.properties.range.description).toContain('put the worksheet name in worksheet_name');const start=source.indexOf('  "'+name+'",'),end=source.indexOf('  async (args: any)',start);expect(source.slice(start,end)).toContain(t.inputSchema.properties.range.description);}});

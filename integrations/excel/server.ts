@@ -13,10 +13,10 @@ export function renderCustom(options: Parameters<typeof renderBaseCustom>[0]) {
   return card;
 }
 
-const server = new McpServer({ name: "microsoft-excel", version: "1.0.5" });
+const server = new McpServer({ name: "microsoft-excel", version: "1.0.6" });
 const ACCENT = "#107c41"; // Microsoft Excel brand green
 const COMPOSIO_BASE_URL = "https://backend.composio.dev";
-const BUILD_ID = "excel-qa-v11-compact-confirmations";
+const BUILD_ID = "excel-review-v12-strict-values";
 
 export const APPROVED_COMPOSIO_ACTIONS = {
   excel_get_workbook: "EXCEL_GET_WORKBOOK",
@@ -195,20 +195,21 @@ export function parseSheetAndAddress(
 }
 
 export function parse2DArray(input: any): any[][] {
-  if (Array.isArray(input)) {
-    return input.map((item) => (Array.isArray(item) ? item : [item]));
-  }
+  let parsed: any = input;
   if (typeof input === "string") {
+    const text = input.trim();
+    if (!text) throw new Error("Cell values must contain at least one nonempty row. No write attempted.");
     try {
-      const parsed = JSON.parse(input);
-      if (Array.isArray(parsed)) {
-        return parsed.map((item) => (Array.isArray(item) ? item : [item]));
-      }
+      parsed = JSON.parse(text);
     } catch {
-      return input.split("\n").filter(Boolean).map((line: string) => line.split(",").map((c: string) => c.trim()));
+      if (text.startsWith("[") || text.startsWith("{")) throw new Error("Malformed JSON cell values. Use a valid array of rows, e.g. [[123]]. No write attempted.");
+      parsed = text.split("\n").filter(line => line.trim()).map(line => line.split(",").map(cell => cell.trim()));
     }
   }
-  return [];
+  if (!Array.isArray(parsed)) throw new Error("Cell values must be an array of rows. No write attempted.");
+  const matrix = parsed.map(item => Array.isArray(item) ? item : [item]);
+  if (!matrix.length || matrix.some(row => !row.length)) throw new Error("Cell values must contain at least one nonempty row. No write attempted.");
+  return matrix;
 }
 
 /**
@@ -754,7 +755,6 @@ export function prepareChartActionArgs(
   const { sheet, address } = parseSheetAndAddress(rawRange, inputArgs?.worksheet_name);
 
   const chartType = String(inputArgs?.chart_type || inputArgs?.type || "ColumnClustered").trim();
-  const chartTitle = inputArgs?.title ? String(inputArgs.title).trim() : "Excel Chart";
 
   let acceptedSeries = SUPPORTED_SERIES_BY;
   let defaultSeries = "Auto";
@@ -795,7 +795,6 @@ export function prepareChartActionArgs(
     chart_type: chartType,
     seriesby: resolvedSeriesBy,
     series_by: resolvedSeriesBy,
-    title: chartTitle,
   };
 
   if (sheet) {
@@ -1960,11 +1959,11 @@ server.registerTool(
   "excel_update_range",
   {
     title: "Update cell range",
-    description: "Write or update cell values in an Excel worksheet range (e.g. 'A1:B2', 'Sheet1!A1:B2', or ''VoiceOS QA'!A1:B2'). Use when the user asks to write numbers, set values, or update cells in a sheet.",
+    description: "Write or update Excel cell values. Use when the user asks to write numbers, set values, or update cells in a sheet. When preparing a confirmation, put only the A1 cell address (e.g. A1:B4) in range and put the worksheet name in worksheet_name. Do not include the sheet name in range; the full cell address must remain visible.",
     inputSchema: {
-      range: z.string().describe("Target cell range address (e.g. 'A1:B2', 'Sheet1!A1:B2', or ''VoiceOS QA'!A1:B2')."),
+      range: z.string().describe("When preparing a confirmation, put only the A1 cell address (e.g. A1:B4) in range and put the worksheet name in worksheet_name. Do not include the sheet name in range; the full cell address must remain visible."),
       values: z.union([z.array(z.array(z.any())), z.string()]).describe("2D array of values or rows of cell values to update."),
-      worksheet_name: z.string().optional().describe("Optional worksheet name if not prefixed in range address."),
+      worksheet_name: z.string().optional().describe("Worksheet name or ID. Supply the sheet here, separately from the A1 address in range."),
       workbook_id: z.string().optional().describe("OneDrive or SharePoint driveItem ID of the Excel workbook. Blank or omitted uses DEFAULT_WORKBOOK_ID in Setup. Resolve it with Get workbook and include the returned ID when preparing a write confirmation."),
       drive_id: z.string().optional().describe("Drive containing the workbook."),
     } as any,
@@ -2145,13 +2144,12 @@ server.registerTool(
   "excel_create_chart",
   {
     title: "Create chart",
-    description: "Create an Excel chart (e.g. ColumnClustered, Line, Pie) from a range of cell data via Composio. Use when the user asks to create, insert, or plot a chart or graph.",
+    description: "Create an Excel chart from worksheet cells. Use when the user asks to create, insert, or plot a chart or graph. When preparing a confirmation, put only the A1 cell address (e.g. A1:B4) in range and put the worksheet name in worksheet_name. Do not include the sheet name in range; the full cell address must remain visible.",
     inputSchema: {
-      range: z.string().describe("Source cell range for chart data (e.g. 'A1:C5', 'Sheet1!A1:D10', or ''VoiceOS QA'!A1:B4')."),
+      range: z.string().describe("When preparing a confirmation, put only the A1 cell address (e.g. A1:B4) in range and put the worksheet name in worksheet_name. Do not include the sheet name in range; the full cell address must remain visible."),
       chart_type: z.string().describe("Chart type: 'ColumnClustered', 'Line', 'Pie', 'BarClustered', etc."),
       series_by: z.string().optional().describe("Series arrangement: 'Columns', 'Rows', or 'Auto'. Defaults to 'Auto'."),
-      title: z.string().optional().describe("Optional title for the chart."),
-      worksheet_name: z.string().optional().describe("Worksheet where chart will be created."),
+      worksheet_name: z.string().optional().describe("Worksheet name or ID. Supply the sheet here, separately from the A1 address in range."),
       workbook_id: z.string().optional().describe("OneDrive or SharePoint driveItem ID of the Excel workbook. Blank or omitted uses DEFAULT_WORKBOOK_ID in Setup. Resolve it with Get workbook and include the returned ID when preparing a write confirmation."),
       drive_id: z.string().optional().describe("Drive containing the workbook."),
     } as any,
@@ -2160,7 +2158,6 @@ server.registerTool(
     const workbookId = resolveWorkbookId(args?.workbook_id);
     const range = String(args?.range || "").trim();
     const chartType = String(args?.chart_type || "ColumnClustered").trim();
-    const chartTitle = args?.title ? String(args.title).trim() : "Excel Chart";
 
     if (!workbookId) throw new Error("No workbook ID provided. Specify workbook_id or configure DEFAULT_WORKBOOK_ID in settings.");
     if (!range) throw new Error("Source range is required.");
@@ -2173,7 +2170,6 @@ server.registerTool(
         range,
         chart_type: chartType,
         series_by: args?.series_by,
-        title: chartTitle,
         worksheet_name: sheet,
         worksheet: sheet,
         worksheet_id: sheet,
@@ -2190,7 +2186,7 @@ server.registerTool(
           <div class="xl-hd">
             ${markHtml()}
             <div class="xl-meta">
-              <span class="xl-title">${esc(clip(chartTitle, 28))}</span>
+              <span class="xl-title">${esc(clip(String(data?.name || "Excel Chart"), 28))}</span>
               <span class="xl-sub">${esc(chartType)} · ${esc(clip(displayRange, 16))} · ${esc(resolvedSeries)}</span>
             </div>
             <span class="xl-pill good">Inserted</span>
@@ -2208,7 +2204,6 @@ server.registerTool(
           type: "text" as const,
           text: JSON.stringify({
             status: "chart_created",
-            title: chartTitle,
             chart_type: chartType,
             series_by: resolvedSeries,
             range: displayRange,

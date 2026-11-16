@@ -55,3 +55,7 @@ All six action targets are editable with labels above inputs. Related fields sha
 ## Live default-workbook and Cyrillic update verification
 
 [November 13 direct MCP run](docs/live-reproduction-2026-11-13/README.md) now verifies real provider execution on pinned SDK 0.28.0: omitted/blank workbook ID creation and chart calls succeed; quoted Cyrillic B2=123 writes and reads back. All three disposable test sheets were removed and original worksheet inventory restored. No app UI was controlled. This supersedes the earlier offline-only follow-up; historical Mac/provider-incident limits remain explicit.
+
+## Scoped 1.0.6 candidate
+
+[November 16 review fixes](docs/review-fixes-1.0.6.md): address-only confirmation routing, unsupported chart-title removal, strict JSON/empty-matrix rejection. Local version is 1.0.6; SDK remains 0.28.0. Share page now reports 1.0.6 and screenshots 07/17 are refreshed in docs/screenshots/2026-11-16. Author-run live evidence and remaining SDK packaging drift are documented in the linked report. Local suite: 227 pass, one explicit renderer-audit skip, zero failures. Historical evidence above remains separately labeled.
