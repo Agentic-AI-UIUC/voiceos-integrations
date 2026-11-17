@@ -1,0 +1,12 @@
+import {execFileSync} from 'node:child_process';
+import {copyFile,readFile,writeFile} from 'node:fs/promises';
+import {fileURLToPath} from 'node:url';
+const root=new URL('../',import.meta.url);
+for(const file of ['build-manifest.ts','build-portable.mjs','prepare-release.mjs'])execFileSync(process.execPath,[fileURLToPath(new URL('source/'+file,root))],{stdio:'inherit',windowsHide:true});
+for(const file of ['server.ts','voiceos.integration.json','studio-meta.json','icon.png','widgetKit.ts'])await copyFile(new URL('source/portable/'+file,root),new URL(file,root));
+const pkg=JSON.parse(await readFile(new URL('package.json',root),'utf8'));
+const release=JSON.parse(await readFile(new URL('source/portable/package.json',root),'utf8'));
+pkg.version=release.version;pkg.dependencies=release.dependencies;
+pkg.scripts.setup='node server.ts --setup';
+await writeFile(new URL('package.json',root),JSON.stringify(pkg,null,2)+'\n');
+console.log('Built portable integration '+pkg.version);

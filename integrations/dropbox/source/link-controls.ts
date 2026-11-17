@@ -1,0 +1,12 @@
+import {esc} from './widgetKit.ts';
+export function safeSharedUrl(value:unknown):string|undefined{
+ if(typeof value!=='string'||value.length>4096||/[\u0000-\u0020<>"`]/.test(value))return undefined;
+ try{const u=new URL(value);return u.protocol==='https:'&&!u.username&&!u.password&&!u.port&&['dropbox.com','www.dropbox.com'].includes(u.hostname)?value:undefined;}catch{return undefined;}
+}
+export function linkControls(value:unknown,index:number){
+ const url=safeSharedUrl(value);if(!url)return '<p class="db-detail db-link-warning">No safe shared link was returned. Inspect Dropbox before repeating the action.</p>';
+ const id='db-link-'+index;
+ return `<div class="db-link-actions"><div class="db-link-buttons"><a href="${esc(url)}" target="_blank" rel="noopener noreferrer">Open shared link</a><button type="button" data-db-copy="${id}">Copy link</button></div><details><summary>Show link</summary><input id="${id}" type="text" readonly aria-label="Shared link URL" value="${esc(url)}" spellcheck="false"></details><span class="db-link-status" role="status" aria-live="polite"></span></div>`;
+}
+export const LINK_CSS=`.db-link-buttons{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:8px}.db-link-buttons button{border:1px solid var(--line);border-radius:6px;background:var(--fill-2);color:var(--ink-1);padding:5px 9px;font:12px system-ui;cursor:pointer}.db-link-actions summary{margin-top:6px;font-size:11px;color:var(--ink-2);cursor:pointer}.db-link-actions input{box-sizing:border-box;width:100%;margin-top:5px;border:1px solid var(--line);border-radius:5px;background:var(--fill-1);color:var(--ink-1);padding:6px;font:11px ui-monospace,monospace}.db-link-status{display:block;font-size:11px;color:var(--ink-2);margin-top:4px}.db-link-warning{color:#d6a94a}`;
+export const LINK_JS=`document.querySelectorAll('[data-db-copy]').forEach(function(button){button.addEventListener('click',async function(){var row=button.closest('.db-link-actions'),input=document.getElementById(button.getAttribute('data-db-copy')),status=row.querySelector('.db-link-status');try{if(!navigator.clipboard||!navigator.clipboard.writeText)throw Error('Unavailable');await navigator.clipboard.writeText(input.value);status.textContent='Copied';}catch(e){row.querySelector('details').open=true;input.focus();input.select();status.textContent='Link selected. Use Copy from the context menu, or your system copy shortcut.';}});});`;

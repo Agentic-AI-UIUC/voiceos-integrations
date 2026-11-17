@@ -1,0 +1,7 @@
+node_modules/
+.env
+.env.*
+!.env.example
+connection.json
+catalog-snapshot.json
+source/portable-check-*/
