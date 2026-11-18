@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "description": "Development-only sample inputs for bun verify.ts and Studio previews. Read tools only: no write has a fixture, and verify.ts runs the writes against its local fake Composio.",
+  "tools": {
+    "get_user_stats": {
+      "args": {
+        "include_profile": true
+      },
+      "expectedGlanceBlocks": 1
+    },
+    "list_videos": {
+      "args": {
+        "max_count": 5
+      },
+      "expectedGlanceBlocks": 1
+    },
+    "query_videos": {
+      "args": {
+        "video_ids": [
+          "7438291034572910101"
+        ]
+      },
+      "expectedGlanceBlocks": 1
+    },
+    "fetch_publish_status": {
+      "args": {},
+      "expectedGlanceBlocks": 1
+    },
+    "find_recent_videos": {
+      "args": {
+        "limit": 5
+      },
+      "expectedGlanceBlocks": 1
+    }
+  }
+}
