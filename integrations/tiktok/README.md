@@ -8,11 +8,21 @@ Supports macOS and Windows. The [live gallery](screenshots/README.md) shows all 
 
 Once per team, you need:
 
-- a TikTok developer app with Login Kit, the Content Posting API (Direct Post on) and the Display API, and the scopes `user.info.basic`, `user.info.profile`, `user.info.stats`, `video.list`, `video.upload` and `video.publish`;
-- a custom TikTok auth config in Composio that uses that app;
-- your TikTok account connected in Composio (Connected accounts), with status ACTIVE.
+- a TikTok developer app with Login Kit, the Content Posting API (Direct Post on) and the Display API, and the scopes `user.info.basic`, `user.info.profile`, `user.info.stats`, `video.list`, `video.upload` and `video.publish`. Under Login Kit → Web, add the redirect URI `https://backend.composio.dev/api/v1/auth-apps/add`, then click **Apply changes**;
+- a custom TikTok auth config in Composio that uses that app. A Sandbox has its own client key (it starts with `sbaw`) and secret, separate from Production's: use the Sandbox's;
+- your TikTok account connected in Composio, with status ACTIVE (next section).
 
-In VoiceOS:
+### Connect your TikTok account
+
+Until TikTok approves the app, you test it in a Sandbox, and a Sandbox only authorizes the TikTok accounts on its **Target users** list (up to 10). Add your account there before you connect it, and do all three steps in the same browser.
+
+1. **Sign in on TikTok's website.** Open tiktok.com and sign in. **Use QR code**, scanned with the TikTok app, skips the password step. Check that your profile opens.
+2. **Add yourself as a target user.** In TikTok for Developers, open your app → **Sandbox** → **Target users** → **Add account** → **Continue**. If TikTok asks you to add your account, agree. If it shows a sign-in page instead, copy that page's address and decode the part after `redirect_url=` with any URL decoder ([TikTok's Sandbox guide](https://developers.tiktok.com/doc/add-a-sandbox/) lists one for this step). Open the result, a link starting with `https://www.tiktok.com/auth/tt4d?`, in the same browser, and agree. The list can take up to an hour to show the account, but you can connect right away.
+3. **Connect in Composio.** Open your TikTok auth config and click **Connect Account**. TikTok skips sign-in and shows its permissions screen: click **Authorize**. When the connection shows ACTIVE, copy its `ca_…` id. Keep Composio's callback identity verification off (Settings → General → Configuration): with it on, a connection started from the dashboard can't finish.
+
+**If TikTok keeps sending you back to "Log in to TikTok"**, close that window and do the three steps in order. Signing in partway through doesn't reliably bring you back to the page that asked, and a Sandbox only authorizes accounts that are already target users. If TikTok says "Maximum number of attempts reached", it has paused sign-ins for a while: try the QR code, or wait and try again later. A connection that stays INITIATED never finished; start a new one once you're a target user.
+
+### In VoiceOS
 
 1. Open Integrations → TikTok → Configure and fill in:
    - **Composio project API key**: composio.dev → Settings → Project Settings → API Keys. Use a project key, not a `ck_` or `uak_` key.
