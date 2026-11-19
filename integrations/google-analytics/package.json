@@ -1,6 +1,6 @@
 {
   "name": "google-analytics",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "private": true,
   "description": "Run GA4 analytics reports, realtime visitor counts, and property metadata via Composio.",
   "type": "module",
