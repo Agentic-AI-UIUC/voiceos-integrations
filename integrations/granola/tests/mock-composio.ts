@@ -27,6 +27,11 @@ export const IDS = {
   // Contains "401", and its error message repeats it: must not be read as a rejected token.
   noTranscript: "00000000-0000-4000-8401-000000000401",
   revoked: "55555555-5555-4555-8555-555555555555",
+  // Composio's own API refuses the call: a key missing Session tool execution, or a bad key.
+  keyForbidden: "66666666-6666-4666-8666-666666666666",
+  keyRejected: "77777777-7777-4777-8777-777777777777",
+  // The call fails and Composio marks the connection expired at the same time.
+  expiresDuringCall: "88888888-8888-4888-8888-888888888888",
   unknown: "99999999-9999-4999-8999-999999999999",
 };
 
@@ -120,6 +125,14 @@ const transcriptLines = ["Priya: Morning, everyone.", "Sam: The search bug is fi
 function transcript(id: string): Response {
   if (id === IDS.noTranscript) return failed(`Meeting ${IDS.noTranscript} has no transcript yet`);
   if (id === IDS.revoked) return failed("401 Unauthorized: the access token has been revoked");
+  if (id === IDS.keyForbidden) {
+    return respond({ error: { message: "API key does not have the required scope: tool_router:execute", status: 403 } }, 403);
+  }
+  if (id === IDS.keyRejected) return respond({ error: { message: "Unauthorized: invalid API key", status: 401 } }, 401);
+  if (id === IDS.expiresDuringCall) {
+    connection = "expired";
+    return failed("Connection is no longer active");
+  }
   const text = id === IDS.longTalk ? "Priya: " + "word ".repeat(9_000) : transcriptLines.join("\n\n");
   return completed({
     content_advisory: ADVISORY,

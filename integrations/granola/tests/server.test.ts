@@ -90,13 +90,10 @@ describe("manifest", () => {
     expect(manifest.tools.map((t: any) => t.name)).toEqual([...APPROVED_TOOLS, ...ACCOUNT_TOOLS]);
   });
 
-  test("allows only the Composio domain, plus the background and notify permissions connecting needs", () => {
-    expect(manifest.permissions).toEqual([
-      { kind: "network", domains: ["backend.composio.dev"] },
-      { kind: "background" },
-      { kind: "notify" },
-    ]);
-    expect(manifest.tools.find((t: any) => t.name === "connect_account").execution.mode).toBe("background");
+  // Background mode made VoiceOS on Mac show its generic "{}" confirmation for Connect (#69).
+  test("allows only the Composio domain and notifications, and runs no tool in the background", () => {
+    expect(manifest.permissions).toEqual([{ kind: "network", domains: ["backend.composio.dev"] }, { kind: "notify" }]);
+    for (const tool of manifest.tools) expect(tool.execution).toBeUndefined();
   });
 
   test("only the account tools can be called from a card", () => {
@@ -104,18 +101,21 @@ describe("manifest", () => {
     expect(callable).toEqual(ACCOUNT_TOOLS);
   });
 
-  // Widget cards, like Teams' send and reply cards. VoiceOS showed its generic "{}" box for the
-  // declarative card type.
-  test("only connect and disconnect confirm, each with a widget card and a confirm label", () => {
-    const labels: Record<string, string> = { connect_account: "Continue", disconnect_account: "Disconnect" };
+  // Plain cards with a Cancel and a confirm button, like Asana and Google Analytics (#33, #34).
+  test("only connect and disconnect confirm, each with a titled card, Cancel and a confirm button", () => {
+    const expected: Record<string, [string, string]> = {
+      connect_account: ["Connect your Granola account?", "Connect"],
+      disconnect_account: ["Disconnect Granola?", "Disconnect"],
+    };
     for (const tool of manifest.tools) {
       expect(Boolean(tool.confirmation)).toBe(CONFIRMED_TOOLS.includes(tool.name));
       if (!tool.confirmation) continue;
       const root = tool.confirmation.root;
-      expect(root.type).toBe("widget");
-      expect(root.confirmLabel).toBe(labels[tool.name]);
-      expect(root.html).toContain(tool.title);
-      expect(root.html).toContain("k-confirm");
+      const items = root.footer.flatMap((block: any) => block.items);
+      expect(root.type).toBe("card");
+      expect(root.title).toBe(expected[tool.name][0]);
+      expect(items.map((item: any) => item.role)).toEqual(["cancel", "confirm"]);
+      expect(items.map((item: any) => item.label)).toEqual(["Cancel", expected[tool.name][1]]);
     }
   });
 
@@ -266,12 +266,34 @@ describe("connected account", () => {
     expect(linkRequests(server).length).toBe(links);
   });
 
-  test("a token Granola rejects during a call asks the user to reconnect", async () => {
+  // #68: opening a new sign-in while Composio still shows the connection made a reconnect loop.
+  test("a token Granola rejects while Composio shows it connected says to disconnect first, without opening a sign-in", async () => {
     const links = linkRequests(server).length;
     const r = await run(server, "get_transcript", { meeting_id: IDS.revoked });
     expect(r.isError).toBe(true);
-    expect(r.body).toMatchObject({ error: SIGN_IN_EXPIRED, code: "CONNECTION_EXPIRED", reconnect_required: true });
-    expect(linkRequests(server).length).toBe(links + 1);
+    expect(r.body).toMatchObject({ code: "TOKEN_REJECTED", reconnect_required: true });
+    expect(r.body.error).toContain('"disconnect Granola"');
+    expect(r.body.detail).toContain("access token has been revoked");
+    expect(linkRequests(server).length).toBe(links);
+  });
+
+  test("a key missing Session tool execution is reported as a setup problem, not an expired sign-in", async () => {
+    const links = linkRequests(server).length;
+    const r = await run(server, "get_transcript", { meeting_id: IDS.keyForbidden });
+    expect(r.isError).toBe(true);
+    expect(r.body).toMatchObject({ code: "SETUP_MISSING", reconnect_required: false });
+    expect(r.body.error).toContain("Session tool execution");
+    expect(r.body.detail).toContain("tool_router:execute");
+    expect(r.html).toContain("Details:");
+    expect(linkRequests(server).length).toBe(links);
+  });
+
+  test("Composio rejecting the API key during a call is reported as a key problem, not an expired sign-in", async () => {
+    const links = linkRequests(server).length;
+    const r = await run(server, "get_transcript", { meeting_id: IDS.keyRejected });
+    expect(r.body).toMatchObject({ code: "SETUP_MISSING", reconnect_required: false });
+    expect(r.body.error).toContain("Composio rejected your API key");
+    expect(linkRequests(server).length).toBe(links);
   });
 
   test("search_meetings returns Granola's answer with its cited meetings, minus the note for other assistants", async () => {
@@ -568,6 +590,13 @@ describe("account tools", () => {
     expect(r.body.message).toBe("Granola is already disconnected.");
     expect(accountRequests(server, "DELETE")).toHaveLength(0);
     expect(accountRequests(server, "POST", "/revoke")).toHaveLength(0);
+  });
+
+  test("a connection that Composio marks expired during a call opens the sign-in once", async () => {
+    const server = await startWith({ MOCK_CONNECTION: "active" });
+    const r = await run(server, "get_transcript", { meeting_id: IDS.expiresDuringCall });
+    expect(r.body).toMatchObject({ error: SIGN_IN_EXPIRED, code: "CONNECTION_EXPIRED", reconnect_required: true });
+    expect(linkRequests(server)).toHaveLength(1);
   });
 
   test("after a disconnect, a Granola tool falls back to opening the sign-in", async () => {

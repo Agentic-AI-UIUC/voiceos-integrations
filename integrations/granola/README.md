@@ -28,7 +28,7 @@ These follow the merged Teams integration, because Integration Studio has no nat
 
 | Tool | Type | What it does |
 | --- | --- | --- |
-| `connect_account` | Confirms first, runs in the background | Opens the Granola sign-in in the browser and waits up to 2 minutes for it to finish. If Granola is already connected, it only checks that |
+| `connect_account` | Confirms first | Opens the Granola sign-in in the browser and waits up to 15 seconds for it to finish, which is enough when the browser is already signed in to Granola. Otherwise it says to finish signing in and refresh. If Granola is already connected, it only checks that |
 | `connection_status` | Read | Shows the account card: connected, expired, revoked or waiting for sign-in, with Connect or Disconnect and Refresh buttons. Never starts a sign-in |
 | `disconnect_account` | Confirms first | Revokes access where Composio supports it, then deletes this install's Granola connections for this auth config. Nothing in Granola changes |
 
@@ -52,10 +52,10 @@ The integration supports Mac and Windows. VoiceOS starts it with `run.sh` on Mac
 ## Sign-in, loading and errors
 
 - Before each call, the server asks the Composio session whether Granola is connected. If it isn't, it opens the sign-in and the agent says to connect or reconnect.
-- After a failed call, the server checks the connection again and only asks to reconnect if Composio shows it inactive, or if Granola's error says the token was rejected (`401`, `unauthorized`, `invalid_token` or `invalid_grant` as whole words). Granola's errors can contain meeting IDs, and an ID such as `…-8401-…` must not send the user to sign in again. A test covers this.
+- After a failed call, the server opens a new sign-in only if Composio shows the connection inactive. If Composio's own API refuses the call (HTTP 401 or 403), the error says the API key is wrong or missing a permission such as Session tool execution, instead of calling it an expired sign-in. If Composio shows the connection but Granola rejects the token (`401`, `unauthorized`, `invalid_token` or `invalid_grant` as whole words), the user is told to disconnect and connect again; opening another sign-in there would loop. Granola's errors can contain meeting IDs, and an ID such as `…-8401-…` isn't treated as a rejected token. Tests cover each case.
 - Composio refreshes tokens on its own. Granola's access tokens last 6 hours, and the `offline_access` scope gives Composio a refresh token.
 - Each tool sends a progress message while it works, such as "Searching your Granola meetings…". VoiceOS shows its own loading state as well.
-- Failures come back as an error card with a short, spoken-friendly message, an error `code` and a `reconnect_required` flag, so the agent knows when to offer to reconnect.
+- Failures come back as an error card with a short, spoken-friendly message, an error `code`, a `reconnect_required` flag so the agent knows when to offer to reconnect, and a `detail` with the underlying error text, which the card also shows.
 - Composio calls time out after 8 seconds and Granola reads after 15. Search gets 25, because Granola answers it with its own model, which took about 10 seconds in testing.
 - Network access is limited to `backend.composio.dev`. The SDK's version check and tracking are off: the version check prints to stdout, which corrupts the MCP channel, and tracking would call another host.
 
@@ -71,7 +71,7 @@ Composio publishes no response format for these tools, so the parsing is based o
 
 ## Testing
 
-`bun install && bun test` runs 47 offline tests. They start the real server over MCP with `tests/mock-composio.ts` preloaded. That file replaces `fetch` with a fake Composio that returns the formats above with made-up meetings, so no keys or network are needed. The tests cover:
+`bun install && bun test` runs 50 offline tests. They start the real server over MCP with `tests/mock-composio.ts` preloaded. That file replaces `fetch` with a fake Composio that returns the formats above with made-up meetings, so no keys or network are needed. The tests cover:
 
 - **The manifest:** exactly the four tools plus the account tools, Mac and Windows support, confirmations only on connect and disconnect, declared setup fields, the network allowlist, and matching descriptions and inputs between the server and the manifest.
 - **Opening the sign-in:** `open` on Mac and `rundll32` on Windows, using fake commands on PATH.
@@ -79,7 +79,7 @@ Composio publishes no response format for these tools, so the parsing is based o
 - **The loading message** each tool sends.
 - **The Composio session:** limited to the four tools, with one user ID per install and no calls to other hosts.
 - **The install's user ID:** saved in the home folder, never in the integration folder.
-- **Sign-in paths:** not connected, expired, a token rejected mid-call, a meeting ID containing `401`, and missing setup.
+- **Sign-in paths:** not connected, expired, a connection that expires during a call, a token Granola rejects while Composio shows it connected, a Composio key that's rejected or missing a permission, a meeting ID containing `401`, and missing setup.
 - **Connecting and disconnecting:** finished, unfinished and failed sign-in, duplicate connections, a key without write access, and Composio not confirming the disconnect.
 
 The test servers run from an empty temp folder, because Bun would otherwise load a local `.env` into them.
